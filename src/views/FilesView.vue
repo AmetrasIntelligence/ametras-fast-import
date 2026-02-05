@@ -1,0 +1,108 @@
+<script setup lang="ts">
+import { computed } from 'vue'
+import { useRouter } from 'vue-router'
+import { useFilesStore } from '@/stores/files'
+import { useConfigStore } from '@/stores/config'
+import { analyzeCSV } from '@/importer/csvParser'
+import { Button } from '@/ui'
+import FileDropZone from '@/components/FileDropZone.vue'
+import FileList from '@/components/FileList.vue'
+
+const router = useRouter()
+const filesStore = useFilesStore()
+const config = useConfigStore()
+
+const files = computed(() => {
+  const seq = config.importSequence
+  return filesStore.files
+    .slice()
+    .sort((a, b) => {
+      const ai = seq.indexOf(a.name)
+      const bi = seq.indexOf(b.name)
+      return (ai === -1 ? Infinity : ai) - (bi === -1 ? Infinity : bi)
+    })
+    .map(f => {
+      const analysis = filesStore.getAnalysis(f.id)
+      return {
+        ...f,
+        rowCount: analysis?.rowCount,
+        headers: analysis?.headers
+      }
+    })
+})
+
+async function selectFiles() {
+  const selected = await window.api.files.select()
+  await addAndAnalyze(selected)
+}
+
+async function addAndAnalyze(selected: Array<{ id: string; name: string; size: number }>) {
+  filesStore.addFiles(selected)
+
+  for (const file of selected) {
+    const analysis = await analyzeCSV(file.id)
+    filesStore.setAnalysis(file.id, analysis)
+  }
+
+  config.setSequence(filesStore.files.map(f => f.name))
+}
+
+function handleDrop(_files: File[]) {
+  // In Electron, dropped files need to go through IPC
+  // For now, fall back to the file dialog
+  selectFiles()
+}
+
+function removeFile(id: string) {
+  filesStore.removeFile(id)
+  config.setSequence(filesStore.files.map(f => f.name))
+}
+
+function handleReorder(filenames: string[]) {
+  config.setSequence(filenames)
+}
+
+function proceed() {
+  router.push('/config')
+}
+</script>
+
+<template>
+  <div class="csv-p-6 csv-space-y-6">
+    <div class="csv-flex csv-justify-between csv-items-center">
+      <h1 class="csv-text-2xl csv-font-semibold">Select CSV Files</h1>
+      <Button v-if="files.length > 0" @click="selectFiles">
+        Add Files
+      </Button>
+    </div>
+
+    <!-- Drop zone when no files -->
+    <FileDropZone
+      v-if="files.length === 0"
+      @files-dropped="handleDrop"
+      @browse="selectFiles"
+    />
+
+    <!-- File list with drag-to-reorder -->
+    <div v-else>
+      <FileList
+        :files="files"
+        @reorder="handleReorder"
+        @remove="removeFile"
+      />
+
+      <div class="csv-mt-4">
+        <FileDropZone
+          @files-dropped="handleDrop"
+          @browse="selectFiles"
+        />
+      </div>
+    </div>
+
+    <div v-if="files.length > 0" class="csv-flex csv-justify-end">
+      <Button @click="proceed">
+        Configure Mappings
+      </Button>
+    </div>
+  </div>
+</template>

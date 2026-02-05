@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Vite build output
+dist/
+
+# Electron compiled output
+dist-electron/
+
+# electron-builder packaged apps
+release/
+
+# Playwright test output
+test-results/
+playwright-report/
+
+# Python bytecode (csv_import addon)
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Editor
+*.swp
+*~

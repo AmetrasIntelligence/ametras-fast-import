@@ -1,0 +1,199 @@
+/* Reset */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+}
+
+/* Base styles scoped to app */
+#csv-import-app {
+  --radius: 0.375rem;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #1a1a1a;
+}
+
+#csv-import-app * {
+  box-sizing: border-box;
+}
+
+/* Utility classes - csv- prefixed to avoid conflicts */
+.csv-flex { display: flex; }
+.csv-flex-col { flex-direction: column; }
+.csv-items-center { align-items: center; }
+.csv-justify-center { justify-content: center; }
+.csv-justify-between { justify-content: space-between; }
+.csv-gap-2 { gap: 0.5rem; }
+.csv-gap-4 { gap: 1rem; }
+.csv-gap-6 { gap: 1.5rem; }
+
+.csv-p-2 { padding: 0.5rem; }
+.csv-p-3 { padding: 0.75rem; }
+.csv-p-4 { padding: 1rem; }
+.csv-p-6 { padding: 1.5rem; }
+.csv-px-4 { padding-left: 1rem; padding-right: 1rem; }
+.csv-py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+.csv-mb-1 { margin-bottom: 0.25rem; }
+.csv-mb-2 { margin-bottom: 0.5rem; }
+.csv-mb-4 { margin-bottom: 1rem; }
+.csv-mb-6 { margin-bottom: 1.5rem; }
+.csv-mr-2 { margin-right: 0.5rem; }
+.csv-mt-1 { margin-top: 0.25rem; }
+.csv-mt-4 { margin-top: 1rem; }
+
+.csv-w-full { width: 100%; }
+.csv-max-w-md { max-width: 28rem; }
+.csv-max-w-lg { max-width: 32rem; }
+.csv-max-h-32 { max-height: 8rem; }
+.csv-max-h-48 { max-height: 12rem; }
+.csv-max-h-96 { max-height: 24rem; }
+.csv-min-h-screen { min-height: 100vh; }
+
+.csv-text-sm { font-size: 0.875rem; }
+.csv-text-lg { font-size: 1.125rem; }
+.csv-text-xl { font-size: 1.25rem; }
+.csv-text-2xl { font-size: 1.5rem; }
+.csv-text-3xl { font-size: 1.875rem; }
+.csv-font-medium { font-weight: 500; }
+.csv-font-semibold { font-weight: 600; }
+.csv-font-bold { font-weight: 700; }
+.csv-font-mono { font-family: monospace; }
+
+.csv-text-left { text-align: left; }
+.csv-text-right { text-align: right; }
+.csv-text-center { text-align: center; }
+
+.csv-text-muted { color: #6b7280; }
+.csv-text-green-600 { color: #16a34a; }
+.csv-text-red-600 { color: #dc2626; }
+.csv-text-red-700 { color: #b91c1c; }
+.csv-text-blue-600 { color: #2563eb; }
+
+.csv-bg-white { background-color: white; }
+.csv-bg-gray-50 { background-color: #f9fafb; }
+.csv-bg-gray-100 { background-color: #f3f4f6; }
+.csv-bg-blue-50 { background-color: #eff6ff; }
+.csv-bg-red-50 { background-color: #fef2f2; }
+.csv-bg-green-50 { background-color: #f0fdf4; }
+
+.csv-border { border: 1px solid #e5e7eb; }
+.csv-border-b { border-bottom: 1px solid #e5e7eb; }
+.csv-border-t { border-top: 1px solid #e5e7eb; }
+.csv-border-2 { border: 2px solid #e5e7eb; }
+.csv-border-dashed { border-style: dashed; }
+.csv-border-primary { border-color: #2563eb; }
+.csv-rounded { border-radius: var(--radius, 0.375rem); }
+.csv-rounded-sm { border-radius: calc(var(--radius, 0.375rem) - 2px); }
+.csv-rounded-lg { border-radius: calc(var(--radius, 0.375rem) + 2px); }
+.csv-rounded-full { border-radius: 9999px; }
+.csv-shadow { box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.csv-shadow-lg { box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
+
+/* Consistent border-radius for interactive elements */
+#csv-import-app input,
+#csv-import-app button,
+#csv-import-app select {
+  border-radius: var(--radius, 0.375rem);
+}
+
+.csv-overflow-auto { overflow: auto; }
+.csv-overflow-y-auto { overflow-y: auto; }
+.csv-overflow-hidden { overflow: hidden; }
+
+.csv-grid { display: grid; }
+.csv-grid-cols-2 { grid-template-columns: repeat(2, 1fr); }
+.csv-grid-cols-4 { grid-template-columns: repeat(4, 1fr); }
+
+.csv-space-y-2 > * + * { margin-top: 0.5rem; }
+.csv-space-y-4 > * + * { margin-top: 1rem; }
+.csv-space-y-6 > * + * { margin-top: 1.5rem; }
+.csv-flex-wrap { flex-wrap: wrap; }
+
+.csv-cursor-pointer { cursor: pointer; }
+.csv-select-none { user-select: none; }
+
+.csv-transition { transition: all 0.2s ease; }
+.csv-animate-spin {
+  animation: csv-spin 1s linear infinite;
+}
+
+@keyframes csv-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.csv-block { display: block; }
+.csv-inline { display: inline; }
+.csv-inline-flex { display: inline-flex; }
+.csv-hidden { display: none; }
+.csv-relative { position: relative; }
+.csv-absolute { position: absolute; }
+.csv-z-50 { z-index: 50; }
+
+.csv-flex-1 { flex: 1; }
+.csv-min-w-0 { min-width: 0; }
+.csv-shrink-0 { flex-shrink: 0; }
+.csv-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.csv-tabular-nums { font-variant-numeric: tabular-nums; }
+
+.csv-w-2 { width: 0.5rem; }
+.csv-w-3 { width: 0.75rem; }
+.csv-w-4 { width: 1rem; }
+.csv-w-6 { width: 1.5rem; }
+.csv-w-8 { width: 2rem; }
+.csv-w-10 { width: 2.5rem; }
+.csv-w-48 { width: 12rem; }
+.csv-h-2 { height: 0.5rem; }
+.csv-h-4 { height: 1rem; }
+.csv-h-8 { height: 2rem; }
+.csv-h-10 { height: 2.5rem; }
+
+.csv-px-2 { padding-left: 0.5rem; padding-right: 0.5rem; }
+.csv-px-3 { padding-left: 0.75rem; padding-right: 0.75rem; }
+.csv-py-1 { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+.csv-py-4 { padding-top: 1rem; padding-bottom: 1rem; }
+.csv-py-8 { padding-top: 2rem; padding-bottom: 2rem; }
+.csv-pb-1 { padding-bottom: 0.25rem; }
+.csv-pb-3 { padding-bottom: 0.75rem; }
+.csv-pt-0 { padding-top: 0; }
+.csv-pt-4 { padding-top: 1rem; }
+.csv-p-1 { padding: 0.25rem; }
+.csv-p-8 { padding: 2rem; }
+
+.csv-ml-1 { margin-left: 0.25rem; }
+.csv-ml-2 { margin-left: 0.5rem; }
+.csv-mr-1 { margin-right: 0.25rem; }
+.csv-mx-2 { margin-left: 0.5rem; margin-right: 0.5rem; }
+.csv-mb-3 { margin-bottom: 0.75rem; }
+
+.csv-gap-1 { gap: 0.25rem; }
+.csv-gap-3 { gap: 0.75rem; }
+.csv-space-y-1 > * + * { margin-top: 0.25rem; }
+.csv-space-y-3 > * + * { margin-top: 0.75rem; }
+
+.csv-text-xs { font-size: 0.75rem; }
+.csv-text-primary { color: #2563eb; }
+.csv-text-orange-600 { color: #ea580c; }
+.csv-text-gray-400 { color: #9ca3af; }
+.csv-text-gray-500 { color: #6b7280; }
+.csv-text-destructive { color: #dc2626; }
+.csv-text-white { color: white; }
+
+.csv-bg-primary { background-color: #2563eb; }
+.csv-bg-orange-50 { background-color: #fff7ed; }
+.csv-bg-green-500 { background-color: #22c55e; }
+.csv-bg-orange-500 { background-color: #f97316; }
+.csv-bg-red-500 { background-color: #ef4444; }
+
+.csv-cursor-grab { cursor: grab; }
+.csv-pointer-events-none { pointer-events: none; }
+.csv-opacity-60 { opacity: 0.6; }
+.csv-underline { text-decoration: underline; }
+.csv-underline-offset-2 { text-underline-offset: 2px; }
+.csv-transition-colors { transition: color 0.15s, background-color 0.15s, border-color 0.15s; }
+
+.csv-items-end { align-items: flex-end; }

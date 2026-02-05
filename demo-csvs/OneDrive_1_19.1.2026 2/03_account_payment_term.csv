@@ -1,0 +1,26 @@
+﻿id,note,name
+account.account_payment_term_id#1,"Zahlbar innerhalb 28 Tage mit 3% Skonto, Zahlungsziel in 28 Tage netto","28 Tage 3%, 28 Tage netto"
+account.account_payment_term_id#2,Zahlungsziel in 15 Tage netto,15 Tage netto
+account.account_payment_term_id#3,"Zahlbar innerhalb 0 Tage mit 3% Skonto, Zahlungsziel in 15 Tage netto","0 Tage 3%, 15 Tage netto"
+account.account_payment_term_id#4,"Zahlbar innerhalb 14 Tage mit 3% Skonto, Zahlungsziel in 14 Tage netto","14 Tage 3%, 14 Tage netto"
+account.account_payment_term_id#5,"Zahlbar innerhalb 14 Tage mit 3% Skonto, Zahlungsziel in 30 Tage netto","14 Tage 3%, 30 Tage netto"
+account.account_payment_term_id#6,"Zahlbar innerhalb 14 Tage mit 3% Skonto, Zahlbar innerhalb 14 Tage mit 3% Skonto, Zahlungsziel in 15 Tage netto","14 Tage 3%, 14 Tage 3%, 15 Tage netto"
+account.account_payment_term_id#7,"Zahlbar innerhalb 10 Tage mit 3% Skonto, Zahlungsziel in 14 Tage netto","10 Tage 3%, 14 Tage netto"
+account.account_payment_term_id#8,"Zahlbar innerhalb 0 Tage mit 3% Skonto, Zahlungsziel in 14 Tage netto","0 Tage 3%, 14 Tage netto"
+account.account_payment_term_id#9,"Zahlbar innerhalb 10 Tage mit 2% Skonto, Zahlungsziel in 10 Tage netto","10 Tage 2%, 10 Tage netto"
+account.account_payment_term_id#10,"Zahlbar innerhalb 14 Tage mit 3% Skonto, Zahlungsziel in 15 Tage netto","14 Tage 3%, 15 Tage netto"
+account.account_payment_term_id#11,Sofortige Zahlung,Sofortige Zahlung
+account.account_payment_term_id#12,"Zahlbar innerhalb 30 Tage mit 3% Skonto, Zahlungsziel in 30 Tage netto","30 Tage 3%, 30 Tage netto"
+account.account_payment_term_id#13,Zahlungsziel in 21 Tage netto,21 Tage netto
+account.account_payment_term_id#14,"Zahlbar innerhalb 14 Tage mit 3% Skonto, Zahlbar innerhalb 14 Tage mit 3% Skonto, Zahlungsziel in 14 Tage netto","14 Tage 3%, 14 Tage 3%, 14 Tage netto"
+account.account_payment_term_id#15,Zahlungsziel in 30 Tage netto,30 Tage netto
+account.account_payment_term_id#16,Zahlungsziel in 10 Tage netto,10 Tage netto
+account.account_payment_term_id#17,"Zahlbar innerhalb 14 Tage mit 2% Skonto, Zahlungsziel in 15 Tage netto","14 Tage 2%, 15 Tage netto"
+account.account_payment_term_id#18,"Zahlbar innerhalb 14 Tage mit 2% Skonto, Zahlungsziel in 30 Tage netto","14 Tage 2%, 30 Tage netto"
+account.account_payment_term_id#19,"Zahlbar innerhalb 10 Tage mit 2% Skonto, Zahlungsziel in 14 Tage netto","10 Tage 2%, 14 Tage netto"
+account.account_payment_term_id#20,"Zahlbar innerhalb 10 Tage mit 2% Skonto, Zahlungsziel in 11 Tage netto","10 Tage 2%, 11 Tage netto"
+account.account_payment_term_id#21,"Zahlbar innerhalb 0 Tage mit 2% Skonto, Zahlungsziel in 14 Tage netto","0 Tage 2%, 14 Tage netto"
+account.account_payment_term_id#22,"Zahlbar innerhalb 8 Tage mit 2% Skonto, Zahlungsziel in 14 Tage netto","8 Tage 2%, 14 Tage netto"
+account.account_payment_term_id#23,Zahlungsziel in 14 Tage netto,14 Tage netto
+account.account_payment_term_id#24,"Zahlbar innerhalb 0 Tage mit 2% Skonto, Zahlbar innerhalb 0 Tage mit 2% Skonto, Zahlungsziel in 14 Tage netto","0 Tage 2%, 0 Tage 2%, 14 Tage netto"
+account.account_payment_term_id#25,"Zahlbar innerhalb 14 Tage mit 2% Skonto, Zahlungsziel in 14 Tage netto","14 Tage 2%, 14 Tage netto"
