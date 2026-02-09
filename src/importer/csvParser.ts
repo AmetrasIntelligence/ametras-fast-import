@@ -122,6 +122,45 @@ export async function parseCSV(
 }
 
 /**
+ * Extract specific rows by their index from a CSV file.
+ * Efficient for retry scenarios where only failed rows need to be re-processed.
+ */
+export async function extractRowsByIndex(
+  fileId: string,
+  targetIndices: Set<number>,
+  options: ParseOptions = {}
+): Promise<ParsedRow[]> {
+  const hasHeader = options.hasHeader ?? true
+  let rowIndex = 0
+  const matchedRows: ParsedRow[] = []
+
+  // Stream through file, collecting only matching rows
+  await window.api.files.streamChunks(fileId, 1000, (chunk) => {
+    if (chunk.done || !chunk.data) return
+
+    const parsed = Papa.parse(chunk.data, {
+      delimiter: options.delimiter || '',
+      header: hasHeader,
+      skipEmptyLines: true,
+      transformHeader: (h) => h.trim()
+    })
+
+    for (const data of parsed.data as Record<string, string>[]) {
+      rowIndex++
+      if (targetIndices.has(rowIndex)) {
+        matchedRows.push({
+          index: rowIndex,
+          data,
+          raw: Object.values(data)
+        })
+      }
+    }
+  })
+
+  return matchedRows
+}
+
+/**
  * Analyze CSV structure using only first 10KB - memory efficient.
  */
 export async function analyzeCSV(fileId: string): Promise<{

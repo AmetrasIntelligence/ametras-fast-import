@@ -166,14 +166,14 @@ function onDragEnd() {
 
         <!-- Row Count -->
         <span class="csv-file-list__rows">
-          {{ file.rowCount?.toLocaleString() || '?' }} rows
+          {{ file.rowCount?.toLocaleString() || '?' }} {{ $t('common.rows', 2) }}
         </span>
 
         <!-- Remove Button -->
         <button
           type="button"
           class="csv-file-list__remove"
-          title="Remove file"
+          :title="$t('files.removeFile')"
           @click.stop="emit('remove', file.id)"
         >
           &times;

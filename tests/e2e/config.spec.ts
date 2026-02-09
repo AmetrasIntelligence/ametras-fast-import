@@ -25,6 +25,7 @@ test.describe('Config View', () => {
 
     // Settings fields should now be visible
     await expect(page.getByText(/batch size/i)).toBeVisible()
+    await expect(page.getByText(/workers/i)).toBeVisible()
     await expect(page.getByText(/retry limit/i)).toBeVisible()
     await expect(page.getByText(/retry delay/i)).toBeVisible()
     await expect(page.getByText(/stop on fatal error/i)).toBeVisible()
@@ -66,6 +67,20 @@ test.describe('Config - Settings Modification', () => {
     await expect(batchInput).toHaveValue('50')
   })
 
+  test('can change workers count', async ({ page }) => {
+    await page.goto('/#/config')
+
+    // Expand settings first
+    await page.getByText(/import settings/i).click()
+
+    // Workers is typically the second number input after batch size
+    const inputs = page.locator('input[type="number"]')
+    const workersInput = inputs.nth(1)
+    await workersInput.fill('3')
+
+    await expect(workersInput).toHaveValue('3')
+  })
+
   test('can change retry limit', async ({ page }) => {
     await page.goto('/#/config')
 
@@ -73,9 +88,62 @@ test.describe('Config - Settings Modification', () => {
     await page.getByText(/import settings/i).click()
 
     const inputs = page.locator('input[type="number"]')
-    const retryInput = inputs.nth(1)
+    // Retry limit is now the third number input (after batch size and workers)
+    const retryInput = inputs.nth(2)
     await retryInput.fill('5')
 
     await expect(retryInput).toHaveValue('5')
+  })
+
+  test('shows workers in collapsed summary when > 1', async ({ page }) => {
+    await page.goto('/#/config')
+
+    // First expand and set workers > 1
+    await page.getByText(/import settings/i).click()
+    const inputs = page.locator('input[type="number"]')
+    const workersInput = inputs.nth(1)
+    await workersInput.fill('2')
+
+    // Collapse by clicking header again
+    await page.getByText(/import settings/i).click()
+
+    // When collapsed, summary should show workers count for > 1
+    await expect(page.getByText(/Workers: 2/)).toBeVisible()
+  })
+})
+
+test.describe('Config - Workers Validation', () => {
+  test('workers clamped to max 4', async ({ page }) => {
+    await page.goto('/#/config')
+
+    // Expand settings
+    await page.getByText(/import settings/i).click()
+
+    const inputs = page.locator('input[type="number"]')
+    const workersInput = inputs.nth(1)
+
+    // Try to set to 10 (should be clamped or rejected)
+    await workersInput.fill('10')
+
+    // The value should be clamped to max (4) or show validation
+    const value = await workersInput.inputValue()
+    expect(parseInt(value)).toBeLessThanOrEqual(4)
+  })
+
+  test('workers minimum is 1', async ({ page }) => {
+    await page.goto('/#/config')
+
+    // Expand settings
+    await page.getByText(/import settings/i).click()
+
+    const inputs = page.locator('input[type="number"]')
+    const workersInput = inputs.nth(1)
+
+    // Try to set to 0 (should be clamped or rejected)
+    await workersInput.fill('0')
+
+    // The value should be at least 1
+    const value = await workersInput.inputValue()
+    expect(parseInt(value)).toBeGreaterThanOrEqual(1)
   })
 })

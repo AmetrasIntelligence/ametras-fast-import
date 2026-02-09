@@ -54,6 +54,7 @@ interface ProfileUploadResult {
 interface ElectronAPI {
   files: {
     select: () => Promise<FileHandle[]>
+    register: (paths: string[]) => Promise<FileHandle[]>
     read: (id: string) => Promise<string>
     readHead: (id: string, bytes: number) => Promise<string>
     countLines: (id: string) => Promise<number>

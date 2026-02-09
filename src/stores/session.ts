@@ -10,16 +10,33 @@ export interface ServerProfile {
   db: string
 }
 
+// Client requires addon version 1.x (major version 1)
+const REQUIRED_ADDON_MAJOR_VERSION = 1
+
 export const useSessionStore = defineStore('session', () => {
   const mode = ref<AuthMode>('standalone')
   const currentServer = ref<ServerProfile | null>(null)
   const uid = ref<number | null>(null)
   const serverVersion = ref<string | null>(null)
+  const addonVersion = ref<string | null>(null)
   const savedProfiles = ref<ServerProfile[]>([])
 
   const isAuthenticated = computed(() => uid.value !== null)
   const isEmbedded = computed(() => mode.value === 'embedded')
   const baseUrl = computed(() => currentServer.value?.baseUrl || null)
+
+  // Check if addon version is compatible with client
+  const isAddonCompatible = computed(() => {
+    if (!addonVersion.value) return true // Unknown version, assume compatible
+    const majorVersion = parseInt(addonVersion.value.split('.')[0], 10)
+    return !isNaN(majorVersion) && majorVersion === REQUIRED_ADDON_MAJOR_VERSION
+  })
+
+  const addonVersionWarning = computed(() => {
+    if (!addonVersion.value) return null
+    if (isAddonCompatible.value) return null
+    return `Server addon version ${addonVersion.value} may not be compatible. Client requires version ${REQUIRED_ADDON_MAJOR_VERSION}.x`
+  })
 
   async function login(profile: ServerProfile, password: string) {
     const result = await window.api.odoo.authenticate({
@@ -48,12 +65,32 @@ export const useSessionStore = defineStore('session', () => {
     }
     // Convert to plain objects for IPC (Vue proxies can't be cloned)
     await window.api.store.set('profiles', JSON.parse(JSON.stringify(savedProfiles.value)))
+
+    // Fetch addon version after successful login
+    await fetchAddonVersion(profile.baseUrl)
+  }
+
+  async function fetchAddonVersion(baseUrl: string) {
+    try {
+      const result = await window.api.odoo.call<{ version: string }>({
+        baseUrl,
+        endpoint: '/csv_import/info',
+        params: {}
+      })
+      if (result.ok && result.result?.version) {
+        addonVersion.value = result.result.version
+      }
+    } catch {
+      // Addon info endpoint may not exist in older versions
+      addonVersion.value = null
+    }
   }
 
   function logout() {
     currentServer.value = null
     uid.value = null
     serverVersion.value = null
+    addonVersion.value = null
   }
 
   async function loadProfiles() {
@@ -77,10 +114,13 @@ export const useSessionStore = defineStore('session', () => {
     currentServer,
     uid,
     serverVersion,
+    addonVersion,
     savedProfiles,
     isAuthenticated,
     isEmbedded,
     baseUrl,
+    isAddonCompatible,
+    addonVersionWarning,
     login,
     logout,
     loadProfiles,

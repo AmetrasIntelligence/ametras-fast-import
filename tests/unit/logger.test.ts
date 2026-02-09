@@ -113,8 +113,9 @@ describe('Logger', () => {
 
       const exported = logger.export()
 
-      expect(exported).toContain('[INFO]')
-      expect(exported).toContain('[Import]')
+      // Format: HH:MM:SS.mmm [LEVEL] [category  ] message
+      expect(exported).toContain('[INFO ')  // padded to 5 chars
+      expect(exported).toContain('[Import')  // category (padded to 10 chars)
       expect(exported).toContain('Starting import')
       expect(exported).toContain('[ERROR]')
       expect(exported).toContain('Failed to connect')

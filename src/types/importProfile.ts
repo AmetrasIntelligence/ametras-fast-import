@@ -17,9 +17,19 @@ export interface ImportProfile {
   updatedAt: number
 }
 
+export type ImportMode = 'upsert' | 'create_only'
+
 export interface ProfileMapping {
   filename: string       // or pattern with *
   model: string
+  /** Import mode: 'upsert' (default) or 'create_only' */
+  mode?: ImportMode
+  /** Column name for external ID upsert (e.g., 'id' or 'external_id') */
+  externalIdColumn?: string
+  /** Field names for natural key search (e.g., ['default_code']) */
+  searchKeys?: string[]
+  /** If true, fail on missing keys instead of falling back to create */
+  strict?: boolean
 }
 
 export interface ProfileSequenceItem {

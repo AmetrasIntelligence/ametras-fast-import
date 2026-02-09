@@ -7,6 +7,28 @@ import readline from 'readline'
 
 const fileRegistry = new Map<string, string>()
 
+// Register files by their paths (for drag-and-drop)
+ipcMain.handle('files:register', async (_event, filePaths: string[]) => {
+  const handles = await Promise.all(
+    filePaths
+      .filter(filePath => filePath.toLowerCase().endsWith('.csv'))
+      .map(async (filePath) => {
+        const id = randomUUID()
+        const stats = await fs.stat(filePath)
+
+        fileRegistry.set(id, filePath)
+
+        return {
+          id,
+          name: path.basename(filePath),
+          size: stats.size
+        }
+      })
+  )
+
+  return handles
+})
+
 ipcMain.handle('files:select', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ['openFile', 'multiSelections'],

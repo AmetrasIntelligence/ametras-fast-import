@@ -11,6 +11,10 @@ export interface RunSettings {
   skipHeader: boolean
   dryRun: boolean
   lang: string
+  /** Number of parallel workers for batch processing (1-4). Default: 1 */
+  workers: number
+  /** Strict mode: fail on unresolved references instead of skipping. Default: true */
+  strict: boolean
 }
 
 export interface FileMapping {
@@ -19,6 +23,10 @@ export interface FileMapping {
   /** @deprecated ID column is now detected from fieldMappings (id→id or .id→.id) */
   idColumn?: 'id' | '.id' | null
   fieldMappings: Record<string, string>
+  /** Field names for natural key search (Strategy 2) */
+  searchKeys?: string[]
+  /** If true, fail on missing keys instead of falling back to create */
+  strict?: boolean
 }
 
 export const useConfigStore = defineStore('config', () => {
@@ -31,7 +39,9 @@ export const useConfigStore = defineStore('config', () => {
     delimiter: ',',
     skipHeader: true,
     dryRun: false,
-    lang: 'de_DE'
+    lang: 'de_DE',
+    workers: 1,
+    strict: true
   })
 
   const fileMappings = ref<Map<string, FileMapping>>(new Map())
@@ -119,6 +129,8 @@ export const useConfigStore = defineStore('config', () => {
       if (key === 'skipHeader') newSettings.skipHeader = value === 'true'
       if (key === 'dryRun') newSettings.dryRun = value === 'true'
       if (key === 'lang') newSettings.lang = value
+      if (key === 'strict') newSettings.strict = value === 'true'
+      // Note: 'workers' is intentionally NOT loaded from CSV - it's a runtime-only setting
     }
 
     setSettings(newSettings)

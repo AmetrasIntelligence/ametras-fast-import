@@ -1,6 +1,22 @@
 import { useSessionStore } from '@/stores/session'
-import type { ImportProfile } from '@/types/importProfile'
-import { parseTransform } from '@/types/fieldMapping'
+import type { ImportProfile, ProfileMapping, ProfileSequenceItem } from '@/types/importProfile'
+import type { RunSettings } from '@/stores/config'
+import { parseTransform, serializeTransform } from '@/types/fieldMapping'
+import type { FieldMapping } from '@/types/fieldMapping'
+
+/**
+ * Data required to create or update a profile.
+ */
+export interface ProfileCreateData {
+  name: string
+  version?: string
+  description?: string
+  odooMinVersion?: string
+  mappings: ProfileMapping[]
+  sequence: ProfileSequenceItem[]
+  runSettings: Partial<RunSettings>
+  fieldMappings?: FieldMapping[]
+}
 
 interface ProfileListItem {
   id: number
@@ -14,7 +30,12 @@ interface ProfileListItem {
 }
 
 interface ProfileFullData extends ProfileListItem {
-  mappings: Array<{ filename: string; model: string }>
+  mappings: Array<{
+    filename: string
+    model: string
+    searchKeys?: string[]
+    strict?: boolean
+  }>
   sequence: Array<{ order: number; filename: string; requires?: string[] }>
   run_settings: Record<string, string>
   field_mappings: Array<Record<string, unknown>>
@@ -46,7 +67,9 @@ function toImportProfile(data: ProfileFullData): ImportProfile {
       delimiter: (runSettings.delimiter as ',' | ';' | '\t' | '') || ',',
       skipHeader: runSettings.skipHeader !== 'false',
       dryRun: runSettings.dryRun === 'true',
-      lang: (runSettings.lang as string) || 'de_DE'
+      lang: (runSettings.lang as string) || 'de_DE',
+      workers: 1,  // Runtime-only setting, not stored in profile
+      strict: runSettings.strict !== 'false'
     },
     fieldMappings: data.field_mappings?.filter(
       (fm): fm is { filename: string; csvColumn: string; odooField: string } =>
@@ -87,7 +110,9 @@ function toProfileSummary(data: ProfileListItem): Omit<ImportProfile, 'mappings'
       delimiter: ',',
       skipHeader: true,
       dryRun: false,
-      lang: 'de_DE'
+      lang: 'de_DE',
+      workers: 1,  // Runtime-only setting, not stored in profile
+      strict: true
     },
     createdAt: data.created_at ? new Date(data.created_at).getTime() : Date.now(),
     updatedAt: data.updated_at ? new Date(data.updated_at).getTime() : Date.now()
@@ -176,4 +201,109 @@ export async function deleteProfile(id: number): Promise<void> {
 export async function exportProfileClean(profileId: number, name: string): Promise<boolean> {
   const baseUrl = getBaseUrl()
   return window.api.profile.export({ baseUrl, profileId, profileName: name })
+}
+
+/**
+ * Convert frontend field mappings to backend format.
+ */
+function toBackendFieldMappings(fieldMappings?: FieldMapping[]): Array<Record<string, unknown>> {
+  if (!fieldMappings) return []
+  return fieldMappings.map(fm => ({
+    filename: fm.filename,
+    csvHeader: fm.csvHeader,
+    odooField: fm.odooField,
+    required: fm.required,
+    transform: serializeTransform(fm.transform),
+    notes: fm.notes || ''
+  }))
+}
+
+/**
+ * Convert frontend run settings to backend format (all values as strings).
+ * Note: 'workers' is intentionally NOT included - it's a runtime-only setting
+ * that depends on infrastructure/network and should not be stored in profiles.
+ */
+function toBackendRunSettings(runSettings: Partial<RunSettings>): Record<string, string> {
+  const result: Record<string, string> = {}
+  if (runSettings.batchSize !== undefined) result.batchSize = String(runSettings.batchSize)
+  if (runSettings.retryLimit !== undefined) result.retryLimit = String(runSettings.retryLimit)
+  if (runSettings.retryDelayMs !== undefined) result.retryDelayMs = String(runSettings.retryDelayMs)
+  if (runSettings.stopOnFatalError !== undefined) result.stopOnFatalError = String(runSettings.stopOnFatalError)
+  if (runSettings.encoding !== undefined) result.encoding = runSettings.encoding
+  if (runSettings.delimiter !== undefined) result.delimiter = runSettings.delimiter
+  if (runSettings.skipHeader !== undefined) result.skipHeader = String(runSettings.skipHeader)
+  if (runSettings.dryRun !== undefined) result.dryRun = String(runSettings.dryRun)
+  if (runSettings.lang !== undefined) result.lang = runSettings.lang
+  if (runSettings.strict !== undefined) result.strict = String(runSettings.strict)
+  // Note: 'workers' is intentionally omitted - runtime-only, not stored in profiles
+  return result
+}
+
+/**
+ * Create a new profile on the server.
+ */
+export async function createProfile(data: ProfileCreateData): Promise<ImportProfile> {
+  const baseUrl = getBaseUrl()
+
+  const payload = {
+    name: data.name,
+    version: data.version || '1.0',
+    description: data.description || '',
+    odoo_min_version: data.odooMinVersion || '',
+    mappings: data.mappings,
+    sequence: data.sequence,
+    run_settings: toBackendRunSettings(data.runSettings),
+    field_mappings: toBackendFieldMappings(data.fieldMappings)
+  }
+
+  const response = await window.api.odoo.call<ProfileFullData | { error: string }>({
+    baseUrl,
+    endpoint: '/csv_import/profile/create',
+    params: { data: payload }
+  })
+
+  if (!response.ok) {
+    throw new Error(response.error || 'Failed to create profile')
+  }
+
+  const result = response.result!
+  if ('error' in result && result.error) {
+    throw new Error(result.error)
+  }
+
+  return toImportProfile(result as ProfileFullData)
+}
+
+/**
+ * Update an existing profile on the server.
+ */
+export async function updateProfile(id: number, data: Partial<ProfileCreateData>): Promise<ImportProfile> {
+  const baseUrl = getBaseUrl()
+
+  const payload: Record<string, unknown> = {}
+  if (data.name !== undefined) payload.name = data.name
+  if (data.version !== undefined) payload.version = data.version
+  if (data.description !== undefined) payload.description = data.description
+  if (data.odooMinVersion !== undefined) payload.odoo_min_version = data.odooMinVersion
+  if (data.mappings !== undefined) payload.mappings = data.mappings
+  if (data.sequence !== undefined) payload.sequence = data.sequence
+  if (data.runSettings !== undefined) payload.run_settings = toBackendRunSettings(data.runSettings)
+  if (data.fieldMappings !== undefined) payload.field_mappings = toBackendFieldMappings(data.fieldMappings)
+
+  const response = await window.api.odoo.call<ProfileFullData | { error: string }>({
+    baseUrl,
+    endpoint: `/csv_import/profile/${id}/update`,
+    params: { data: payload }
+  })
+
+  if (!response.ok) {
+    throw new Error(response.error || 'Failed to update profile')
+  }
+
+  const result = response.result!
+  if ('error' in result && result.error) {
+    throw new Error(result.error)
+  }
+
+  return toImportProfile(result as ProfileFullData)
 }

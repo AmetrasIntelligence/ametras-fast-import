@@ -5,15 +5,17 @@ A desktop application for importing large CSV files into Odoo with streaming pro
 ## Features
 
 - **Streaming CSV Processing** - Handles files >1GB with constant memory usage
-- **Batch Processing** - Configurable batch sizes for optimal performance
-- **Automatic Retries** - Failed rows are automatically retried with configurable limits
+- **Parallel Batch Processing** - 1-4 configurable workers for high throughput
+- **Automatic Retries** - Failed rows automatically retried with configurable limits
 - **External ID Support** - Upsert via `ir.model.data` for migration-safe imports
+- **Reference Resolution** - Bulk prefetch of external IDs for O(1) lookups
 - **Per-Row Savepoints** - One failed row doesn't kill the entire batch
 - **Pause/Resume** - Import can be paused and resumed at any time
 - **Error Export** - Failed rows can be exported as CSV for manual review
 - **Multi-File Imports** - Process multiple files in sequence with dependencies
 - **Import Profiles** - Named configurations stored server-side in Odoo, with ZIP upload/download and RunConfig overrides
 - **Smart Mapping** - Filename-to-model and header-to-field suggestions with confidence scoring
+- **Smart Reference Detection** - Auto-detect `/id` (external ID) and `/.id` (database ID) column patterns
 - **Drag & Drop** - File import via drag & drop with `.csv` filter
 - **Validation Indicators** - Color-coded status (green/orange/red) gating import start
 - **Saved Mappings** - Per-server filename-to-model associations with glob support
@@ -221,22 +223,41 @@ IDLE → VALIDATING → RUNNING_FILE ↔ RUNNING_BATCH → COMPLETED
 
 ## Configuration Options
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `batchSize` | 100 | Rows per batch sent to Odoo |
-| `retryLimit` | 3 | Max retry attempts per row |
-| `retryDelayMs` | 1000 | Delay between retry attempts |
+| Setting | Default | Range | Description |
+|---------|---------|-------|-------------|
+| `batchSize` | 200 | 1-1000 | Rows per batch sent to Odoo |
+| `workers` | 1 | 1-4 | Parallel workers for batch processing |
+| `retryLimit` | 3 | 0-10 | Max retry attempts per row |
+| `retryDelayMs` | 2000 | 100+ | Delay between retry attempts |
+| `encoding` | utf-8 | - | CSV file encoding (utf-8, latin-1, cp1252) |
+| `delimiter` | , | - | CSV delimiter (auto-detect supported) |
+| `dryRun` | false | - | Validate without committing |
 
 ## External ID Handling
 
-The tool supports two ID column types:
+The tool supports two ID column types for the record being imported:
 
 - **`id` column**: Uses Odoo's `ir.model.data` for upsert. Records are identified by external ID (xml_id), making imports migration-safe and repeatable.
 - **`.id` column**: Direct database ID. Only use for same-database operations.
 
+### Relational Field References
+
+For Many2One and Many2Many fields, use suffixed column headers:
+
+| Pattern | Example | Resolution |
+|---------|---------|------------|
+| `field/id` | `partner_id/id` | External ID → `res_partner_id#123` |
+| `field/.id` | `country_id/.id` | Database ID → `57` (standard models only) |
+
+**Standard models for `/.id`:** `res.country`, `res.currency`, `uom.uom`, `res.lang`
+
+**Many2Many:** Use pipe-delimited IDs: `tag_ids/id` → `tag_a|tag_b|tag_c`
+
+See [docs/reference-resolution.md](docs/reference-resolution.md) for full documentation.
+
 ## Test Suite
 
-### Unit Tests (449 tests)
+### Unit Tests (491+ tests: 475 TypeScript + 26 Python)
 
 | Module | Tests | Coverage |
 |--------|-------|----------|
@@ -244,6 +265,7 @@ The tool supports two ID column types:
 | stateMachine | 31 | All state transitions, edge cases |
 | retryQueue | 14 | Failed row tracking, CSV export |
 | logger | 15 | Log levels, filtering, ring buffer |
+| workerPool | 15 | Async queue, workers, throughput |
 | stores/session | 15 | Auth, multi-server, profiles |
 | stores/config | 32 | Settings, mappings, CSV import/export |
 | stores/files | 19 | Add/remove files, analysis, dedup, clearAll |
@@ -251,7 +273,7 @@ The tool supports two ID column types:
 | stores/profiles | 12 | Server-fetched profiles, cache TTL, delete |
 | stores/savedMappings | 12 | Per-server storage, glob matching, suggestions |
 | smartMapping | 21 | Filename scoring, Levenshtein, common patterns |
-| smartFieldMapping | 26 | Header scoring, German aliases, auto-mapping |
+| smartFieldMapping | 29 | Header scoring, German aliases, /id detection |
 | useDialog | 22 | Alert/confirm/prompt, sequential dialogs |
 | profileValidator | 24 | Dependency validation, circular deps, ProfileDraft |
 | importProfile | 25 | CSV parse/export roundtrips, rich field mappings |
@@ -260,9 +282,12 @@ The tool supports two ID column types:
 | profileExporter | 16 | Override merging, CSV generators, version bump |
 | profileApi | 6 | Server API with mocked IPC |
 | runConfig | 12 | RunConfig create, override merging, hasOverrides |
+| fieldMapping | 23 | Transforms: m2o_ref, m2m_ref, db_id |
+| batchExecutorMappings | 22 | Reference transforms in batch execution |
 | components/Button | 16 | Variants, sizes, loading state |
 | components/Progress | 12 | Width calculation, clamping |
 | integration/engine | 16 | Full import flow, abort, failures |
+| **Python: reference_resolution** | 26 | External ID parsing, normalization, lookup |
 
 ### E2E Tests (41 scenarios)
 
@@ -281,10 +306,13 @@ The tool supports two ID column types:
 4. **Savepoint per row** - Transactional safety without batch-level rollbacks
 5. **Streaming** - Memory efficiency for large files
 6. **State machine** - Deterministic, pausable, resumable imports
-7. **Server-side profile storage** - Profiles in Odoo, client is cache only
-8. **Immutable profiles + RunConfig overrides** - Never edit profiles directly
-9. **In-app dialogs** - Custom modal dialogs since Electron blocks native browser dialogs
-10. **No external UI dependencies** - Native HTML5 drag & drop, CSS-only indicators, plain HTML components
+7. **Parallel batches, sequential files** - Worker pool for throughput, file order for dependencies
+8. **Reference prefetch** - Bulk resolve external IDs for O(1) lookups during import
+9. **Server-side profile storage** - Profiles in Odoo, client is cache only
+10. **Immutable profiles + RunConfig overrides** - Never edit profiles directly
+11. **In-app dialogs** - Custom modal dialogs since Electron blocks native browser dialogs
+12. **No external UI dependencies** - Native HTML5 drag & drop, CSS-only indicators, plain HTML components
+13. **Standard models for /.id** - Database IDs only for stable reference data (countries, currencies, UoM)
 
 ## License
 

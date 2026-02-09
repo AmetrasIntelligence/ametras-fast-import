@@ -10,6 +10,7 @@ export interface FileProgress {
   successCount: number
   failedCount: number
   retryingCount: number
+  skipped?: boolean
   startTime?: number
   endTime?: number
 }
@@ -79,6 +80,12 @@ export const useRunStore = defineStore('run', () => {
     return state.value === ImportState.COMPLETED || state.value === ImportState.FAILED
   })
 
+  /** Check if there are row-level errors that can potentially be retried */
+  const hasRetryableErrors = computed(() => {
+    // Row-level errors have rowNumber > 0 (rowNumber 0 is used for file-level errors)
+    return errors.value.some(e => e.rowNumber > 0)
+  })
+
   function setEngine(eng: ImportEngine | null) {
     engine.value = eng
   }
@@ -132,6 +139,15 @@ export const useRunStore = defineStore('run', () => {
     progress.value.completedFiles++
   }
 
+  function skipFile(filename: string) {
+    const fileProgress = progress.value.files.get(filename)
+    if (fileProgress) {
+      fileProgress.skipped = true
+      fileProgress.endTime = Date.now()
+    }
+    progress.value.completedFiles++
+  }
+
   function addError(error: ImportError) {
     errors.value.push(error)
   }
@@ -166,10 +182,12 @@ export const useRunStore = defineStore('run', () => {
     estimatedTimeRemaining,
     isActive,
     isCompleted,
+    hasRetryableErrors,
     initRun,
     startFile,
     updateFileProgress,
     completeFile,
+    skipFile,
     addError,
     setState,
     setEngine,

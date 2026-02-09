@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useRunStore } from '@/stores/run'
+import { ImportEngine } from '@/importer/engine'
 import { Button, Card, Table } from '@/ui'
 
 const router = useRouter()
 const run = useRunStore()
+const isRetrying = ref(false)
 
 const summary = computed(() => {
   const files = Array.from(run.progress.files.values())
@@ -73,6 +75,20 @@ function downloadJSON(data: unknown, filename: string) {
   URL.revokeObjectURL(url)
 }
 
+async function retryFailedRows() {
+  if (isRetrying.value) return
+
+  isRetrying.value = true
+  try {
+    const engine = new ImportEngine()
+    run.setEngine(engine)
+    await engine.retryFailedRows()
+  } finally {
+    isRetrying.value = false
+    run.setEngine(null)
+  }
+}
+
 function startNew() {
   run.reset()
   router.push('/files')
@@ -83,13 +99,13 @@ function startNew() {
   <div class="csv-p-6 csv-space-y-6">
     <!-- Dry Run Banner -->
     <div v-if="run.isDryRun" class="csv-dry-run-banner">
-      Dry Run Complete &mdash; {{ summary.totalRows.toLocaleString() }} rows validated, no data written.
+      {{ $t('results.dryRunBanner', { count: summary.totalRows.toLocaleString() }) }}
     </div>
 
     <!-- Summary Card -->
     <Card class="csv-p-6">
       <h2 class="csv-text-xl csv-font-semibold csv-mb-4">
-        {{ run.isDryRun ? 'Dry Run Complete' : 'Import Complete' }}
+        {{ run.isDryRun ? $t('results.dryRunComplete') : $t('results.importComplete') }}
       </h2>
 
       <div class="csv-grid csv-grid-cols-4 csv-gap-4">
@@ -97,32 +113,32 @@ function startNew() {
           <div class="csv-text-3xl csv-font-bold">
             {{ summary.totalRows.toLocaleString() }}
           </div>
-          <div class="csv-text-sm csv-text-muted">Total Rows</div>
+          <div class="csv-text-sm csv-text-muted">{{ $t('results.totalRows') }}</div>
         </div>
         <div>
           <div class="csv-text-3xl csv-font-bold csv-text-green-600">
             {{ summary.successRows.toLocaleString() }}
           </div>
-          <div class="csv-text-sm csv-text-muted">Successful</div>
+          <div class="csv-text-sm csv-text-muted">{{ $t('results.successful') }}</div>
         </div>
         <div>
           <div class="csv-text-3xl csv-font-bold csv-text-red-600">
             {{ summary.failedRows.toLocaleString() }}
           </div>
-          <div class="csv-text-sm csv-text-muted">Failed</div>
+          <div class="csv-text-sm csv-text-muted">{{ $t('results.failed') }}</div>
         </div>
         <div>
           <div class="csv-text-3xl csv-font-bold">
             {{ summary.duration }}
           </div>
-          <div class="csv-text-sm csv-text-muted">Duration</div>
+          <div class="csv-text-sm csv-text-muted">{{ $t('results.duration') }}</div>
         </div>
       </div>
     </Card>
 
     <!-- Export Actions -->
     <Card class="csv-p-4">
-      <h3 class="csv-font-semibold csv-mb-4">Export</h3>
+      <h3 class="csv-font-semibold csv-mb-4">{{ $t('results.export') }}</h3>
 
       <div class="csv-flex csv-gap-4">
         <Button
@@ -130,14 +146,14 @@ function startNew() {
           variant="outline"
           @click="exportErrorsCSV"
         >
-          Download Error Log (CSV)
+          {{ $t('results.downloadErrors') }}
         </Button>
 
         <Button
           variant="outline"
           @click="exportFullReport"
         >
-          Download Full Report (JSON)
+          {{ $t('results.downloadReport') }}
         </Button>
       </div>
     </Card>
@@ -145,16 +161,16 @@ function startNew() {
     <!-- Error Details -->
     <Card v-if="run.errors.length > 0" class="csv-p-4">
       <h3 class="csv-font-semibold csv-mb-4">
-        Errors ({{ run.errors.length }})
+        {{ $t('results.errors') }} ({{ run.errors.length }})
       </h3>
 
       <div class="csv-max-h-96 csv-overflow-y-auto">
         <Table>
           <thead>
             <tr>
-              <th class="csv-text-left">File</th>
-              <th class="csv-text-right">Row</th>
-              <th class="csv-text-left">Error</th>
+              <th class="csv-text-left">{{ $t('results.file') }}</th>
+              <th class="csv-text-right">{{ $t('results.row') }}</th>
+              <th class="csv-text-left">{{ $t('results.error') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -168,9 +184,17 @@ function startNew() {
       </div>
     </Card>
 
-    <div class="csv-flex csv-justify-end">
+    <div class="csv-flex csv-justify-end csv-gap-4">
+      <Button
+        v-if="run.hasRetryableErrors && !run.isDryRun"
+        variant="outline"
+        :disabled="isRetrying || run.isActive"
+        @click="retryFailedRows"
+      >
+        {{ isRetrying ? $t('results.retrying') : $t('results.retryFailed') }}
+      </Button>
       <Button @click="startNew">
-        Start New Import
+        {{ $t('results.startNew') }}
       </Button>
     </div>
   </div>

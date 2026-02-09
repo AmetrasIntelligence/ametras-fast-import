@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { fetchModelFields, type OdooField } from '@/api/odooClient'
-import type { FieldMapping } from '@/types/fieldMapping'
+import type { FieldMapping, FieldTransform } from '@/types/fieldMapping'
+import { STANDARD_DB_ID_MODELS } from '@/types/fieldMapping'
+import { detectTransform } from '@/utils/smartFieldMapping'
 
 const props = defineProps<{
   filename: string
@@ -54,18 +56,45 @@ function getMappingStatus(header: string): 'mapped' | 'required-missing' | 'unma
   return 'mapped'
 }
 
+// Build field lookup map
+const fieldMap = computed(() => {
+  const map = new Map<string, OdooField>()
+  for (const field of modelFields.value) {
+    map.set(field.name, field)
+  }
+  return map
+})
+
 // Actions
 function setMapping(csvHeader: string, odooField: string) {
   if (!odooField) {
     clearMapping(csvHeader)
     return
   }
+
+  // Determine base field name (strip /id or /.id suffix if present)
+  const baseName = odooField.endsWith('/.id')
+    ? odooField.slice(0, -4)
+    : odooField.endsWith('/id')
+      ? odooField.slice(0, -3)
+      : odooField
+
+  const field = fieldMap.value.get(baseName)
+
+  // Auto-detect required from Odoo field metadata
+  const required = field?.required ?? false
+
+  // Auto-detect transform based on header pattern and field type
+  const transform: FieldTransform = field
+    ? detectTransform(csvHeader, field)
+    : { type: 'passthrough' }
+
   const mapping: FieldMapping = {
     filename: props.filename,
     csvHeader,
     odooField,
-    required: false,
-    transform: { type: 'passthrough' }
+    required,
+    transform
   }
   localMappings.value.set(csvHeader, mapping)
   emitUpdate()
@@ -87,6 +116,34 @@ function toggleRequired(csvHeader: string) {
 function emitUpdate() {
   emit('update', Array.from(localMappings.value.values()))
 }
+
+// Format transform for display
+function formatTransform(transform: FieldTransform): string {
+  switch (transform.type) {
+    case 'passthrough':
+      return 'passthrough'
+    case 'm2o_ref':
+      return `m2o → ${transform.model}`
+    case 'm2m_ref':
+      return `m2m → ${transform.model}`
+    case 'db_id':
+      return `db_id → ${transform.model}`
+  }
+}
+
+// Get CSS class for transform badge
+function getTransformClass(transform: FieldTransform): string {
+  switch (transform.type) {
+    case 'passthrough':
+      return 'csv-transform-badge--passthrough'
+    case 'm2o_ref':
+      return 'csv-transform-badge--m2o'
+    case 'm2m_ref':
+      return 'csv-transform-badge--m2m'
+    case 'db_id':
+      return 'csv-transform-badge--dbid'
+  }
+}
 </script>
 
 <template>
@@ -105,6 +162,7 @@ function emitUpdate() {
             <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium">CSV Header</th>
             <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium csv-w-8"></th>
             <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium">Odoo Field</th>
+            <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium csv-w-32">Transform</th>
             <th class="csv-text-center csv-px-3 csv-py-2 csv-font-medium csv-w-16">Req</th>
             <th class="csv-text-center csv-px-3 csv-py-2 csv-font-medium csv-w-16"></th>
           </tr>
@@ -136,17 +194,37 @@ function emitUpdate() {
                 @change="(e) => setMapping(header, (e.target as HTMLSelectElement).value)"
               >
                 <option value="">-- Select field --</option>
-                <option
-                  v-for="field in modelFields.filter(f => !f.readonly)"
-                  :key="field.name"
-                  :value="field.name"
-                >
-                  {{ field.name }} ({{ field.string }})
-                </option>
+                <template v-for="field in modelFields.filter(f => !f.readonly)" :key="field.name">
+                  <!-- Regular field -->
+                  <option :value="field.name">
+                    {{ field.name }} ({{ field.string }}){{ field.required ? ' *' : '' }}
+                  </option>
+                  <!-- Relational field options: /id and /.id -->
+                  <template v-if="field.type === 'many2one' || field.type === 'many2many'">
+                    <option :value="`${field.name}/id`">
+                      {{ field.name }}/id → ext ID ({{ field.relation }})
+                    </option>
+                    <option :value="`${field.name}/.id`">
+                      {{ field.name }}/.id → db ID ({{ field.relation }}){{ !STANDARD_DB_ID_MODELS.has(field.relation || '') ? ' ⚠' : '' }}
+                    </option>
+                  </template>
+                </template>
               </select>
               <span v-else class="csv-font-mono csv-text-xs">
                 {{ localMappings.get(header)?.odooField || '-' }}
               </span>
+            </td>
+
+            <!-- Transform (auto-detected) -->
+            <td class="csv-px-3 csv-py-2">
+              <span
+                v-if="localMappings.has(header)"
+                class="csv-transform-badge"
+                :class="getTransformClass(localMappings.get(header)!.transform)"
+              >
+                {{ formatTransform(localMappings.get(header)!.transform) }}
+              </span>
+              <span v-else class="csv-text-muted">-</span>
             </td>
 
             <!-- Required Toggle -->
@@ -271,5 +349,31 @@ function emitUpdate() {
   background: #fff7ed;
   border-radius: var(--radius, 0.375rem);
   font-size: 0.875rem;
+}
+
+/* Transform badges */
+.csv-transform-badge {
+  display: inline-block;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.625rem;
+  font-family: ui-monospace, monospace;
+  white-space: nowrap;
+}
+.csv-transform-badge--passthrough {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+.csv-transform-badge--m2o {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.csv-transform-badge--m2m {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+.csv-transform-badge--dbid {
+  background: #fef3c7;
+  color: #b45309;
 }
 </style>

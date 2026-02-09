@@ -19,7 +19,9 @@ const defaultRunSettings: RunSettings = {
   delimiter: ',',
   skipHeader: true,
   dryRun: false,
-  lang: 'de_DE'
+  lang: 'de_DE',
+  workers: 1,
+  strict: true
 }
 
 const templates: ProfileTemplate[] = [

@@ -57,6 +57,71 @@ class ProfileController(http.Controller):
             return {'error': 'Profile not found'}
         return profile._to_dict(full=True)
 
+    # ── Create (JSON-RPC) ─────────────────────────────────────────────
+
+    @http.route('/csv_import/profile/create', type='json', auth='user',
+                methods=['POST'])
+    def create_profile(self, data):
+        """Create a new profile from JSON data (used by ConfigView)."""
+        if not data.get('name'):
+            return {'error': 'Profile must have a name'}
+
+        try:
+            vals = {
+                'name': data.get('name'),
+                'version': data.get('version', '1.0'),
+                'description': data.get('description', ''),
+                'odoo_min_version': data.get('odoo_min_version', ''),
+                'mappings': json.dumps(data.get('mappings', [])),
+                'sequence': json.dumps(data.get('sequence', [])),
+                'run_settings': json.dumps(data.get('run_settings', {})),
+                'field_mappings': json.dumps(data.get('field_mappings', [])),
+            }
+            record = request.env['csv.import.profile'].create(vals)
+            return record._to_dict(full=True)
+        except Exception as e:
+            _logger.warning(f'Profile create failed: {e}')
+            return {'error': str(e)}
+
+    # ── Update (JSON-RPC) ─────────────────────────────────────────────
+
+    @http.route('/csv_import/profile/<int:profile_id>/update', type='json',
+                auth='user', methods=['POST'])
+    def update_profile(self, profile_id, data):
+        """Update an existing profile from JSON data."""
+        profile = request.env['csv.import.profile'].browse(profile_id).exists()
+        if not profile:
+            return {'error': 'Profile not found'}
+
+        try:
+            vals = {}
+            if 'name' in data:
+                if not data['name']:
+                    return {'error': 'Profile must have a name'}
+                vals['name'] = data['name']
+            if 'version' in data:
+                vals['version'] = data['version']
+            if 'description' in data:
+                vals['description'] = data['description']
+            if 'odoo_min_version' in data:
+                vals['odoo_min_version'] = data['odoo_min_version']
+            if 'mappings' in data:
+                vals['mappings'] = json.dumps(data['mappings'])
+            if 'sequence' in data:
+                vals['sequence'] = json.dumps(data['sequence'])
+            if 'run_settings' in data:
+                vals['run_settings'] = json.dumps(data['run_settings'])
+            if 'field_mappings' in data:
+                vals['field_mappings'] = json.dumps(data['field_mappings'])
+
+            if vals:
+                profile.write(vals)
+
+            return profile._to_dict(full=True)
+        except Exception as e:
+            _logger.warning(f'Profile update failed: {e}')
+            return {'error': str(e)}
+
     # ── Delete ───────────────────────────────────────────────────────
 
     @http.route('/csv_import/profile/<int:profile_id>/delete', type='json',

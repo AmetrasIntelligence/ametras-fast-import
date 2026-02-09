@@ -48,10 +48,20 @@ async function addAndAnalyze(selected: Array<{ id: string; name: string; size: n
   config.setSequence(filesStore.files.map(f => f.name))
 }
 
-function handleDrop(_files: File[]) {
-  // In Electron, dropped files need to go through IPC
-  // For now, fall back to the file dialog
-  selectFiles()
+async function handleDrop(files: File[]) {
+  // In Electron, dropped File objects have a 'path' property with the full filesystem path
+  const paths = files
+    .map(f => (f as File & { path?: string }).path)
+    .filter((p): p is string => !!p)
+
+  if (paths.length === 0) {
+    // Fallback to file dialog if paths not available (browser mode)
+    selectFiles()
+    return
+  }
+
+  const selected = await window.api.files.register(paths)
+  await addAndAnalyze(selected)
 }
 
 function removeFile(id: string) {
@@ -70,64 +80,50 @@ function proceed() {
 
 <template>
   <div class="csv-p-6 csv-space-y-6">
-    <div class="csv-flex csv-justify-between csv-items-center">
-      <h1 class="csv-text-2xl csv-font-semibold">Select CSV Files</h1>
-      <Button v-if="files.length > 0" @click="selectFiles">
-        Add Files
-      </Button>
-    </div>
+    <h1 class="csv-text-2xl csv-font-semibold">{{ $t('files.title') }}</h1>
 
-    <!-- Drop zone when no files -->
+    <!-- Always show drop zone -->
     <FileDropZone
-      v-if="files.length === 0"
       @files-dropped="handleDrop"
       @browse="selectFiles"
     />
 
     <!-- File list with drag-to-reorder -->
-    <div v-else>
-      <FileList
-        :files="files"
-        @reorder="handleReorder"
-        @remove="removeFile"
-      >
-        <template #expanded="{ file }">
-          <div v-if="file.headers && file.headers.length > 0" class="csv-preview">
-            <div class="csv-preview__scroll">
-              <table class="csv-preview__table">
-                <thead>
-                  <tr>
-                    <th v-for="h in file.headers" :key="h">{{ h }}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(row, idx) in (file.sampleRows || []).slice(0, 4)" :key="idx">
-                    <td v-for="h in file.headers" :key="h">{{ row[h] ?? '' }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <div class="csv-text-xs csv-text-muted csv-mt-1">
-              {{ file.headers.length }} columns &middot; {{ file.rowCount?.toLocaleString() || '?' }} rows
-            </div>
+    <FileList
+      v-if="files.length > 0"
+      :files="files"
+      @reorder="handleReorder"
+      @remove="removeFile"
+    >
+      <template #expanded="{ file }">
+        <div v-if="file.headers && file.headers.length > 0" class="csv-preview">
+          <div class="csv-preview__scroll">
+            <table class="csv-preview__table">
+              <thead>
+                <tr>
+                  <th v-for="h in file.headers" :key="h">{{ h }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, idx) in (file.sampleRows || []).slice(0, 4)" :key="idx">
+                  <td v-for="h in file.headers" :key="h">{{ row[h] ?? '' }}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-          <div v-else class="csv-text-sm csv-text-muted">
-            No preview available
+          <div class="csv-text-xs csv-text-muted csv-mt-1">
+            {{ file.headers.length }} columns &middot; {{ file.rowCount?.toLocaleString() || '?' }} rows
           </div>
-        </template>
-      </FileList>
-
-      <div class="csv-mt-4">
-        <FileDropZone
-          @files-dropped="handleDrop"
-          @browse="selectFiles"
-        />
-      </div>
-    </div>
+        </div>
+        <div v-else class="csv-text-sm csv-text-muted">
+          {{ $t('files.noPreview') }}
+        </div>
+      </template>
+    </FileList>
 
     <div v-if="files.length > 0" class="csv-flex csv-justify-end">
       <Button @click="proceed">
-        Configure Mappings
+        {{ $t('files.configureMappings') }}
       </Button>
     </div>
   </div>

@@ -7,7 +7,7 @@ import path from 'path'
 const isElectron = process.env.npm_lifecycle_event?.includes('electron') ||
                    process.argv.includes('electron')
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [
     vue(),
     ...(isElectron ? [
@@ -33,13 +33,14 @@ export default defineConfig({
               outDir: 'dist-electron',
               lib: {
                 entry: 'electron/preload.ts',
-                formats: ['cjs']
+                formats: ['cjs'],
+                fileName: () => 'preload.cjs'
               },
               rollupOptions: {
-                external: ['electron'],
-                output: {
-                  entryFileNames: 'preload.js'
-                }
+                external: ['electron']
+              },
+              commonjsOptions: {
+                transformMixedEsModules: true
               }
             }
           }
@@ -50,8 +51,13 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, 'src')
+      '@': path.resolve(__dirname, 'src'),
+      // Use runtime-only build of vue-i18n in production to avoid CSP issues with eval in Electron
+      // In dev mode, use full build which supports runtime compilation
+      ...(mode === 'production' || mode === 'electron' ? {
+        'vue-i18n': 'vue-i18n/dist/vue-i18n.runtime.esm-bundler.js'
+      } : {})
     }
   },
   base: './'
-})
+}))

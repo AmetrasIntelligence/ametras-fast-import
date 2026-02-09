@@ -2,7 +2,7 @@
 
 ## Status: Complete
 
-All 17 EPICs implemented (0-16) plus post-EPIC UX improvements. 449 unit tests passing.
+All 17 EPICs implemented (0-16) plus post-EPIC improvements. 491+ tests passing (475 TypeScript + 26 Python).
 
 ---
 
@@ -40,9 +40,17 @@ All 17 EPICs implemented (0-16) plus post-EPIC UX improvements. 449 unit tests p
 ## Key Features
 
 ### Streaming CSV Processing
-- Files processed in chunks (configurable batch size)
+- Files processed in chunks (configurable batch size: 1-1000 rows)
 - Constant memory usage regardless of file size
 - Supports files >1GB
+
+### Parallel Batch Processing (Worker Pool)
+- 1-4 configurable workers for parallel batch processing
+- Files processed sequentially (never parallel)
+- Batches within a file processed in parallel
+- Retries always serialized (single worker)
+- Throughput display: `~1250 rows/sec (3 workers)`
+- Warning for inefficient configs (>2 workers with <50 batch size)
 
 ### Import State Machine
 ```
@@ -54,13 +62,21 @@ IDLE → VALIDATING → RUNNING_FILE ↔ RUNNING_BATCH → COMPLETED
 ```
 
 ### Retry Queue
-- Failed rows automatically retried (configurable limit)
+- Failed rows automatically retried (configurable limit: 0-10)
 - Per-row savepoints in Odoo (one failure doesn't kill batch)
 - Export failed rows as CSV for manual review
 
 ### External ID Support
 - `id` column: Upsert via `ir.model.data` (migrations-safe)
 - `.id` column: Direct DB ID (same-database only)
+
+### Reference Resolution (NEW)
+- External ID references (`field/id`) resolved via bulk prefetch
+- Database ID references (`field/.id`) validated for standard models only
+- Many2Many support: pipe or comma-delimited external IDs
+- O(1) lookup performance regardless of row count
+- Standard models for `/.id`: `res.country`, `res.currency`, `uom.uom`, `res.lang`
+- See [docs/reference-resolution.md](reference-resolution.md) for details
 
 ### Import Profiles (EPIC 13, 16)
 - Named configurations bundling mappings, sequence, settings, and field mappings
@@ -99,7 +115,7 @@ IDLE → VALIDATING → RUNNING_FILE ↔ RUNNING_BATCH → COMPLETED
 
 ## Test Suite
 
-### Unit Tests: 449 passing
+### Unit Tests: 491+ passing (475 TypeScript + 26 Python)
 
 | Module | Tests | Coverage |
 |--------|-------|----------|
@@ -107,6 +123,7 @@ IDLE → VALIDATING → RUNNING_FILE ↔ RUNNING_BATCH → COMPLETED
 | stateMachine | 31 | All state transitions, edge cases |
 | retryQueue | 14 | Failed row tracking, CSV export |
 | logger | 15 | Log levels, filtering, ring buffer |
+| workerPool | 15 | Queue, workers, throughput calculation |
 | stores/session | 15 | Auth, multi-server, profiles |
 | stores/config | 32 | Settings, mappings, CSV import/export |
 | stores/files | 19 | Add/remove files, analysis, dedup, clearAll |
@@ -114,7 +131,7 @@ IDLE → VALIDATING → RUNNING_FILE ↔ RUNNING_BATCH → COMPLETED
 | stores/profiles | 12 | Server-fetched profiles, cache TTL, delete |
 | stores/savedMappings | 12 | Per-server storage, glob matching, suggestions |
 | smartMapping | 21 | Filename scoring, Levenshtein, common patterns |
-| smartFieldMapping | 26 | Header scoring, German aliases, auto-mapping |
+| smartFieldMapping | 29 | Header scoring, German aliases, auto-mapping, /id detection |
 | useDialog | 22 | Alert/confirm/prompt, sequential dialogs |
 | profileValidator | 24 | Dependency validation, circular deps, ProfileDraft |
 | importProfile | 25 | CSV parse/export roundtrips, rich field mappings |
@@ -124,12 +141,18 @@ IDLE → VALIDATING → RUNNING_FILE ↔ RUNNING_BATCH → COMPLETED
 | profileExporter | 16 | Override merging, CSV generators, version bump |
 | profileApi | 6 | Server API with mocked IPC |
 | runConfig | 12 | RunConfig create, override merging, hasOverrides |
-| fieldMapping | 10 | Transform parse/serialize |
+| fieldMapping | 23 | Transform parse/serialize, m2m_ref, db_id, STANDARD_DB_ID_MODELS |
 | fieldMappingValidator | 11 | Validation rules |
-| batchExecutorMappings | 11 | Field mapping in batch execution |
+| batchExecutorMappings | 22 | Field mapping in batch execution, reference transforms |
 | components/Button | 16 | Variants, sizes, loading state |
 | components/Progress | 12 | Width calculation, clamping |
 | integration/engine | 16 | Full import flow, abort, failures |
+
+### Python Tests: 26 passing
+
+| Module | Tests | Coverage |
+|--------|-------|----------|
+| reference_resolution | 26 | External ID detection, parsing, normalization, lookup |
 
 ### E2E Tests: 41 scenarios (Playwright)
 
@@ -260,6 +283,9 @@ csv-client/
 10. **No external UI dependencies added** - Native HTML5 drag & drop, CSS-only indicators
 11. **In-app dialogs** - Custom modal dialogs since Electron blocks native `window.prompt`/`confirm`/`alert`
 12. **Server-side profile storage** - Profiles stored in Odoo (`csv.import.profile`), client is cache only
-12. **Immutable profiles + RunConfig overrides** - Profiles never edited directly; per-run changes via override system
-13. **Numeric profile IDs** - `ImportProfile.id` is `number` (Odoo DB ID), not UUID string
-14. **ZIP upload via IPC** - Multipart HTTP in Electron main process (renderer is sandboxed)
+13. **Immutable profiles + RunConfig overrides** - Profiles never edited directly; per-run changes via override system
+14. **Numeric profile IDs** - `ImportProfile.id` is `number` (Odoo DB ID), not UUID string
+15. **ZIP upload via IPC** - Multipart HTTP in Electron main process (renderer is sandboxed)
+16. **Parallel batches, sequential files** - Worker pool for throughput, file order for dependencies
+17. **Reference prefetch** - Bulk resolve external IDs before import for O(1) lookups
+18. **Standard models for /.id** - Database IDs only allowed for stable reference data (countries, currencies, UoM)

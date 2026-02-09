@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { ImportProfile } from '@/types/importProfile'
 import type { RunConfig } from '@/types/runConfig'
 import type { RunSettings } from '@/stores/config'
+import { serializeTransform } from '@/types/fieldMapping'
 import { Button } from '@/ui'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   profile: ImportProfile
@@ -22,12 +26,13 @@ const emit = defineEmits<{
 type Tab = 'settings' | 'mappings' | 'sequence' | 'field-mappings'
 const activeTab = ref<Tab>('settings')
 
-const tabs: { key: Tab; label: string }[] = [
-  { key: 'settings', label: 'Settings' },
-  { key: 'mappings', label: 'Mappings' },
-  { key: 'sequence', label: 'Sequence' },
-  { key: 'field-mappings', label: 'Field Mappings' }
-]
+// Note: Tab labels use computed for reactivity with i18n
+const tabs = computed(() => [
+  { key: 'settings' as Tab, label: t('profileEditor.tabs.settings') },
+  { key: 'mappings' as Tab, label: t('profileEditor.tabs.mappings') },
+  { key: 'sequence' as Tab, label: t('profileEditor.tabs.sequence') },
+  { key: 'field-mappings' as Tab, label: t('profileEditor.tabs.fieldMappings') }
+])
 
 const hasSettingsOverrides = computed(() =>
   Object.keys(props.runConfig.runSettingsOverride).length > 0
@@ -96,7 +101,7 @@ const fieldMappings = computed(() => props.profile.richFieldMappings || [])
         size="sm"
         @click="emit('reset-all')"
       >
-        Reset All Overrides
+        {{ $t('profileEditor.resetAll') }}
       </Button>
     </div>
 
@@ -114,7 +119,7 @@ const fieldMappings = computed(() => props.profile.richFieldMappings || [])
         <span
           v-if="isOverridden(tab.key)"
           class="csv-profile-editor__override-dot"
-          title="Has overrides"
+          :title="$t('profileEditor.hasOverrides')"
         ></span>
       </button>
     </div>
@@ -219,6 +224,18 @@ const fieldMappings = computed(() => props.profile.richFieldMappings || [])
         </div>
         <div class="csv-flex csv-items-center csv-gap-2 csv-pt-4">
           <input
+            :checked="effectiveRunSettings.skipHeader"
+            type="checkbox"
+            id="pe-skipHeader"
+            @change="updateSetting('skipHeader', ($event.target as HTMLInputElement).checked)"
+          />
+          <label for="pe-skipHeader" class="csv-text-sm">
+            Skip header row
+            <span v-if="isSettingOverridden('skipHeader')" class="csv-override-indicator">*</span>
+          </label>
+        </div>
+        <div class="csv-flex csv-items-center csv-gap-2 csv-pt-4">
+          <input
             :checked="effectiveRunSettings.dryRun"
             type="checkbox"
             id="pe-dryRun"
@@ -229,6 +246,8 @@ const fieldMappings = computed(() => props.profile.richFieldMappings || [])
             <span v-if="isSettingOverridden('dryRun')" class="csv-override-indicator">*</span>
           </label>
         </div>
+      </div>
+      <div class="csv-grid csv-grid-cols-2 csv-gap-4 csv-mt-4">
         <div>
           <label class="csv-text-xs csv-text-muted csv-block csv-mb-1">
             Language
@@ -248,13 +267,13 @@ const fieldMappings = computed(() => props.profile.richFieldMappings || [])
     <!-- Mappings Tab -->
     <div v-show="activeTab === 'mappings'" class="csv-profile-editor__content">
       <div v-if="effectiveMappings.length === 0" class="csv-text-center csv-py-4 csv-text-muted csv-text-sm">
-        No file mappings defined.
+        {{ $t('profileEditor.noMappings') }}
       </div>
       <table v-else class="csv-w-full csv-text-sm">
         <thead>
           <tr class="csv-profile-editor__table-header">
-            <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium">Filename</th>
-            <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium">Model</th>
+            <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium">{{ $t('profileEditor.filename') }}</th>
+            <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium">{{ $t('profileEditor.model') }}</th>
             <th class="csv-text-center csv-px-3 csv-py-2 csv-w-8"></th>
           </tr>
         </thead>
@@ -281,14 +300,14 @@ const fieldMappings = computed(() => props.profile.richFieldMappings || [])
     <!-- Sequence Tab -->
     <div v-show="activeTab === 'sequence'" class="csv-profile-editor__content">
       <div v-if="effectiveSequence.length === 0" class="csv-text-center csv-py-4 csv-text-muted csv-text-sm">
-        No sequence defined.
+        {{ $t('profileEditor.noSequence') }}
       </div>
       <table v-else class="csv-w-full csv-text-sm">
         <thead>
           <tr class="csv-profile-editor__table-header">
             <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium csv-w-16">#</th>
-            <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium">Filename</th>
-            <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium">Requires</th>
+            <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium">{{ $t('profileEditor.filename') }}</th>
+            <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium">{{ $t('profileEditor.requires') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -309,14 +328,14 @@ const fieldMappings = computed(() => props.profile.richFieldMappings || [])
         v-if="hasSequenceOverride"
         class="csv-text-xs csv-text-orange-600 csv-mt-2 csv-px-3"
       >
-        Sequence has been overridden
+        {{ $t('profileEditor.sequenceOverridden') }}
       </div>
     </div>
 
     <!-- Field Mappings Tab -->
     <div v-show="activeTab === 'field-mappings'" class="csv-profile-editor__content">
       <div v-if="fieldMappings.length === 0" class="csv-text-center csv-py-4 csv-text-muted csv-text-sm">
-        No field mappings defined.
+        {{ $t('profileEditor.noFieldMappings') }}
       </div>
       <table v-else class="csv-w-full csv-text-sm">
         <thead>
@@ -325,6 +344,7 @@ const fieldMappings = computed(() => props.profile.richFieldMappings || [])
             <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium">CSV Header</th>
             <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium">Odoo Field</th>
             <th class="csv-text-center csv-px-3 csv-py-2 csv-font-medium csv-w-12">Req</th>
+            <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium">Transform</th>
             <th class="csv-text-center csv-px-3 csv-py-2 csv-w-8"></th>
           </tr>
         </thead>
@@ -340,6 +360,9 @@ const fieldMappings = computed(() => props.profile.richFieldMappings || [])
             <td class="csv-text-center csv-px-3 csv-py-2">
               <span v-if="fm.required" class="csv-text-orange-600">Yes</span>
               <span v-else class="csv-text-muted">-</span>
+            </td>
+            <td class="csv-px-3 csv-py-2 csv-text-xs csv-text-muted">
+              {{ fm.transform ? serializeTransform(fm.transform) : '-' }}
             </td>
             <td class="csv-text-center csv-px-3 csv-py-2">
               <span

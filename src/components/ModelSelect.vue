@@ -22,9 +22,31 @@ const isOpen = ref(false)
 const referenceEl = ref<HTMLElement | null>(null)
 const dropdownEl = ref<HTMLElement | null>(null)
 const searchInputEl = ref<HTMLInputElement | null>(null)
+const dropdownStyle = ref<{ top: string; left: string }>({ top: '0px', left: '0px' })
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 const debouncedQuery = ref('')
+
+function updateDropdownPosition() {
+  if (!referenceEl.value) return
+  const rect = referenceEl.value.getBoundingClientRect()
+  const dropdownHeight = 320 // estimated max height
+  const spaceBelow = window.innerHeight - rect.bottom
+  const spaceAbove = rect.top
+
+  // Position below trigger, or above if not enough space below
+  if (spaceBelow >= dropdownHeight || spaceBelow >= spaceAbove) {
+    dropdownStyle.value = {
+      top: `${rect.bottom + 4}px`,
+      left: `${Math.max(8, Math.min(rect.left, window.innerWidth - 370))}px`
+    }
+  } else {
+    dropdownStyle.value = {
+      top: `${rect.top - dropdownHeight - 4}px`,
+      left: `${Math.max(8, Math.min(rect.left, window.innerWidth - 370))}px`
+    }
+  }
+}
 
 watch(searchQuery, (val) => {
   if (debounceTimer) clearTimeout(debounceTimer)
@@ -72,6 +94,7 @@ function toggleOpen() {
   if (isOpen.value) {
     searchQuery.value = ''
     debouncedQuery.value = ''
+    updateDropdownPosition()
     // Focus search input after dropdown opens
     setTimeout(() => searchInputEl.value?.focus(), 50)
   }
@@ -119,53 +142,56 @@ onBeforeUnmount(() => {
         <span class="csv-model-select__tech">{{ selectedModel.model }}</span>
         {{ selectedModel.name }}
       </span>
-      <span v-else class="csv-text-muted">Select model...</span>
+      <span v-else class="csv-text-muted">{{ $t('modelSelect.placeholder') }}</span>
       <span v-if="loading" class="csv-model-select__spinner" />
     </button>
 
-    <!-- Dropdown -->
-    <div
-      v-if="isOpen"
-      ref="dropdownEl"
-      class="csv-model-select__dropdown"
-    >
-      <!-- Search -->
-      <div class="csv-model-select__search">
-        <input
-          ref="searchInputEl"
-          v-model="searchQuery"
-          type="text"
-          placeholder="Search by name or technical name..."
-          class="csv-model-select__search-input"
-        />
-      </div>
-
-      <!-- Results -->
-      <div class="csv-model-select__results">
-        <div
-          v-if="filteredModels.length === 0"
-          class="csv-model-select__empty"
-        >
-          No models found
+    <!-- Dropdown (teleported to body for proper z-index) -->
+    <Teleport to="body">
+      <div
+        v-if="isOpen"
+        ref="dropdownEl"
+        class="csv-model-select__dropdown"
+        :style="dropdownStyle"
+      >
+        <!-- Search -->
+        <div class="csv-model-select__search">
+          <input
+            ref="searchInputEl"
+            v-model="searchQuery"
+            type="text"
+            :placeholder="$t('modelSelect.searchPlaceholder')"
+            class="csv-model-select__search-input"
+          />
         </div>
 
-        <button
-          v-for="model in filteredModels"
-          :key="model.id"
-          type="button"
-          class="csv-model-select__option"
-          :class="{ 'csv-model-select__option--selected': model.model === modelValue }"
-          @click="selectModel(model)"
-        >
-          <span class="csv-model-select__check" v-if="model.model === modelValue">&#10003;</span>
-          <span class="csv-model-select__check" v-else />
-          <div class="csv-model-select__option-text">
-            <div>{{ model.name }}</div>
-            <div class="csv-model-select__tech">{{ model.model }}</div>
+        <!-- Results -->
+        <div class="csv-model-select__results">
+          <div
+            v-if="filteredModels.length === 0"
+            class="csv-model-select__empty"
+          >
+            {{ $t('modelSelect.noResults') }}
           </div>
-        </button>
+
+          <button
+            v-for="model in filteredModels"
+            :key="model.id"
+            type="button"
+            class="csv-model-select__option"
+            :class="{ 'csv-model-select__option--selected': model.model === modelValue }"
+            @click="selectModel(model)"
+          >
+            <span class="csv-model-select__check" v-if="model.model === modelValue">&#10003;</span>
+            <span class="csv-model-select__check" v-else />
+            <div class="csv-model-select__option-text">
+              <div>{{ model.name }}</div>
+              <div class="csv-model-select__tech">{{ model.model }}</div>
+            </div>
+          </button>
+        </div>
       </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 
@@ -197,12 +223,6 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.csv-model-select__tech {
-  font-family: monospace;
-  font-size: 0.75rem;
-  color: #6b7280;
-  margin-right: 0.25rem;
-}
 .csv-model-select__spinner {
   width: 1rem;
   height: 1rem;
@@ -211,17 +231,25 @@ onBeforeUnmount(() => {
   border-radius: 50%;
   animation: csv-spin 1s linear infinite;
 }
+</style>
+
+<!-- Global styles for teleported dropdown -->
+<style>
+.csv-model-select__tech {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin-right: 0.25rem;
+}
 .csv-model-select__dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 50;
-  width: 350px;
+  position: fixed;
+  z-index: 1000;
+  width: 360px;
+  max-width: calc(100vw - 2rem);
   border: 1px solid #e5e7eb;
   border-radius: var(--radius, 0.375rem);
   background: white;
-  box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
-  overflow: hidden;
+  box-shadow: 0 10px 25px -3px rgba(0,0,0,0.15), 0 4px 6px -2px rgba(0,0,0,0.05);
 }
 .csv-model-select__search {
   padding: 0.5rem;
@@ -239,10 +267,11 @@ onBeforeUnmount(() => {
 .csv-model-select__search-input:focus {
   outline: none;
   border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
 }
 .csv-model-select__results {
   overflow-y: auto;
-  max-height: 250px;
+  max-height: 280px;
 }
 .csv-model-select__empty {
   padding: 1rem;
@@ -267,13 +296,13 @@ onBeforeUnmount(() => {
   background: #f3f4f6;
 }
 .csv-model-select__option--selected {
-  background: #f3f4f6;
+  background: #eff6ff;
 }
 .csv-model-select__check {
   width: 1rem;
   flex-shrink: 0;
   color: #2563eb;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
 }
 .csv-model-select__option-text {
   flex: 1;

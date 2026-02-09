@@ -22,6 +22,23 @@ partner_3,Jane Smith,jane@example.com,+49345678,false`
 
 export const DEMO_CSV_LARGE_HEADER = `id,name,street,zip,city,country_id/.id,email,website,phone,fax,is_company,active,lang,customer_rank,supplier_rank`
 
+// CSV with external ID references (for reference resolution testing)
+export const DEMO_CSV_WITH_REFS = `id,name,categ_id/id,manufacturer_id/id,uom_id/.id
+product_1,Widget A,product_category#123,res_partner_id#456,1
+product_2,Widget B,product_category#123,res_partner_id#789,1
+product_3,Gadget C,product_category#456,,1`
+
+// CSV with Many2Many references (pipe-delimited)
+export const DEMO_CSV_WITH_M2M_REFS = `id,name,route_ids/id,tag_ids/id
+product_1,Product A,purchase_stock.route_warehouse0_buy|stock.route_warehouse0_mto,tag_red|tag_blue
+product_2,Product B,purchase_stock.route_warehouse0_buy,tag_green`
+
+// CSV with standard /.id references (countries, currencies, uom)
+export const DEMO_CSV_WITH_DB_IDS = `id,name,country_id/.id,currency_id/.id,uom_id/.id
+partner_1,Partner A,57,1,1
+partner_2,Partner B,1,1,1
+partner_3,Partner C,57,2,1`
+
 export const DEMO_CSV_WITH_ERRORS = `id,name,email
 partner_valid,Valid Partner,valid@example.com
 partner_invalid,,invalid-email
@@ -91,7 +108,38 @@ export const mockOdooResponses = {
     email: { type: 'char', string: 'Email', required: false, readonly: false },
     phone: { type: 'char', string: 'Phone', required: false, readonly: false },
     is_company: { type: 'boolean', string: 'Is Company', required: false, readonly: false },
-    parent_id: { type: 'many2one', string: 'Parent', required: false, readonly: false, relation: 'res.partner' }
+    parent_id: { type: 'many2one', string: 'Parent', required: false, readonly: false, relation: 'res.partner' },
+    country_id: { type: 'many2one', string: 'Country', required: false, readonly: false, relation: 'res.country' },
+    currency_id: { type: 'many2one', string: 'Currency', required: false, readonly: false, relation: 'res.currency' }
+  },
+  fieldsProduct: {
+    id: { type: 'integer', string: 'ID', required: false, readonly: true },
+    name: { type: 'char', string: 'Name', required: true, readonly: false },
+    categ_id: { type: 'many2one', string: 'Category', required: true, readonly: false, relation: 'product.category' },
+    manufacturer_id: { type: 'many2one', string: 'Manufacturer', required: false, readonly: false, relation: 'res.partner' },
+    uom_id: { type: 'many2one', string: 'Unit of Measure', required: true, readonly: false, relation: 'uom.uom' },
+    route_ids: { type: 'many2many', string: 'Routes', required: false, readonly: false, relation: 'stock.route' }
+  },
+  // Import with reference resolution
+  importWithRefsSuccess: {
+    results: [
+      { ok: true, id: 1, external_id: 'product_1', action: 'created', strategy: 'create' },
+      { ok: true, id: 2, external_id: 'product_2', action: 'created', strategy: 'create' }
+    ],
+    warnings: []
+  },
+  importWithRefsFail: {
+    results: [
+      { ok: false, error: "External ID 'product_category#999' not found for model product.category" }
+    ]
+  },
+  importWithDbIdWarning: {
+    results: [
+      { ok: true, id: 1, external_id: 'partner_1', action: 'created', strategy: 'create' }
+    ],
+    warnings: [
+      "Field 'country_id' uses database ID 57. Consider migrating to external ID for portability."
+    ]
   }
 }
 
@@ -106,6 +154,7 @@ export const mockServerProfiles = [
 export const mockRunSettings = {
   default: {
     batchSize: 200,
+    workers: 1,
     retryLimit: 3,
     retryDelayMs: 2000,
     stopOnFatalError: false,
@@ -117,6 +166,7 @@ export const mockRunSettings = {
   },
   small: {
     batchSize: 10,
+    workers: 1,
     retryLimit: 1,
     retryDelayMs: 500,
     stopOnFatalError: true,
@@ -128,6 +178,7 @@ export const mockRunSettings = {
   },
   large: {
     batchSize: 500,
+    workers: 4,
     retryLimit: 5,
     retryDelayMs: 5000,
     stopOnFatalError: false,
@@ -139,6 +190,7 @@ export const mockRunSettings = {
   },
   noRetry: {
     batchSize: 100,
+    workers: 1,
     retryLimit: 0,
     retryDelayMs: 0,
     stopOnFatalError: true,
@@ -150,6 +202,7 @@ export const mockRunSettings = {
   },
   dryRun: {
     batchSize: 200,
+    workers: 1,
     retryLimit: 3,
     retryDelayMs: 2000,
     stopOnFatalError: false,
@@ -157,6 +210,18 @@ export const mockRunSettings = {
     delimiter: ',' as const,
     skipHeader: true,
     dryRun: true,
+    lang: 'de_DE'
+  },
+  parallel: {
+    batchSize: 200,
+    workers: 3,
+    retryLimit: 3,
+    retryDelayMs: 2000,
+    stopOnFatalError: false,
+    encoding: 'utf-8-sig' as const,
+    delimiter: ',' as const,
+    skipHeader: true,
+    dryRun: false,
     lang: 'de_DE'
   }
 }

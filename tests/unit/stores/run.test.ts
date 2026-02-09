@@ -237,6 +237,56 @@ describe('RunStore', () => {
     })
   })
 
+  describe('hasRetryableErrors', () => {
+    it('returns false when no errors', () => {
+      const store = useRunStore()
+      expect(store.hasRetryableErrors).toBe(false)
+    })
+
+    it('returns false when only file-level errors (rowNumber 0)', () => {
+      const store = useRunStore()
+      store.addError({
+        filename: 'file.csv',
+        rowNumber: 0,
+        rawData: {},
+        error: 'File-level error',
+        timestamp: Date.now()
+      })
+      expect(store.hasRetryableErrors).toBe(false)
+    })
+
+    it('returns true when row-level errors exist', () => {
+      const store = useRunStore()
+      store.addError({
+        filename: 'file.csv',
+        rowNumber: 5,
+        rawData: {},
+        error: 'Row-level error',
+        timestamp: Date.now()
+      })
+      expect(store.hasRetryableErrors).toBe(true)
+    })
+
+    it('returns true if at least one row-level error exists', () => {
+      const store = useRunStore()
+      store.addError({
+        filename: 'file.csv',
+        rowNumber: 0,
+        rawData: {},
+        error: 'File-level error',
+        timestamp: Date.now()
+      })
+      store.addError({
+        filename: 'file.csv',
+        rowNumber: 10,
+        rawData: {},
+        error: 'Row-level error',
+        timestamp: Date.now()
+      })
+      expect(store.hasRetryableErrors).toBe(true)
+    })
+  })
+
   describe('setState', () => {
     it('updates state', () => {
       const store = useRunStore()

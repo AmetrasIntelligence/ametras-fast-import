@@ -36,7 +36,7 @@ function transformRow(
   const result: Record<string, unknown> = {}
 
   for (const [csvCol, odooField] of Object.entries(mapping.fieldMappings)) {
-    // Handle id/.id columns specially for upsert
+    // Handle id/.id columns specially for upsert (Strategy 1: External ID)
     if (csvCol === 'id' && odooField === 'id') {
       const value = row.data['id']
       if (value !== undefined && value !== '') {
@@ -52,19 +52,52 @@ function transformRow(
       continue
     }
 
-    const value = row.data[csvCol]
-    if (value !== undefined && value !== '') {
-      result[odooField] = value
+    // Handle operation column for Strategy 3: Explicit Operation
+    if ((csvCol === 'op' || csvCol === '__op__') && odooField === '__op__') {
+      const value = row.data[csvCol]
+      if (value !== undefined && value !== '') {
+        result['__op__'] = value
+      }
+      continue
     }
+
+    const value = row.data[csvCol]
+    if (value === undefined || value === '') continue
+
+    // Handle reference suffixes in CSV column headers
+    // /id suffix: External ID reference - pass as string for backend resolution
+    if (csvCol.endsWith('/id')) {
+      const targetField = odooField.endsWith('/id') ? odooField.slice(0, -3) : odooField
+      result[targetField] = value
+      continue
+    }
+
+    // /.id suffix: Database ID - convert to integer (validated by backend)
+    if (csvCol.endsWith('/.id')) {
+      const targetField = odooField.endsWith('/.id') ? odooField.slice(0, -4) : odooField
+      result[targetField] = parseInt(value, 10)
+      continue
+    }
+
+    result[odooField] = value
   }
 
   return result
 }
 
+export interface MappingConfig {
+  fieldMappings: Record<string, string>
+  idColumn?: 'id' | '.id' | null
+  /** Field names for natural key search (Strategy 2) */
+  searchKeys?: string[]
+  /** If true, fail on missing keys instead of falling back to create */
+  strict?: boolean
+}
+
 export async function executeBatch(
   model: string,
   rows: ParsedRow[],
-  mapping: { fieldMappings: Record<string, string>; idColumn?: 'id' | '.id' | null },
+  mapping: MappingConfig,
   dryRun?: boolean
 ): Promise<BatchResult[]> {
   const session = useSessionStore()
@@ -84,6 +117,8 @@ export async function executeBatch(
       error?: string
       id?: number
       external_id?: string
+      action?: 'created' | 'updated' | 'skipped'
+      strategy?: string
     }>
   }>({
     baseUrl: session.baseUrl,
@@ -92,7 +127,9 @@ export async function executeBatch(
       model,
       rows: transformedRows.map(r => r.data),
       use_external_id: idColumn === 'id',
-      dry_run: dryRun || false
+      search_keys: mapping.searchKeys || null,
+      dry_run: dryRun || false,
+      strict: mapping.strict || false
     }
   })
 
@@ -140,15 +177,26 @@ export function transformRowWithMappings(
 
 /**
  * Apply field transform to value.
- * Phase 1: Very limited transforms.
+ * Reference resolution happens on the backend; frontend just prepares the values.
  */
 function applyTransform(value: string, transform: FieldTransform): unknown {
   switch (transform.type) {
     case 'passthrough':
       return value
+
     case 'm2o_ref':
-      // Return as external ID reference for Odoo to resolve
+      // Return as external ID reference string for backend resolution
       return value
+
+    case 'm2m_ref':
+      // Return as pipe-delimited external ID references for backend resolution
+      // Backend will parse and resolve to [(6, 0, [ids])]
+      return value
+
+    case 'db_id':
+      // Convert to integer - backend validates record exists in allowed models
+      return parseInt(value, 10)
+
     default:
       return value
   }

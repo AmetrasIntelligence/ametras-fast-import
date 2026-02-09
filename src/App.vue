@@ -5,6 +5,7 @@ import { useSessionStore } from '@/stores/session'
 import { useRunStore } from '@/stores/run'
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import AppDialog from '@/components/AppDialog.vue'
+import LanguageSelector from '@/components/LanguageSelector.vue'
 
 const session = useSessionStore()
 const run = useRunStore()
@@ -31,21 +32,21 @@ function logout() {
             class="csv-nav__link"
             :class="{ 'csv-nav__link--active': route.path === '/files' }"
           >
-            Files
+            {{ $t('nav.files') }}
           </router-link>
           <router-link
             to="/config"
             class="csv-nav__link"
             :class="{ 'csv-nav__link--active': route.path === '/config' }"
           >
-            Configure
+            {{ $t('nav.configure') }}
           </router-link>
           <router-link
             to="/mappings"
             class="csv-nav__link"
             :class="{ 'csv-nav__link--active': route.path === '/mappings' }"
           >
-            Profiles
+            {{ $t('nav.profiles') }}
           </router-link>
           <router-link
             v-if="run.isActive || run.isCompleted"
@@ -56,19 +57,25 @@ function logout() {
               'csv-nav__link--running': run.isActive
             }"
           >
-            Import
+            {{ $t('nav.import') }}
             <span v-if="run.isActive" class="csv-nav__indicator"></span>
           </router-link>
         </div>
         <div class="csv-nav__right">
+          <LanguageSelector />
           <span class="csv-text-xs csv-text-muted">
             {{ session.currentServer?.baseUrl }}
           </span>
           <button type="button" class="csv-nav__logout" @click="logout">
-            Logout
+            {{ $t('nav.logout') }}
           </button>
         </div>
       </nav>
+      <!-- Version compatibility warning -->
+      <div v-if="session.addonVersionWarning" class="csv-version-warning">
+        <span class="csv-version-warning__icon">⚠</span>
+        <span>{{ session.addonVersionWarning }}</span>
+      </div>
       <RouterView />
       <AppDialog />
     </div>
@@ -86,6 +93,9 @@ function logout() {
 }
 
 .csv-nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -148,5 +158,20 @@ function logout() {
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
+}
+
+/* Version compatibility warning banner */
+.csv-version-warning {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1.5rem;
+  background: #fef3c7;
+  border-bottom: 1px solid #fcd34d;
+  color: #92400e;
+  font-size: 0.875rem;
+}
+.csv-version-warning__icon {
+  flex-shrink: 0;
 }
 </style>

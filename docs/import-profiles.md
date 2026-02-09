@@ -85,13 +85,36 @@ stopOnFatalError,false
 ### 5. field_mappings.csv — Column-to-Field Assignments (Optional)
 
 ```csv
-filename,csv_column,odoo_field
-partners.csv,name,name
-partners.csv,email,email
-partners.csv,kunde_nr,ref
-contacts.csv,name,name
-contacts.csv,parent,parent_id
+filename,csv_header,odoo_field,required,transform,notes
+partners.csv,id,id,true,,External ID for upsert
+partners.csv,name,name,true,,Partner name
+partners.csv,country_id/.id,country_id,false,db_id:res.country,Country database ID
+partners.csv,parent_id/id,parent_id,false,m2o_ref:res.partner,Parent partner
+products.csv,categ_id/id,categ_id,false,m2o_ref:product.category,Category external ID
+products.csv,route_ids/id,route_ids,false,m2m_ref:stock.route,Routes (pipe-delimited)
 ```
+
+| Column | Description |
+|--------|-------------|
+| `filename` | CSV file this mapping applies to |
+| `csv_header` | Column header in CSV (exact match) |
+| `odoo_field` | Target field on Odoo model |
+| `required` | If `true`, import fails when column empty |
+| `transform` | Transform type (see below) |
+| `notes` | Human-readable description |
+
+#### Transform Types
+
+| Transform | Format | Description |
+|-----------|--------|-------------|
+| (empty) | - | Passthrough — value used as-is |
+| `m2o_ref:model` | `m2o_ref:res.partner` | Many2One via external ID |
+| `m2m_ref:model` | `m2m_ref:stock.route` | Many2Many via pipe-delimited external IDs |
+| `db_id:model` | `db_id:res.country` | Database ID (standard models only) |
+
+**Standard models for `db_id`:** `res.country`, `res.currency`, `uom.uom`, `res.lang`, `res.country.state`, `res.partner.title`
+
+See [reference-resolution.md](reference-resolution.md) for full details on reference handling.
 
 This file is optional. If omitted, the user configures field mappings manually each run, with smart suggestions provided by the app.
 
@@ -164,7 +187,7 @@ Saved mappings provide quick suggestions on the Config page — the user always 
 
 ## Smart Suggestions
 
-The app provides two levels of automated suggestion:
+The app provides multiple levels of automated suggestion:
 
 ### Model Suggestions (Filename → Odoo Model)
 
@@ -183,6 +206,22 @@ When a model is selected, CSV headers are scored against the model's fields usin
 - Substring matching (for 3+ character headers)
 
 Field suggestions auto-populate the mapping form but can be changed individually.
+
+### Reference Column Detection (NEW)
+
+The app automatically detects reference column patterns in CSV headers:
+
+| Pattern | Detection | Suggested Transform |
+|---------|-----------|---------------------|
+| `field/id` | External ID suffix | `m2o_ref:comodel` or `m2m_ref:comodel` |
+| `field/.id` | Database ID suffix | `db_id:comodel` (if standard model) |
+
+**Example:** Header `categ_id/id` on `product.template` model:
+1. Detects `/id` suffix
+2. Looks up `categ_id` field → Many2One to `product.category`
+3. Suggests transform `m2o_ref:product.category`
+
+For `/.id` columns referencing non-standard models, the app warns and suggests migration to external IDs.
 
 ## What the System Does NOT Do
 
@@ -247,6 +286,21 @@ interface ImportProfile {
   createdAt: number
   updatedAt: number
 }
+```
+
+Field transforms are defined in `src/types/fieldMapping.ts`:
+
+```typescript
+type FieldTransform =
+  | { type: 'passthrough' }
+  | { type: 'm2o_ref'; model: string }
+  | { type: 'm2m_ref'; model: string }
+  | { type: 'db_id'; model: string }
+
+const STANDARD_DB_ID_MODELS = new Set([
+  'res.country', 'res.currency', 'uom.uom',
+  'res.lang', 'res.country.state', 'res.partner.title'
+])
 ```
 
 The `RunConfig` type in `src/types/runConfig.ts` holds per-run overrides:

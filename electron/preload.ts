@@ -9,6 +9,7 @@ export interface ProfileUploadResult {
 export interface ElectronAPI {
   files: {
     select: () => Promise<FileHandle[]>
+    register: (paths: string[]) => Promise<FileHandle[]>
     read: (id: string) => Promise<string>
     readHead: (id: string, bytes: number) => Promise<string>
     countLines: (id: string) => Promise<number>
@@ -78,6 +79,7 @@ interface OdooCallResult<T> {
 contextBridge.exposeInMainWorld('api', {
   files: {
     select: () => ipcRenderer.invoke('files:select'),
+    register: (paths: string[]) => ipcRenderer.invoke('files:register', paths),
     read: (id: string) => ipcRenderer.invoke('files:read', id),
     readHead: (id: string, bytes: number) => ipcRenderer.invoke('files:readHead', id, bytes),
     countLines: (id: string) => ipcRenderer.invoke('files:countLines', id),

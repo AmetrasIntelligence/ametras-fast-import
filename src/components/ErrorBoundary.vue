@@ -54,12 +54,11 @@ function exportDiagnostics() {
   <div v-else class="csv-min-h-screen csv-flex csv-items-center csv-justify-center csv-p-4">
     <Card class="csv-max-w-lg csv-p-6">
       <h2 class="csv-text-xl csv-font-semibold csv-text-red-600 csv-mb-4">
-        Something went wrong
+        {{ $t('errorBoundary.title') }}
       </h2>
 
       <p class="csv-text-muted csv-mb-4">
-        An unexpected error occurred. You can try to reset the application or
-        download diagnostics to share with support.
+        {{ $t('errorBoundary.description') }}
       </p>
 
       <div class="csv-bg-gray-100 csv-p-3 csv-rounded csv-mb-4 csv-text-sm csv-font-mono csv-overflow-auto csv-max-h-32">
@@ -68,10 +67,10 @@ function exportDiagnostics() {
 
       <div class="csv-flex csv-gap-4">
         <Button @click="reset">
-          Reset Application
+          {{ $t('errorBoundary.reset') }}
         </Button>
         <Button variant="outline" @click="exportDiagnostics">
-          Download Diagnostics
+          {{ $t('errorBoundary.downloadDiagnostics') }}
         </Button>
       </div>
     </Card>

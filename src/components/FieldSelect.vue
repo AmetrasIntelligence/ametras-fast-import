@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { OdooField } from '@/api/odooClient'
+
+const { t } = useI18n()
 
 interface FieldOption {
   value: string
@@ -27,8 +30,30 @@ const debouncedQuery = ref('')
 const referenceEl = ref<HTMLElement | null>(null)
 const dropdownEl = ref<HTMLElement | null>(null)
 const searchInputEl = ref<HTMLInputElement | null>(null)
+const dropdownStyle = ref<{ top: string; left: string }>({ top: '0px', left: '0px' })
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
+
+function updateDropdownPosition() {
+  if (!referenceEl.value) return
+  const rect = referenceEl.value.getBoundingClientRect()
+  const dropdownHeight = 340 // estimated max height
+  const spaceBelow = window.innerHeight - rect.bottom
+  const spaceAbove = rect.top
+
+  // Position below trigger, or above if not enough space below
+  if (spaceBelow >= dropdownHeight || spaceBelow >= spaceAbove) {
+    dropdownStyle.value = {
+      top: `${rect.bottom + 4}px`,
+      left: `${Math.max(8, Math.min(rect.left, window.innerWidth - 408))}px`
+    }
+  } else {
+    dropdownStyle.value = {
+      top: `${rect.top - dropdownHeight - 4}px`,
+      left: `${Math.max(8, Math.min(rect.left, window.innerWidth - 408))}px`
+    }
+  }
+}
 
 watch(searchQuery, (val) => {
   if (debounceTimer) clearTimeout(debounceTimer)
@@ -43,17 +68,17 @@ const allOptions = computed<FieldOption[]>(() => {
   // Special id options at the top (for upsert)
   opts.push({
     value: 'id',
-    label: 'External ID',
+    label: t('fieldSelect.externalId'),
     technical: 'id',
-    suffix: 'ext ID',
+    suffix: t('fieldSelect.extIdSuffix'),
     fieldType: 'id',
     isRelational: false
   })
   opts.push({
     value: '.id',
-    label: 'Database ID',
+    label: t('fieldSelect.databaseId'),
     technical: '.id',
-    suffix: 'db ID',
+    suffix: t('fieldSelect.dbIdSuffix'),
     fieldType: 'id',
     isRelational: false
   })
@@ -74,7 +99,7 @@ const allOptions = computed<FieldOption[]>(() => {
         value: `${f.name}/id`,
         label: f.string,
         technical: `${f.name}/id`,
-        suffix: 'ext ID',
+        suffix: t('fieldSelect.extIdSuffix'),
         fieldType: f.type,
         isRelational: true
       })
@@ -82,7 +107,7 @@ const allOptions = computed<FieldOption[]>(() => {
         value: `${f.name}/.id`,
         label: f.string,
         technical: `${f.name}/.id`,
-        suffix: 'db ID',
+        suffix: t('fieldSelect.dbIdSuffix'),
         fieldType: f.type,
         isRelational: true
       })
@@ -114,6 +139,7 @@ function toggleOpen() {
   if (isOpen.value) {
     searchQuery.value = ''
     debouncedQuery.value = ''
+    updateDropdownPosition()
     setTimeout(() => searchInputEl.value?.focus(), 50)
   }
 }
@@ -169,22 +195,24 @@ onBeforeUnmount(() => {
           [{{ selectedOption.suffix }}]
         </span>
       </span>
-      <span v-else class="csv-text-muted">(skip)</span>
+      <span v-else class="csv-text-muted">{{ $t('common.skip') }}</span>
     </button>
 
-    <!-- Dropdown -->
-    <div
-      v-if="isOpen"
-      ref="dropdownEl"
-      class="csv-field-sel__dropdown"
-    >
+    <!-- Dropdown (fixed position, teleported to body) -->
+    <Teleport to="body">
+      <div
+        v-if="isOpen"
+        ref="dropdownEl"
+        class="csv-field-sel__dropdown"
+        :style="dropdownStyle"
+      >
       <!-- Search -->
       <div class="csv-field-sel__search">
         <input
           ref="searchInputEl"
           v-model="searchQuery"
           type="text"
-          placeholder="Search by name or technical name..."
+          :placeholder="$t('fieldSelect.searchPlaceholder')"
           class="csv-field-sel__search-input"
         />
       </div>
@@ -200,7 +228,7 @@ onBeforeUnmount(() => {
         >
           <span class="csv-field-sel__check">{{ !modelValue ? '&#10003;' : '' }}</span>
           <div class="csv-field-sel__option-text">
-            <div class="csv-text-muted">(skip)</div>
+            <div class="csv-text-muted">{{ $t('common.skip') }}</div>
           </div>
         </button>
 
@@ -208,7 +236,7 @@ onBeforeUnmount(() => {
           v-if="filteredOptions.length === 0"
           class="csv-field-sel__empty"
         >
-          No fields found
+          {{ $t('fieldSelect.noResults') }}
         </div>
 
         <button
@@ -233,6 +261,7 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 
@@ -265,6 +294,10 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+</style>
+
+<!-- Global styles for teleported dropdown -->
+<style>
 .csv-field-sel__tech {
   font-family: monospace;
   font-size: 0.7rem;
@@ -277,16 +310,14 @@ onBeforeUnmount(() => {
   margin-left: 0.125rem;
 }
 .csv-field-sel__dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 50;
-  width: 380px;
+  position: fixed;
+  z-index: 1000;
+  width: 400px;
+  max-width: calc(100vw - 2rem);
   border: 1px solid #e5e7eb;
   border-radius: var(--radius, 0.375rem);
   background: white;
-  box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
-  overflow: hidden;
+  box-shadow: 0 10px 25px -3px rgba(0,0,0,0.15), 0 4px 6px -2px rgba(0,0,0,0.05);
 }
 .csv-field-sel__search {
   padding: 0.5rem;
@@ -294,25 +325,26 @@ onBeforeUnmount(() => {
 }
 .csv-field-sel__search-input {
   width: 100%;
-  height: 1.75rem;
+  height: 2rem;
   padding: 0 0.5rem;
   border: 1px solid #d1d5db;
   border-radius: var(--radius, 0.375rem);
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   font-family: inherit;
 }
 .csv-field-sel__search-input:focus {
   outline: none;
   border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
 }
 .csv-field-sel__results {
   overflow-y: auto;
-  max-height: 280px;
+  max-height: 300px;
 }
 .csv-field-sel__empty {
   padding: 1rem;
   text-align: center;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   color: #6b7280;
 }
 .csv-field-sel__option {
@@ -320,9 +352,9 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.375rem 0.75rem;
+  padding: 0.5rem 0.75rem;
   text-align: left;
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   background: none;
   border: none;
   cursor: pointer;
@@ -332,13 +364,13 @@ onBeforeUnmount(() => {
   background: #f3f4f6;
 }
 .csv-field-sel__option--selected {
-  background: #f3f4f6;
+  background: #eff6ff;
 }
 .csv-field-sel__check {
-  width: 0.875rem;
+  width: 1rem;
   flex-shrink: 0;
   color: #2563eb;
-  font-size: 0.7rem;
+  font-size: 0.875rem;
 }
 .csv-field-sel__option-text {
   flex: 1;
@@ -352,11 +384,11 @@ onBeforeUnmount(() => {
 }
 .csv-field-sel__type {
   flex-shrink: 0;
-  font-size: 0.625rem;
+  font-size: 0.7rem;
   color: #9ca3af;
   font-family: monospace;
-  padding: 0.0625rem 0.25rem;
+  padding: 0.125rem 0.375rem;
   background: #f3f4f6;
-  border-radius: 2px;
+  border-radius: 3px;
 }
 </style>

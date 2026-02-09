@@ -4,7 +4,10 @@ import type { ImportProfile } from '@/types/importProfile'
 import {
   fetchProfiles,
   fetchProfile,
-  deleteProfile as apiDeleteProfile
+  deleteProfile as apiDeleteProfile,
+  createProfile as apiCreateProfile,
+  updateProfile as apiUpdateProfile,
+  type ProfileCreateData
 } from '@/api/profileApi'
 
 const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
@@ -75,6 +78,24 @@ export const useProfilesStore = defineStore('profiles', () => {
   }
 
   /**
+   * Create a new profile on the server and add to cache.
+   */
+  async function createProfile(data: ProfileCreateData): Promise<ImportProfile> {
+    const profile = await apiCreateProfile(data)
+    profiles.value.set(profile.id, profile)
+    return profile
+  }
+
+  /**
+   * Update an existing profile on the server and update cache.
+   */
+  async function updateProfile(id: number, data: Partial<ProfileCreateData>): Promise<ImportProfile> {
+    const profile = await apiUpdateProfile(id, data)
+    profiles.value.set(id, profile)
+    return profile
+  }
+
+  /**
    * Force next loadProfiles to refetch.
    */
   function invalidateCache() {
@@ -98,6 +119,8 @@ export const useProfilesStore = defineStore('profiles', () => {
     cacheProfile,
     getProfile,
     deleteProfile,
+    createProfile,
+    updateProfile,
     invalidateCache,
     profileList
   }

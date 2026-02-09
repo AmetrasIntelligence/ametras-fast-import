@@ -254,7 +254,8 @@ describe('ImportEngine Integration', () => {
 
       await importPromise
 
-      expect(run.state).toBe(ImportState.IDLE)
+      // Changed from IDLE to FAILED so results can still be viewed after abort
+      expect(run.state).toBe(ImportState.FAILED)
     })
   })
 

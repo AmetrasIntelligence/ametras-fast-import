@@ -12,6 +12,8 @@ describe('transformRowWithMappings', () => {
     { filename: 'products.csv', csvHeader: 'sku', odooField: 'default_code', required: true, transform: { type: 'passthrough' } },
     { filename: 'products.csv', csvHeader: 'name', odooField: 'name', required: true, transform: { type: 'passthrough' } },
     { filename: 'products.csv', csvHeader: 'categ', odooField: 'categ_id', required: false, transform: { type: 'm2o_ref', model: 'product.category' } },
+    { filename: 'products.csv', csvHeader: 'route_ids', odooField: 'route_ids', required: false, transform: { type: 'm2m_ref', model: 'stock.route' } },
+    { filename: 'products.csv', csvHeader: 'uom_id', odooField: 'uom_id', required: false, transform: { type: 'db_id', model: 'uom.uom' } },
     { filename: 'other.csv', csvHeader: 'name', odooField: 'name', required: true, transform: { type: 'passthrough' } },
   ]
 
@@ -60,6 +62,28 @@ describe('transformRowWithMappings', () => {
     const result = transformRowWithMappings(row, mappings, 'products.csv')
 
     expect(result.categ_id).toBe('product_category_ref_123')
+  })
+
+  it('passes m2m_ref values through as strings (for backend resolution)', () => {
+    const row = makeRow({ sku: 'X', name: 'Y', route_ids: 'route_buy|route_mto' })
+    const result = transformRowWithMappings(row, mappings, 'products.csv')
+
+    expect(result.route_ids).toBe('route_buy|route_mto')
+  })
+
+  it('converts db_id values to integers', () => {
+    const row = makeRow({ sku: 'X', name: 'Y', uom_id: '42' })
+    const result = transformRowWithMappings(row, mappings, 'products.csv')
+
+    expect(result.uom_id).toBe(42)
+    expect(typeof result.uom_id).toBe('number')
+  })
+
+  it('converts db_id value 1 correctly', () => {
+    const row = makeRow({ sku: 'X', name: 'Y', uom_id: '1' })
+    const result = transformRowWithMappings(row, mappings, 'products.csv')
+
+    expect(result.uom_id).toBe(1)
   })
 })
 

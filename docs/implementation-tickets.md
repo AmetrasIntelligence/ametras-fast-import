@@ -22,3 +22,6 @@
 | 15 | Field Mapping (Phase 1) | CSV Format (15.1), ZIP Extension (15.2), Validation (15.3), UI (15.4), Import Flow (15.5), Demo Profile (15.6) |
 | 16 | Profile Management | Odoo Addon Storage (PM-0), IPC + Client API (PM-1), Validator (PM-2), Store Refactor (PM-3), RunConfig (PM-4), Editor UI (PM-5), Exporter (PM-6), Versioning (PM-7) |
 | Post | UX Polish | Nav bar, FieldSelect, in-app dialogs, file preview, profile picker, smart re-mapping on model change |
+
+
+Check if profile update is actually correctly implemented - should clone not update.

@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@/stores/session'
 import { Button, Input, Card } from '@/ui'
+
+const { t } = useI18n()
 
 const router = useRouter()
 const session = useSessionStore()
@@ -16,6 +19,7 @@ const password = ref('')
 const loading = ref(false)
 const error = ref<string | null>(null)
 const showAdvanced = ref(false)
+const selectedProfileId = ref('')
 
 const savedProfiles = computed(() => session.savedProfiles)
 
@@ -82,7 +86,7 @@ async function handleLogin() {
     )
     router.push('/files')
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Login failed'
+    error.value = e instanceof Error ? e.message : t('login.loginFailed')
     // Show advanced options on error
     showAdvanced.value = true
   } finally {
@@ -90,19 +94,30 @@ async function handleLogin() {
   }
 }
 
-function selectProfile(profile: typeof savedProfiles.value[0]) {
-  parseUrl(profile.baseUrl)
-  db.value = profile.db
-  login.value = profile.name
+function onProfileSelect(event: Event) {
+  const id = (event.target as HTMLSelectElement).value
+  selectedProfileId.value = id
+
+  if (!id) return
+
+  const profile = savedProfiles.value.find(p => p.id === id)
+  if (profile) {
+    parseUrl(profile.baseUrl)
+    db.value = profile.db
+    login.value = profile.name
+  }
 }
 
-function removeProfile(profile: typeof savedProfiles.value[0], event: Event) {
-  event.stopPropagation()
-  const idx = session.savedProfiles.findIndex(p => p.id === profile.id)
+function removeSelectedProfile() {
+  const id = selectedProfileId.value
+  if (!id) return
+
+  const idx = session.savedProfiles.findIndex(p => p.id === id)
   if (idx >= 0) {
     session.savedProfiles.splice(idx, 1)
     // Convert to plain objects for IPC (Vue proxies can't be cloned)
     window.api.store.set('profiles', JSON.parse(JSON.stringify(session.savedProfiles)))
+    selectedProfileId.value = ''
   }
 }
 </script>
@@ -111,44 +126,47 @@ function removeProfile(profile: typeof savedProfiles.value[0], event: Event) {
   <div class="csv-min-h-screen csv-flex csv-items-center csv-justify-center csv-p-4">
     <Card class="csv-w-full csv-max-w-md csv-p-6">
       <h1 class="csv-text-2xl csv-font-semibold csv-mb-6">
-        Odoo Connection
+        {{ $t('login.title') }}
       </h1>
 
       <div v-if="savedProfiles.length > 0" class="csv-mb-6">
         <label class="csv-text-sm csv-text-muted csv-mb-2 csv-block">
-          Saved Connections
+          {{ $t('login.savedConnections') }}
         </label>
-        <div class="csv-flex csv-flex-col csv-gap-2">
-          <div
-            v-for="profile in savedProfiles"
-            :key="profile.id"
-            class="csv-flex csv-items-center csv-gap-2 csv-p-2 csv-border csv-rounded csv-cursor-pointer hover:csv-bg-gray-50"
-            @click="selectProfile(profile)"
+        <div class="csv-flex csv-gap-2">
+          <select
+            class="csv-saved-select csv-flex-1"
+            @change="onProfileSelect($event)"
           >
-            <div class="csv-flex-1 csv-min-w-0">
-              <div class="csv-text-sm csv-font-medium csv-truncate">{{ profile.name }}</div>
-              <div class="csv-text-xs csv-text-gray-500 csv-truncate">{{ profile.baseUrl }} / {{ profile.db }}</div>
-            </div>
-            <button
-              type="button"
-              class="csv-text-gray-400 hover:csv-text-red-500 csv-p-1"
-              title="Remove"
-              @click="removeProfile(profile, $event)"
+            <option value="">{{ $t('login.selectConnection') }}</option>
+            <option
+              v-for="profile in savedProfiles"
+              :key="profile.id"
+              :value="profile.id"
             >
-              &times;
-            </button>
-          </div>
+              {{ profile.name }} ({{ profile.db }}@{{ profile.baseUrl }})
+            </option>
+          </select>
+          <button
+            v-if="selectedProfileId"
+            type="button"
+            class="csv-remove-btn"
+            :title="$t('common.remove')"
+            @click="removeSelectedProfile"
+          >
+            &times;
+          </button>
         </div>
       </div>
 
       <form @submit.prevent="handleLogin" class="csv-space-y-4">
         <div>
           <label class="csv-text-sm csv-font-medium csv-mb-1 csv-block">
-            Server Host
+            {{ $t('login.serverHost') }}
           </label>
           <Input
             v-model="host"
-            placeholder="mycompany.odoo.com or localhost"
+            :placeholder="$t('login.serverHostPlaceholder')"
             required
           />
         </div>
@@ -157,7 +175,7 @@ function removeProfile(profile: typeof savedProfiles.value[0], event: Event) {
         <div v-if="showAdvanced" class="csv-flex csv-gap-3">
           <div class="csv-flex-1">
             <label class="csv-text-sm csv-font-medium csv-mb-1 csv-block">
-              Port
+              {{ $t('login.port') }}
             </label>
             <Input
               v-model="port"
@@ -172,7 +190,7 @@ function removeProfile(profile: typeof savedProfiles.value[0], event: Event) {
                 type="checkbox"
                 class="csv-w-4 csv-h-4"
               />
-              <span class="csv-text-sm">SSL (https)</span>
+              <span class="csv-text-sm">{{ $t('login.ssl') }}</span>
             </label>
           </div>
         </div>
@@ -182,34 +200,34 @@ function removeProfile(profile: typeof savedProfiles.value[0], event: Event) {
           class="csv-text-xs csv-text-blue-600 hover:csv-underline"
           @click="showAdvanced = true"
         >
-          Show port &amp; SSL options
+          {{ $t('login.showAdvanced') }}
         </button>
 
         <div>
           <label class="csv-text-sm csv-font-medium csv-mb-1 csv-block">
-            Database
+            {{ $t('login.database') }}
           </label>
           <Input
             v-model="db"
-            placeholder="database name"
+            :placeholder="$t('login.databasePlaceholder')"
             required
           />
         </div>
 
         <div>
           <label class="csv-text-sm csv-font-medium csv-mb-1 csv-block">
-            Username
+            {{ $t('login.username') }}
           </label>
           <Input
             v-model="login"
-            placeholder="admin@example.com"
+            :placeholder="$t('login.usernamePlaceholder')"
             required
           />
         </div>
 
         <div>
           <label for="csv-password" class="csv-text-sm csv-font-medium csv-mb-1 csv-block">
-            Password
+            {{ $t('login.password') }}
           </label>
           <Input
             id="csv-password"
@@ -232,9 +250,38 @@ function removeProfile(profile: typeof savedProfiles.value[0], event: Event) {
           :loading="loading"
           :disabled="loading"
         >
-          Connect
+          {{ $t('login.connect') }}
         </Button>
       </form>
     </Card>
   </div>
 </template>
+
+<style scoped>
+.csv-saved-select {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.375rem;
+  background: white;
+  cursor: pointer;
+}
+.csv-saved-select:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}
+.csv-remove-btn {
+  padding: 0.5rem 0.75rem;
+  font-size: 1rem;
+  color: #6b7280;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.375rem;
+  cursor: pointer;
+}
+.csv-remove-btn:hover {
+  color: #dc2626;
+  border-color: #dc2626;
+}
+</style>

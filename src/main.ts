@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import { createRouter, createWebHashHistory } from 'vue-router'
 import App from './App.vue'
+import { i18n } from './i18n'
 import './assets/main.css'
 
 // Browser fallback for window.api when not running in Electron
@@ -12,6 +13,10 @@ if (!window.api) {
     files: {
       select: async () => {
         console.warn('File selection not available in browser mode')
+        return []
+      },
+      register: async () => {
+        console.warn('File registration not available in browser mode')
         return []
       },
       read: async () => '',
@@ -116,7 +121,7 @@ import FilesView from './views/FilesView.vue'
 import ConfigView from './views/ConfigView.vue'
 import RunView from './views/RunView.vue'
 import ResultsView from './views/ResultsView.vue'
-import SavedMappingsView from './views/SavedMappingsView.vue'
+import SavedProfilesView from './views/SavedProfilesView.vue'
 
 const routes = [
   { path: '/', redirect: '/login' },
@@ -125,7 +130,7 @@ const routes = [
   { path: '/config', component: ConfigView },
   { path: '/run', component: RunView },
   { path: '/results', component: ResultsView },
-  { path: '/mappings', component: SavedMappingsView }
+  { path: '/mappings', component: SavedProfilesView }
 ]
 
 const router = createRouter({
@@ -133,7 +138,37 @@ const router = createRouter({
   routes
 })
 
+const pinia = createPinia()
+
+// Import session store for navigation guard
+import { useSessionStore } from './stores/session'
+
+// Navigation guard: redirect to login if not authenticated
+router.beforeEach((to, _from, next) => {
+  const session = useSessionStore(pinia)
+
+  // Public routes that don't require authentication
+  const publicRoutes = ['/login', '/']
+
+  if (publicRoutes.includes(to.path)) {
+    // If already authenticated and going to login, redirect to files
+    if (session.isAuthenticated && to.path === '/login') {
+      next('/files')
+    } else {
+      next()
+    }
+  } else {
+    // Protected route: check authentication
+    if (session.isAuthenticated) {
+      next()
+    } else {
+      next('/login')
+    }
+  }
+})
+
 const app = createApp(App)
-app.use(createPinia())
+app.use(pinia)
 app.use(router)
+app.use(i18n)
 app.mount('#app')

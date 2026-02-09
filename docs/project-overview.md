@@ -5,8 +5,9 @@
 > **Vue owns import logic. Odoo validates and writes.**
 
 - Electron-first, Odoo-embedding optional
-- Thin Odoo addon (single endpoint)
-- Sequential batch processing (no parallelism)
+- Thin Odoo addon (endpoints for import + profiles)
+- Parallel batch processing within files (1-4 workers)
+- Reference resolution via prefetch for O(1) lookups
 
 ---
 
@@ -45,23 +46,41 @@
 
 ## Odoo ID-Handling (Critical)
 
-Zwei ID-Typen mit unterschiedlichem Verhalten:
+### ID Column Types
 
-| Typ | Spalte | Format | Verwendung |
-|-----|--------|--------|------------|
-| **External ID** | `id` | `module.xml_id` | Stabil, migrations-sicher, Upsert-fähig |
-| **Database ID** | `.id` | Integer | Nur gleiche DB, kein Upsert |
+| Type | Column | Format | Use Case |
+|------|--------|--------|----------|
+| **External ID** | `id` | `module.xml_id` | Stable, migration-safe, upsert-enabled |
+| **Database ID** | `.id` | Integer | Same-database roundtrip only |
 
-**Relationen in CSV:**
-- `partner_id/id` → verknüpft via External ID
-- `partner_id/.id` → verknüpft via DB-ID (riskant)
+### Relational Field References
 
-**Import-Verhalten:**
-- Mit `id`: Update wenn vorhanden, sonst Create + `ir.model.data` Eintrag
-- Mit `.id`: Nur Roundtrip in derselben DB möglich
-- Export ohne XML-ID erzeugt `__export__...` IDs (temporär)
+| Pattern | Resolution | Example |
+|---------|------------|---------|
+| `field/id` | External ID via `ir.model.data` | `partner_id/id` → `res_partner_id#123` |
+| `field/.id` | Database ID (standard models only) | `country_id/.id` → `57` |
 
-**Tool-Entscheidung:** Primär External IDs (`id`) unterstützen, `.id` nur für explizite Same-DB-Szenarien.
+**Standard Models for `/.id`:** `res.country`, `res.currency`, `uom.uom`, `res.lang`, `res.country.state`, `res.partner.title`
+
+### Reference Resolution
+
+The backend prefetches all external IDs before import:
+1. Scan rows for references in relational fields
+2. Bulk query `ir.model.data` (one query per model)
+3. Build O(1) lookup map for row processing
+
+**See:** [docs/reference-resolution.md](reference-resolution.md) for full details.
+
+### Import Behavior
+
+| Column | Behavior |
+|--------|----------|
+| `id` | Upsert: update if exists, create + `ir.model.data` entry if not |
+| `.id` | Direct DB lookup (same-database roundtrip only) |
+| `field/id` | Resolve external ID → integer before write |
+| `field/.id` | Validate existence, pass integer (warning emitted) |
+
+**Tool Decision:** Primary support for External IDs (`id`, `/id`). Database IDs (`/.id`) only for standard reference data.
 
 ---
 
@@ -126,12 +145,35 @@ Feature-Code importiert nur aus `@/ui/*`, nie direkt aus shadcn.
 ### Run Settings
 ```ts
 interface RunSettings {
-  batchSize: number      // default: 100
-  retryLimit: number     // default: 3
+  batchSize: number      // default: 200, range: 1-1000
+  workers: number        // default: 1, range: 1-4
+  retryLimit: number     // default: 3, range: 0-10
   retryDelayMs: number   // default: 2000
   stopOnFatalError: boolean
+  encoding: string       // default: 'utf-8'
+  delimiter: string      // default: ',' (auto-detect)
+  skipHeader: boolean    // default: true
+  dryRun: boolean        // default: false
+  lang: string           // default: '' (use Odoo default)
 }
 ```
+
+### Worker Pool
+
+The import engine uses a worker pool for parallel batch processing:
+
+- **1-4 workers** — configurable per import run
+- **Files sequential** — never parallel across files
+- **Batches parallel** — independent batches within a file
+- **Retries serial** — always single-threaded for predictability
+
+```
+File 1: [Batch 1] [Batch 2] [Batch 3] → Worker Pool → [Results]
+                  ↓         ↓         ↓
+               Worker 1  Worker 2  Worker 3
+```
+
+**Throughput display:** `~1250 rows/sec (3 workers)` shown during import.
 
 ### File Mappings
 ```ts

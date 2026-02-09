@@ -68,15 +68,15 @@ function onDrop(e: DragEvent) {
         />
       </svg>
       <p class="csv-text-sm csv-text-muted">
-        <span v-if="isDragOver">Drop CSV files here</span>
+        <span v-if="isDragOver">{{ $t('files.dropZone.drop') }}</span>
         <span v-else>
-          Drag &amp; drop CSV files or
+          {{ $t('files.dropZone.dragAndDrop') }}
           <button
             type="button"
             class="csv-drop-zone__browse"
             @click="$emit('browse')"
           >
-            browse
+            {{ $t('files.dropZone.browse') }}
           </button>
         </span>
       </p>
