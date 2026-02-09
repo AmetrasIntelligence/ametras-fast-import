@@ -16,7 +16,8 @@ export interface RunSettings {
 export interface FileMapping {
   filename: string
   model: string
-  idColumn: 'id' | '.id' | null
+  /** @deprecated ID column is now detected from fieldMappings (id→id or .id→.id) */
+  idColumn?: 'id' | '.id' | null
   fieldMappings: Record<string, string>
 }
 
@@ -41,11 +42,26 @@ export const useConfigStore = defineStore('config', () => {
   }
 
   function setFileMapping(filename: string, mapping: FileMapping) {
-    fileMappings.value.set(filename, mapping)
+    // Create new Map to ensure Vue reactivity triggers
+    const newMap = new Map(fileMappings.value)
+    newMap.set(filename, mapping)
+    fileMappings.value = newMap
   }
 
   function getFileMapping(filename: string): FileMapping | undefined {
     return fileMappings.value.get(filename)
+  }
+
+  function removeFileMapping(filename: string) {
+    if (fileMappings.value.has(filename)) {
+      const newMap = new Map(fileMappings.value)
+      newMap.delete(filename)
+      fileMappings.value = newMap
+    }
+  }
+
+  function clearFileMappings() {
+    fileMappings.value = new Map()
   }
 
   function setSequence(filenames: string[]) {
@@ -115,6 +131,8 @@ export const useConfigStore = defineStore('config', () => {
     setSettings,
     setFileMapping,
     getFileMapping,
+    removeFileMapping,
+    clearFileMappings,
     setSequence,
     moveInSequence,
     exportSettingsCSV,

@@ -1,6 +1,6 @@
 # Implementation Tickets — CSV Import Tool
 
-## Completed EPICs (0-16) — 408 unit + 41 e2e tests passing
+## Completed EPICs (0-16) + Post-EPIC UX — 449 unit + 41 e2e tests passing
 
 | EPIC | Scope | Tickets |
 |------|-------|---------|
@@ -21,3 +21,4 @@
 | 14 | Run Settings & Profiles | Extended Settings (14.1), Profile v1 (14.2), Dry Run (14.3), ZIP I/O (14.4), Templates (14.5) |
 | 15 | Field Mapping (Phase 1) | CSV Format (15.1), ZIP Extension (15.2), Validation (15.3), UI (15.4), Import Flow (15.5), Demo Profile (15.6) |
 | 16 | Profile Management | Odoo Addon Storage (PM-0), IPC + Client API (PM-1), Validator (PM-2), Store Refactor (PM-3), RunConfig (PM-4), Editor UI (PM-5), Exporter (PM-6), Versioning (PM-7) |
+| Post | UX Polish | Nav bar, FieldSelect, in-app dialogs, file preview, profile picker, smart re-mapping on model change |

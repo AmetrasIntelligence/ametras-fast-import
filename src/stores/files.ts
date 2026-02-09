@@ -32,11 +32,17 @@ export const useFilesStore = defineStore('files', () => {
 
   function removeFile(id: string) {
     files.value = files.value.filter(f => f.id !== id)
-    analyses.value.delete(id)
+    // Create new Map to ensure Vue reactivity triggers
+    const newMap = new Map(analyses.value)
+    newMap.delete(id)
+    analyses.value = newMap
   }
 
   function setAnalysis(fileId: string, analysis: FileAnalysis) {
-    analyses.value.set(fileId, analysis)
+    // Create new Map to ensure Vue reactivity triggers
+    const newMap = new Map(analyses.value)
+    newMap.set(fileId, analysis)
+    analyses.value = newMap
   }
 
   function getAnalysis(fileId: string): FileAnalysis | undefined {

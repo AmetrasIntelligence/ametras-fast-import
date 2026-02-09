@@ -20,7 +20,8 @@ import { useSavedMappingsStore } from '@/stores/savedMappings'
 import { fetchModels, fetchModelFields, type OdooModel, type OdooField } from '@/api/odooClient'
 import { suggestModel } from '@/utils/smartMapping'
 import { autoMapFields } from '@/utils/smartFieldMapping'
-import { Button, Card, Checkbox } from '@/ui'
+import { showAlert, showConfirm, showPrompt } from '@/composables/useDialog'
+import { Button, Card } from '@/ui'
 import ModelSelect from '@/components/ModelSelect.vue'
 import ModelSuggestion from '@/components/ModelSuggestion.vue'
 import ImportSettings from '@/components/ImportSettings.vue'
@@ -134,11 +135,22 @@ onMounted(async () => {
     if (files.value.length > 0) {
       selectedFile.value = files.value[0].name
 
-      // Generate model suggestions for all files
+      // Generate model suggestions and restore fields cache for all files
       for (const file of files.value) {
         initMapping(file.name)
 
-        // Check saved mappings first
+        // Restore fields cache for files that already have a model mapped
+        const existingMapping = config.getFileMapping(file.name)
+        if (existingMapping?.model && !fieldsCache.value.has(existingMapping.model)) {
+          try {
+            const fields = await fetchModelFields(existingMapping.model)
+            fieldsCache.value.set(existingMapping.model, fields)
+          } catch {
+            // Ignore field fetch errors, user can re-select model
+          }
+        }
+
+        // Check saved mappings first for suggestions
         const saved = savedMappings.findSuggestion(file.name)
         if (saved) {
           modelSuggestions.value.set(file.name, {
@@ -161,11 +173,9 @@ onMounted(async () => {
 
 function initMapping(filename: string) {
   if (!config.getFileMapping(filename)) {
-    const analysis = filesStore.getAnalysis(files.value.find(f => f.name === filename)?.id || '')
     config.setFileMapping(filename, {
       filename,
       model: '',
-      idColumn: analysis?.hasIdColumn ? 'id' : analysis?.hasDotIdColumn ? '.id' : null,
       fieldMappings: {}
     })
   }
@@ -220,14 +230,6 @@ function updateFieldMapping(csvCol: string, odooField: string) {
   }
 }
 
-function updateIdColumn(idColumn: 'id' | '.id' | null) {
-  if (!selectedFile.value) return
-  const mapping = config.getFileMapping(selectedFile.value)
-  if (mapping) {
-    config.setFileMapping(selectedFile.value, { ...mapping, idColumn })
-  }
-}
-
 async function handleProfileSelect(id: number) {
   if (!id) {
     clearProfile()
@@ -250,7 +252,6 @@ async function handleProfileSelect(id: number) {
         config.setFileMapping(mapping.filename, {
           filename: mapping.filename,
           model: mapping.model,
-          idColumn: existing?.idColumn || null,
           fieldMappings: existing?.fieldMappings || {}
         })
 
@@ -278,7 +279,7 @@ async function handleProfileSelect(id: number) {
       config.setSequence(profile.sequence.map(s => s.filename))
     }
   } catch (e) {
-    alert(`Failed to load profile: ${(e as Error).message}`)
+    showAlert(`Failed to load profile: ${(e as Error).message}`)
     activeProfile.value = null
   } finally {
     profileLoading.value = false
@@ -304,20 +305,19 @@ function handleProfileResetAll() {
   config.setSettings({ ...activeProfile.value.runSettings })
 }
 
-function proceed() {
+async function proceed() {
   if (hasPartialMappings.value) {
     const partialFiles = files.value
       .filter(f => getFileStatus(f.name) === 'partial')
       .map(f => f.name)
-    if (!confirm(`${partialFiles.length} file(s) have unmapped fields: ${partialFiles.join(', ')}. Continue anyway?`)) {
-      return
-    }
+    const ok = await showConfirm(`${partialFiles.length} file(s) have unmapped fields: ${partialFiles.join(', ')}. Continue anyway?`)
+    if (!ok) return
   }
   router.push('/run')
 }
 
 async function saveAsProfile() {
-  const name = prompt('Profile name:')
+  const name = await showPrompt('Profile name:')
   if (!name) return
 
   // Build profile data and export as ZIP for upload
@@ -368,9 +368,9 @@ async function saveAsProfile() {
     const blob = await exportProfileToZip(csvFiles, name)
     const safeName = name.replace(/[^a-zA-Z0-9_-]/g, '_')
     downloadBlob(blob, `${safeName}.zip`)
-    alert(`Profile "${name}" exported as ZIP. Upload it via the Saved Mappings page to save to server.`)
+    showAlert(`Profile "${name}" exported as ZIP. Upload it via the Profiles page to save to server.`)
   } catch (e) {
-    alert(`Failed to export profile: ${(e as Error).message}`)
+    showAlert(`Failed to export profile: ${(e as Error).message}`)
   }
 }
 </script>
@@ -460,25 +460,6 @@ async function saveAsProfile() {
           :model-value="currentMapping?.model || null"
           @update:model-value="selectModel($event)"
         />
-      </div>
-
-      <!-- ID Column -->
-      <div>
-        <label class="csv-text-sm csv-font-medium csv-mb-2 csv-block">ID Column for Upsert</label>
-        <div class="csv-flex csv-gap-4">
-          <Checkbox
-            :model-value="currentMapping?.idColumn === 'id'"
-            label="External ID (id)"
-            :disabled="!currentAnalysis.hasIdColumn"
-            @update:model-value="updateIdColumn($event ? 'id' : null)"
-          />
-          <Checkbox
-            :model-value="currentMapping?.idColumn === '.id'"
-            label="Database ID (.id)"
-            :disabled="!currentAnalysis.hasDotIdColumn"
-            @update:model-value="updateIdColumn($event ? '.id' : null)"
-          />
-        </div>
       </div>
 
       <!-- Field Mappings -->

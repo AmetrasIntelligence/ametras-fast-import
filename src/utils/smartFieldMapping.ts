@@ -67,7 +67,15 @@ export function autoMapFields(
   const mapping: Record<string, string> = {}
   const usedFields = new Set<string>()
 
-  // Pre-pass: handle /id and /.id suffixed headers (relational field references)
+  // Pre-pass 1: handle id and .id columns (upsert keys)
+  // These are special columns that control create vs update behavior
+  for (const header of headers) {
+    if (header === 'id' || header === '.id') {
+      mapping[header] = header  // Map directly: id → id, .id → .id
+    }
+  }
+
+  // Pre-pass 2: handle /id and /.id suffixed headers (relational field references)
   for (const header of headers) {
     if (header.endsWith('/id') || header.endsWith('/.id')) {
       const suffix = header.endsWith('/.id') ? '/.id' : '/id'
@@ -84,7 +92,8 @@ export function autoMapFields(
   const matches: Array<{ header: string; field: OdooField; score: number }> = []
 
   for (const header of headers) {
-    if (mapping[header]) continue  // Already mapped in pre-pass
+    if (mapping[header]) continue  // Already mapped in pre-pass (id, .id, or relational /id)
+    if (header === 'id' || header === '.id') continue  // Already handled
     if (header.endsWith('/id') || header.endsWith('/.id')) continue  // Unmatched /id suffix, skip
 
     for (const field of fields) {

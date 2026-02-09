@@ -17,24 +17,44 @@ export interface RowState {
   status: 'pending' | 'success' | 'failed' | 'retrying'
 }
 
+/**
+ * Detect which ID column is being used for upsert based on fieldMappings.
+ * Returns 'id' for external ID, '.id' for database ID, or null if neither.
+ */
+export function detectIdColumn(fieldMappings: Record<string, string>): 'id' | '.id' | null {
+  // Check if 'id' CSV column is mapped to 'id' (external ID for upsert)
+  if (fieldMappings['id'] === 'id') return 'id'
+  // Check if '.id' CSV column is mapped to '.id' (database ID for upsert)
+  if (fieldMappings['.id'] === '.id') return '.id'
+  return null
+}
+
 function transformRow(
   row: ParsedRow,
-  mapping: { fieldMappings: Record<string, string>; idColumn: 'id' | '.id' | null }
+  mapping: { fieldMappings: Record<string, string> }
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {}
 
   for (const [csvCol, odooField] of Object.entries(mapping.fieldMappings)) {
+    // Handle id/.id columns specially for upsert
+    if (csvCol === 'id' && odooField === 'id') {
+      const value = row.data['id']
+      if (value !== undefined && value !== '') {
+        result['__external_id__'] = value
+      }
+      continue
+    }
+    if (csvCol === '.id' && odooField === '.id') {
+      const value = row.data['.id']
+      if (value !== undefined && value !== '') {
+        result['id'] = parseInt(value, 10)
+      }
+      continue
+    }
+
     const value = row.data[csvCol]
     if (value !== undefined && value !== '') {
       result[odooField] = value
-    }
-  }
-
-  if (mapping.idColumn && row.data[mapping.idColumn]) {
-    if (mapping.idColumn === 'id') {
-      result['__external_id__'] = row.data['id']
-    } else if (mapping.idColumn === '.id') {
-      result['id'] = parseInt(row.data['.id'], 10)
     }
   }
 
@@ -44,11 +64,14 @@ function transformRow(
 export async function executeBatch(
   model: string,
   rows: ParsedRow[],
-  mapping: { fieldMappings: Record<string, string>; idColumn: 'id' | '.id' | null },
+  mapping: { fieldMappings: Record<string, string>; idColumn?: 'id' | '.id' | null },
   dryRun?: boolean
 ): Promise<BatchResult[]> {
   const session = useSessionStore()
   if (!session.baseUrl) throw new Error('Not connected')
+
+  // Detect ID column from fieldMappings if not explicitly provided
+  const idColumn = mapping.idColumn ?? detectIdColumn(mapping.fieldMappings)
 
   const transformedRows = rows.map(row => ({
     index: row.index,
@@ -68,7 +91,7 @@ export async function executeBatch(
     params: {
       model,
       rows: transformedRows.map(r => r.data),
-      use_external_id: mapping.idColumn === 'id',
+      use_external_id: idColumn === 'id',
       dry_run: dryRun || false
     }
   })

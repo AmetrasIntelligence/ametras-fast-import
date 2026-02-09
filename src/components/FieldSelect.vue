@@ -39,6 +39,25 @@ watch(searchQuery, (val) => {
 
 const allOptions = computed<FieldOption[]>(() => {
   const opts: FieldOption[] = []
+
+  // Special id options at the top (for upsert)
+  opts.push({
+    value: 'id',
+    label: 'External ID',
+    technical: 'id',
+    suffix: 'ext ID',
+    fieldType: 'id',
+    isRelational: false
+  })
+  opts.push({
+    value: '.id',
+    label: 'Database ID',
+    technical: '.id',
+    suffix: 'db ID',
+    fieldType: 'id',
+    isRelational: false
+  })
+
   const writableFields = props.fields.filter(f => !f.readonly)
 
   for (const f of writableFields) {

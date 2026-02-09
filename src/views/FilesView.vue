@@ -26,7 +26,8 @@ const files = computed(() => {
       return {
         ...f,
         rowCount: analysis?.rowCount,
-        headers: analysis?.headers
+        headers: analysis?.headers,
+        sampleRows: analysis?.sampleRows
       }
     })
 })
@@ -89,7 +90,32 @@ function proceed() {
         :files="files"
         @reorder="handleReorder"
         @remove="removeFile"
-      />
+      >
+        <template #expanded="{ file }">
+          <div v-if="file.headers && file.headers.length > 0" class="csv-preview">
+            <div class="csv-preview__scroll">
+              <table class="csv-preview__table">
+                <thead>
+                  <tr>
+                    <th v-for="h in file.headers" :key="h">{{ h }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(row, idx) in (file.sampleRows || []).slice(0, 4)" :key="idx">
+                    <td v-for="h in file.headers" :key="h">{{ row[h] ?? '' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="csv-text-xs csv-text-muted csv-mt-1">
+              {{ file.headers.length }} columns &middot; {{ file.rowCount?.toLocaleString() || '?' }} rows
+            </div>
+          </div>
+          <div v-else class="csv-text-sm csv-text-muted">
+            No preview available
+          </div>
+        </template>
+      </FileList>
 
       <div class="csv-mt-4">
         <FileDropZone
@@ -106,3 +132,35 @@ function proceed() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.csv-preview__scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.csv-preview__table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  font-family: monospace;
+}
+.csv-preview__table th {
+  padding: 0.25rem 0.5rem;
+  text-align: left;
+  font-weight: 600;
+  color: #374151;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  white-space: nowrap;
+}
+.csv-preview__table td {
+  padding: 0.25rem 0.5rem;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
+  white-space: nowrap;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+</style>

@@ -17,6 +17,10 @@ A desktop application for importing large CSV files into Odoo with streaming pro
 - **Drag & Drop** - File import via drag & drop with `.csv` filter
 - **Validation Indicators** - Color-coded status (green/orange/red) gating import start
 - **Saved Mappings** - Per-server filename-to-model associations with glob support
+- **Searchable Field Select** - Dropdown with search by display name or technical name, type badges, relational sub-options
+- **In-App Dialogs** - Custom alert/confirm/prompt dialogs (Electron blocks native `window.prompt`/`confirm`)
+- **File Preview** - Expandable file rows showing CSV headers and first 4 sample rows
+- **Persistent Navigation** - Top nav bar with Files / Configure / Profiles links and server info
 
 ## Architecture
 
@@ -140,9 +144,10 @@ csv-client/
 │   │   ├── fieldMapping.ts      # FieldMapping + FieldTransform types
 │   │   └── runConfig.ts         # RunConfig override type
 │   ├── composables/
-│   │   ├── useImportValidation.ts  # Reactive validation state
-│   │   ├── useProfileImport.ts     # Profile ZIP upload composable
-│   │   └── useRunConfig.ts         # Override merge composable
+│   │   ├── useDialog.ts              # In-app alert/confirm/prompt dialogs
+│   │   ├── useImportValidation.ts    # Reactive validation state
+│   │   ├── useProfileImport.ts       # Profile ZIP upload composable
+│   │   └── useRunConfig.ts           # Override merge composable
 │   ├── utils/
 │   │   ├── logger.ts            # Structured logging
 │   │   ├── smartMapping.ts      # Filename → Model scoring
@@ -157,16 +162,18 @@ csv-client/
 │   │   ├── Progress.vue
 │   │   └── ...
 │   ├── components/
+│   │   ├── AppDialog.vue        # In-app modal dialog (alert/confirm/prompt)
 │   │   ├── ErrorBoundary.vue
+│   │   ├── FieldMappingTable.vue # Rich field mapping editor
+│   │   ├── FieldSelect.vue      # Searchable field dropdown with type badges
+│   │   ├── FieldSuggestion.vue  # Field suggestion with confidence
 │   │   ├── FileDropZone.vue     # Drag & drop file import
-│   │   ├── FileList.vue         # Sortable file table
+│   │   ├── FileList.vue         # Sortable file table with preview
+│   │   ├── FileMappingRow.vue   # Expanded file row content
 │   │   ├── ImportSettings.vue   # Collapsible settings panel
+│   │   ├── MappingStatus.vue    # Color-coded status indicator
 │   │   ├── ModelSelect.vue      # Searchable model dropdown
 │   │   ├── ModelSuggestion.vue  # Model suggestion with confidence
-│   │   ├── FieldSuggestion.vue  # Field suggestion with confidence
-│   │   ├── FieldMappingTable.vue # Rich field mapping editor
-│   │   ├── FileMappingRow.vue   # Expanded file row content
-│   │   ├── MappingStatus.vue    # Color-coded status indicator
 │   │   └── ProfileEditor.vue    # Tabbed profile editor with overrides
 │   ├── views/
 │   │   ├── LoginView.vue
@@ -192,7 +199,7 @@ csv-client/
 ├── tests/
 │   ├── setup.ts                 # Test configuration
 │   ├── fixtures/                # Demo CSV data
-│   ├── unit/                    # Vitest unit tests (408 tests)
+│   ├── unit/                    # Vitest unit tests (449 tests)
 │   ├── integration/             # Integration tests
 │   └── e2e/                     # Playwright e2e tests
 └── docs/
@@ -229,7 +236,7 @@ The tool supports two ID column types:
 
 ## Test Suite
 
-### Unit Tests (408 tests)
+### Unit Tests (449 tests)
 
 | Module | Tests | Coverage |
 |--------|-------|----------|
@@ -239,11 +246,13 @@ The tool supports two ID column types:
 | logger | 15 | Log levels, filtering, ring buffer |
 | stores/session | 15 | Auth, multi-server, profiles |
 | stores/config | 32 | Settings, mappings, CSV import/export |
+| stores/files | 19 | Add/remove files, analysis, dedup, clearAll |
 | stores/run | 24 | Progress tracking, ETA calculation |
 | stores/profiles | 12 | Server-fetched profiles, cache TTL, delete |
 | stores/savedMappings | 12 | Per-server storage, glob matching, suggestions |
 | smartMapping | 21 | Filename scoring, Levenshtein, common patterns |
 | smartFieldMapping | 26 | Header scoring, German aliases, auto-mapping |
+| useDialog | 22 | Alert/confirm/prompt, sequential dialogs |
 | profileValidator | 24 | Dependency validation, circular deps, ProfileDraft |
 | importProfile | 25 | CSV parse/export roundtrips, rich field mappings |
 | profileTemplates | 13 | Template listing, getTemplate, run settings |
@@ -274,6 +283,8 @@ The tool supports two ID column types:
 6. **State machine** - Deterministic, pausable, resumable imports
 7. **Server-side profile storage** - Profiles in Odoo, client is cache only
 8. **Immutable profiles + RunConfig overrides** - Never edit profiles directly
+9. **In-app dialogs** - Custom modal dialogs since Electron blocks native browser dialogs
+10. **No external UI dependencies** - Native HTML5 drag & drop, CSS-only indicators, plain HTML components
 
 ## License
 

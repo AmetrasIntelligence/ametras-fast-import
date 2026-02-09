@@ -9,6 +9,7 @@ import { checkOdooCompatibility } from '@/utils/profileVersioning'
 import { downloadBlob } from '@/utils/profileZip'
 import { getAllTemplates, getTemplate } from '@/utils/profileTemplates'
 import { exportProfileToZip } from '@/utils/profileZip'
+import { showAlert, showConfirm } from '@/composables/useDialog'
 import { Button, Card } from '@/ui'
 
 const savedMappings = useSavedMappingsStore()
@@ -26,8 +27,9 @@ function formatDate(ts: number): string {
   return new Date(ts).toLocaleDateString()
 }
 
-function deleteMapping(mapping: SavedMapping) {
-  if (confirm(`Delete mapping for "${mapping.filenamePattern}"?`)) {
+async function deleteMapping(mapping: SavedMapping) {
+  const ok = await showConfirm(`Delete mapping for "${mapping.filenamePattern}"?`)
+  if (ok) {
     savedMappings.deleteMapping(mapping.id)
   }
 }
@@ -45,16 +47,17 @@ async function handleExportProfile(profileId: number, name: string) {
   try {
     await exportProfileClean(profileId, name)
   } catch (e) {
-    alert(`Failed to export profile: ${(e as Error).message}`)
+    showAlert(`Failed to export profile: ${(e as Error).message}`)
   }
 }
 
 async function handleDeleteProfile(id: number, name: string) {
-  if (confirm(`Delete profile "${name}"? This will remove it from the server.`)) {
+  const ok = await showConfirm(`Delete profile "${name}"? This will remove it from the server.`)
+  if (ok) {
     try {
       await profiles.deleteProfile(id)
     } catch (e) {
-      alert(`Failed to delete profile: ${(e as Error).message}`)
+      showAlert(`Failed to delete profile: ${(e as Error).message}`)
     }
   }
 }
@@ -96,7 +99,7 @@ async function downloadTemplate(templateId: string) {
     const safeName = profile.name.replace(/[^a-zA-Z0-9_-]/g, '_')
     downloadBlob(blob, `${safeName}.zip`)
   } catch (e) {
-    alert(`Failed to download template: ${(e as Error).message}`)
+    showAlert(`Failed to download template: ${(e as Error).message}`)
   }
 }
 </script>

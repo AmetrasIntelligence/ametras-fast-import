@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, shallowRef } from 'vue'
 import { ImportState } from '@/importer/stateMachine'
+import type { ImportEngine } from '@/importer/engine'
 
 export interface FileProgress {
   filename: string
@@ -31,6 +32,7 @@ export interface ImportError {
 export const useRunStore = defineStore('run', () => {
   const state = ref<ImportState>(ImportState.IDLE)
   const isDryRun = ref(false)
+  const engine = shallowRef<ImportEngine | null>(null)
   const progress = ref<RunProgress>({
     totalFiles: 0,
     completedFiles: 0,
@@ -62,6 +64,24 @@ export const useRunStore = defineStore('run', () => {
 
     return Math.round(remaining / 1000)
   })
+
+  const isActive = computed(() => {
+    return [
+      ImportState.VALIDATING,
+      ImportState.RUNNING_FILE,
+      ImportState.RUNNING_BATCH,
+      ImportState.RETRYING,
+      ImportState.PAUSED
+    ].includes(state.value)
+  })
+
+  const isCompleted = computed(() => {
+    return state.value === ImportState.COMPLETED || state.value === ImportState.FAILED
+  })
+
+  function setEngine(eng: ImportEngine | null) {
+    engine.value = eng
+  }
 
   function initRun(filenames: string[], rowCounts: Map<string, number>, dryRun = false) {
     isDryRun.value = dryRun
@@ -123,6 +143,7 @@ export const useRunStore = defineStore('run', () => {
   function reset() {
     state.value = ImportState.IDLE
     isDryRun.value = false
+    engine.value = null
     progress.value = {
       totalFiles: 0,
       completedFiles: 0,
@@ -136,18 +157,22 @@ export const useRunStore = defineStore('run', () => {
   return {
     state,
     isDryRun,
+    engine,
     progress,
     errors,
     runStartTime,
     currentFile,
     globalProgress,
     estimatedTimeRemaining,
+    isActive,
+    isCompleted,
     initRun,
     startFile,
     updateFileProgress,
     completeFile,
     addError,
     setState,
+    setEngine,
     reset
   }
 })

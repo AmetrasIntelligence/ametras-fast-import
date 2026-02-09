@@ -2,9 +2,12 @@
 import { onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSessionStore } from '@/stores/session'
+import { useRunStore } from '@/stores/run'
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
+import AppDialog from '@/components/AppDialog.vue'
 
 const session = useSessionStore()
+const run = useRunStore()
 const route = useRoute()
 const router = useRouter()
 
@@ -44,6 +47,18 @@ function logout() {
           >
             Profiles
           </router-link>
+          <router-link
+            v-if="run.isActive || run.isCompleted"
+            to="/run"
+            class="csv-nav__link"
+            :class="{
+              'csv-nav__link--active': route.path === '/run',
+              'csv-nav__link--running': run.isActive
+            }"
+          >
+            Import
+            <span v-if="run.isActive" class="csv-nav__indicator"></span>
+          </router-link>
         </div>
         <div class="csv-nav__right">
           <span class="csv-text-xs csv-text-muted">
@@ -55,6 +70,7 @@ function logout() {
         </div>
       </nav>
       <RouterView />
+      <AppDialog />
     </div>
   </ErrorBoundary>
 </template>
@@ -116,5 +132,21 @@ function logout() {
 .csv-nav__logout:hover {
   color: #dc2626;
   border-color: #dc2626;
+}
+.csv-nav__link--running {
+  color: #16a34a;
+}
+.csv-nav__indicator {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-left: 0.25rem;
+  background: #16a34a;
+  border-radius: 50%;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 </style>

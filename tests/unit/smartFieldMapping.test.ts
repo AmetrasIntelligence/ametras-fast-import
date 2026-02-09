@@ -81,12 +81,14 @@ describe('autoMapFields', () => {
     expect(mapping.phone).toBe('phone')
   })
 
-  it('skips readonly fields', () => {
+  it('skips readonly fields except id and .id', () => {
     const headers = ['id', 'name', 'create_date']
     const mapping = autoMapFields(headers, mockFields)
 
-    expect(mapping.id).toBeUndefined()
+    // id column is special (upsert key) - auto-mapped
+    expect(mapping.id).toBe('id')
     expect(mapping.name).toBe('name')
+    // Other readonly fields are still skipped
     expect(mapping.create_date).toBeUndefined()
   })
 
@@ -119,6 +121,35 @@ describe('autoMapFields', () => {
     const mapping = autoMapFields(headers, mockFields)
 
     expect(mapping['E-Mail']).toBe('email')
+  })
+})
+
+describe('autoMapFields with id and .id columns', () => {
+  it('auto-maps id column to id for upsert', () => {
+    const headers = ['id', 'name', 'email']
+    const mapping = autoMapFields(headers, mockFields)
+
+    expect(mapping['id']).toBe('id')
+    expect(mapping['name']).toBe('name')
+    expect(mapping['email']).toBe('email')
+  })
+
+  it('auto-maps .id column to .id for upsert', () => {
+    const headers = ['.id', 'name', 'email']
+    const mapping = autoMapFields(headers, mockFields)
+
+    expect(mapping['.id']).toBe('.id')
+    expect(mapping['name']).toBe('name')
+    expect(mapping['email']).toBe('email')
+  })
+
+  it('auto-maps both id and .id if present', () => {
+    const headers = ['id', '.id', 'name']
+    const mapping = autoMapFields(headers, mockFields)
+
+    expect(mapping['id']).toBe('id')
+    expect(mapping['.id']).toBe('.id')
+    expect(mapping['name']).toBe('name')
   })
 })
 

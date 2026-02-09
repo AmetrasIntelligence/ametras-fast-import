@@ -2,7 +2,7 @@
 
 ## Status: Complete
 
-All 17 EPICs implemented (0-16) including comprehensive test suite. 408 unit tests passing.
+All 17 EPICs implemented (0-16) plus post-EPIC UX improvements. 449 unit tests passing.
 
 ---
 
@@ -81,19 +81,25 @@ IDLE → VALIDATING → RUNNING_FILE ↔ RUNNING_BATCH → COMPLETED
 - Saved mappings per server with simple glob pattern support
 - All suggestions require explicit user confirmation — never auto-applied
 
-### UX Improvements (EPIC 12)
+### UX Improvements (EPIC 12 + Post-EPIC)
 - Drag & drop file import with `.csv` filter
 - Sortable file table with HTML5 native drag-to-reorder
 - Collapsible import settings (collapsed by default)
 - Color-coded validation indicators (green/orange/red)
 - Searchable model dropdown with technical name display
+- Searchable field dropdown with type badges and relational sub-options (ext ID / db ID)
 - Validation composable gating import start
+- In-app dialog system (alert/confirm/prompt) replacing blocked native browser dialogs
+- File preview on expand showing headers and first 4 sample rows
+- Persistent navigation bar with active route highlighting
+- Profile picker in ConfigView with auto-apply of profile settings/mappings/sequence
+- Smart field re-mapping when user manually changes model selection
 
 ---
 
 ## Test Suite
 
-### Unit Tests: 408 passing
+### Unit Tests: 449 passing
 
 | Module | Tests | Coverage |
 |--------|-------|----------|
@@ -103,11 +109,13 @@ IDLE → VALIDATING → RUNNING_FILE ↔ RUNNING_BATCH → COMPLETED
 | logger | 15 | Log levels, filtering, ring buffer |
 | stores/session | 15 | Auth, multi-server, profiles |
 | stores/config | 32 | Settings, mappings, CSV import/export |
+| stores/files | 19 | Add/remove files, analysis, dedup, clearAll |
 | stores/run | 24 | Progress tracking, ETA calculation |
 | stores/profiles | 12 | Server-fetched profiles, cache TTL, delete |
 | stores/savedMappings | 12 | Per-server storage, glob matching, suggestions |
 | smartMapping | 21 | Filename scoring, Levenshtein, common patterns |
 | smartFieldMapping | 26 | Header scoring, German aliases, auto-mapping |
+| useDialog | 22 | Alert/confirm/prompt, sequential dialogs |
 | profileValidator | 24 | Dependency validation, circular deps, ProfileDraft |
 | importProfile | 25 | CSV parse/export roundtrips, rich field mappings |
 | profileTemplates | 13 | Template listing, getTemplate, run settings |
@@ -171,9 +179,10 @@ csv-client/
 │   │   ├── fieldMapping.ts      # FieldMapping + FieldTransform types
 │   │   └── runConfig.ts         # RunConfig override type
 │   ├── composables/
-│   │   ├── useImportValidation.ts  # Reactive validation state
-│   │   ├── useProfileImport.ts     # Profile ZIP upload composable
-│   │   └── useRunConfig.ts         # Override merge composable
+│   │   ├── useDialog.ts              # In-app alert/confirm/prompt dialogs
+│   │   ├── useImportValidation.ts    # Reactive validation state
+│   │   ├── useProfileImport.ts       # Profile ZIP upload composable
+│   │   └── useRunConfig.ts           # Override merge composable
 │   ├── utils/
 │   │   ├── logger.ts            # Structured logging
 │   │   ├── smartMapping.ts      # Filename → Model scoring
@@ -188,16 +197,18 @@ csv-client/
 │   │   ├── Progress.vue
 │   │   └── ...
 │   ├── components/
+│   │   ├── AppDialog.vue        # In-app modal dialog (alert/confirm/prompt)
 │   │   ├── ErrorBoundary.vue
+│   │   ├── FieldMappingTable.vue # Rich field mapping editor
+│   │   ├── FieldSelect.vue      # Searchable field dropdown with type badges
+│   │   ├── FieldSuggestion.vue  # Field suggestion with confidence
 │   │   ├── FileDropZone.vue     # Drag & drop file import
-│   │   ├── FileList.vue         # Sortable file table
+│   │   ├── FileList.vue         # Sortable file table with preview
+│   │   ├── FileMappingRow.vue   # Expanded file row content
 │   │   ├── ImportSettings.vue   # Collapsible settings panel
+│   │   ├── MappingStatus.vue    # Color-coded status indicator
 │   │   ├── ModelSelect.vue      # Searchable model dropdown
 │   │   ├── ModelSuggestion.vue  # Model suggestion with confidence
-│   │   ├── FieldSuggestion.vue  # Field suggestion with confidence
-│   │   ├── FieldMappingTable.vue # Rich field mapping editor
-│   │   ├── FileMappingRow.vue   # Expanded file row content
-│   │   ├── MappingStatus.vue    # Color-coded status indicator
 │   │   └── ProfileEditor.vue    # Tabbed profile editor with overrides
 │   ├── views/
 │   │   ├── LoginView.vue
@@ -223,7 +234,7 @@ csv-client/
 ├── tests/
 │   ├── setup.ts                 # Test configuration
 │   ├── fixtures/                # Demo CSV data
-│   ├── unit/                    # Vitest unit tests (408 tests)
+│   ├── unit/                    # Vitest unit tests (449 tests)
 │   ├── integration/             # Integration tests
 │   └── e2e/                     # Playwright e2e tests
 └── docs/
@@ -247,7 +258,8 @@ csv-client/
 8. **Explicit import order** - Never auto-derived from Odoo model relations
 9. **Suggestions, not automation** - Smart mapping always requires user confirmation
 10. **No external UI dependencies added** - Native HTML5 drag & drop, CSS-only indicators
-11. **Server-side profile storage** - Profiles stored in Odoo (`csv.import.profile`), client is cache only
+11. **In-app dialogs** - Custom modal dialogs since Electron blocks native `window.prompt`/`confirm`/`alert`
+12. **Server-side profile storage** - Profiles stored in Odoo (`csv.import.profile`), client is cache only
 12. **Immutable profiles + RunConfig overrides** - Profiles never edited directly; per-run changes via override system
 13. **Numeric profile IDs** - `ImportProfile.id` is `number` (Odoo DB ID), not UUID string
 14. **ZIP upload via IPC** - Multipart HTTP in Electron main process (renderer is sandboxed)

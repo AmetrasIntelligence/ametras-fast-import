@@ -26,14 +26,18 @@
 │  Vue Renderer (Context Isolated)                         │
 │  ┌──────────┐  ┌───────────┐  ┌────────────────────────┐│
 │  │ UI       │  │ Import    │  │ Stores                 ││
-│  │ (shadcn) │  │ Engine    │  │ (session/config/run)   ││
+│  │ (shadcn) │  │ Engine    │  │ (session/config/run/   ││
+│  │          │  │           │  │  files/profiles/       ││
+│  │          │  │           │  │  savedMappings)        ││
 │  └──────────┘  └───────────┘  └────────────────────────┘│
 └─────────────────────────────────────────────────────────┘
             │
             ▼ JSON-RPC
 ┌─────────────────────────────────────────────────────────┐
-│  Odoo Backend                                            │
-│  /csv_import/run (single endpoint, savepoints per row)   │
+│  Odoo 16+ Backend                                        │
+│  /csv_import/run (savepoint per row, upsert via xml_id)  │
+│  /csv_import/profile/* (CRUD, ZIP upload/download)       │
+│  csv.import.profile model (server-side profile storage)  │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -107,8 +111,9 @@ Feature-Code importiert nur aus `@/ui/*`, nie direkt aus shadcn.
 
 **5. Custom Components (no external dependencies)**
 - FileDropZone, FileList, ImportSettings
-- ModelSelect, ModelSuggestion, FieldSuggestion
-- FileMappingRow, MappingStatus
+- ModelSelect, ModelSuggestion, FieldSuggestion, FieldSelect
+- FieldMappingTable, FileMappingRow, MappingStatus
+- ProfileEditor, AppDialog
 
 **6. Verbotene Components**
 - Layout primitives, Navigation shells
@@ -166,78 +171,131 @@ Invarianten:
 ## Project Structure
 
 ```
-src/
-├── api/
-│   ├── odooClient.ts        # RPC abstraction
-│   └── types.ts             # Odoo response types
-├── electron/
-│   ├── main.ts              # Main process
-│   ├── preload.ts           # IPC bridge
+csv-client/
+├── electron/                    # Electron main process
+│   ├── main.ts                  # App bootstrap
+│   ├── preload.ts               # IPC bridge (window.api)
 │   └── ipc/
-│       ├── files.ts         # File selection handlers
-│       ├── odoo.ts          # Odoo proxy handlers
-│       └── store.ts         # Persistent storage
-├── importer/
-│   ├── engine.ts            # Core import logic
-│   ├── stateMachine.ts      # State transitions
-│   ├── batchExecutor.ts     # Batch processing
-│   ├── retryQueue.ts        # Failed row handling
-│   ├── persistence.ts       # State recovery
-│   └── profileValidator.ts  # Profile dependency validation
-├── stores/
-│   ├── session.ts           # Auth state
-│   ├── config.ts            # Run settings
-│   ├── files.ts             # Selected files
-│   ├── run.ts               # Current import state
-│   ├── profiles.ts          # Import profile CRUD
-│   └── savedMappings.ts     # Per-server saved mappings
-├── types/
-│   └── importProfile.ts     # Profile types + CSV parse/export
-├── composables/
-│   └── useImportValidation.ts  # Reactive validation state
-├── utils/
-│   ├── logger.ts            # Structured logging
-│   ├── smartMapping.ts      # Filename → Model scoring
-│   └── smartFieldMapping.ts # Header → Field scoring
-├── ui/                      # shadcn wrappers
-│   ├── Button.vue
-│   ├── DataTable.vue
-│   └── ...
-├── components/
-│   ├── ErrorBoundary.vue
-│   ├── FileDropZone.vue     # Drag & drop file import
-│   ├── FileList.vue         # Sortable file table
-│   ├── ImportSettings.vue   # Collapsible settings panel
-│   ├── ModelSelect.vue      # Searchable model dropdown
-│   ├── ModelSuggestion.vue  # Model suggestion with confidence
-│   ├── FieldSuggestion.vue  # Field suggestion with confidence
-│   ├── FileMappingRow.vue   # Expanded file row content
-│   └── MappingStatus.vue    # Color-coded status indicator
-├── views/
-│   ├── LoginView.vue
-│   ├── FilesView.vue
-│   ├── ConfigView.vue
-│   ├── RunView.vue
-│   ├── ResultsView.vue
-│   └── SavedMappingsView.vue
-└── App.vue
+│       ├── files.ts             # File streaming handlers
+│       ├── odoo.ts              # Odoo RPC proxy + getSession()
+│       ├── store.ts             # Persistent storage
+│       └── profile.ts           # Profile ZIP select/upload/export IPC
+├── src/
+│   ├── api/
+│   │   ├── odooClient.ts        # Odoo API functions
+│   │   ├── profileApi.ts        # Profile CRUD API (server-side)
+│   │   └── types.ts             # Response types
+│   ├── importer/
+│   │   ├── engine.ts            # Main orchestrator
+│   │   ├── stateMachine.ts      # Import states + transitions
+│   │   ├── csvParser.ts         # PapaParse wrapper + streaming
+│   │   ├── batchExecutor.ts     # Batch processing
+│   │   ├── retryQueue.ts        # Failed row handling
+│   │   ├── persistence.ts       # State recovery
+│   │   ├── profileValidator.ts  # Profile + ProfileDraft validation
+│   │   └── fieldMappingValidator.ts  # Field mapping validation
+│   ├── stores/
+│   │   ├── session.ts           # Auth state
+│   │   ├── config.ts            # Import settings
+│   │   ├── files.ts             # Selected files + analyses
+│   │   ├── run.ts               # Import progress
+│   │   ├── profiles.ts          # Server-fetched profiles with cache
+│   │   └── savedMappings.ts     # Per-server saved mappings
+│   ├── types/
+│   │   ├── importProfile.ts     # Profile types + CSV parse/export
+│   │   ├── fieldMapping.ts      # FieldMapping + FieldTransform types
+│   │   └── runConfig.ts         # RunConfig override type
+│   ├── composables/
+│   │   ├── useDialog.ts              # In-app alert/confirm/prompt dialogs
+│   │   ├── useImportValidation.ts    # Reactive validation state
+│   │   ├── useProfileImport.ts       # Profile ZIP upload composable
+│   │   └── useRunConfig.ts           # Override merge composable
+│   ├── utils/
+│   │   ├── logger.ts            # Structured logging
+│   │   ├── smartMapping.ts      # Filename → Model scoring
+│   │   ├── smartFieldMapping.ts # Header → Field scoring
+│   │   ├── profileTemplates.ts  # Built-in profile templates
+│   │   ├── profileExporter.ts   # ZIP export with overrides
+│   │   ├── profileVersioning.ts # Version parse + compatibility
+│   │   └── profileZip.ts        # ZIP generation helpers
+│   ├── ui/                      # UI component wrappers
+│   │   ├── Button.vue
+│   │   ├── Input.vue
+│   │   ├── Select.vue
+│   │   ├── Checkbox.vue
+│   │   ├── Progress.vue
+│   │   ├── Card.vue
+│   │   ├── Table.vue
+│   │   └── index.ts
+│   ├── components/
+│   │   ├── AppDialog.vue        # In-app modal dialog (alert/confirm/prompt)
+│   │   ├── ErrorBoundary.vue
+│   │   ├── FieldMappingTable.vue # Rich field mapping editor
+│   │   ├── FieldSelect.vue      # Searchable field dropdown with type badges
+│   │   ├── FieldSuggestion.vue  # Field suggestion with confidence
+│   │   ├── FileDropZone.vue     # Drag & drop file import
+│   │   ├── FileList.vue         # Sortable file table with preview
+│   │   ├── FileMappingRow.vue   # Expanded file row content
+│   │   ├── ImportSettings.vue   # Collapsible settings panel
+│   │   ├── MappingStatus.vue    # Color-coded status indicator
+│   │   ├── ModelSelect.vue      # Searchable model dropdown
+│   │   ├── ModelSuggestion.vue  # Model suggestion with confidence
+│   │   └── ProfileEditor.vue    # Tabbed profile editor with overrides
+│   ├── views/
+│   │   ├── LoginView.vue
+│   │   ├── FilesView.vue
+│   │   ├── ConfigView.vue
+│   │   ├── RunView.vue
+│   │   ├── ResultsView.vue
+│   │   └── SavedMappingsView.vue
+│   ├── App.vue
+│   └── main.ts
+├── csv_import/                  # Odoo addon
+│   ├── __init__.py
+│   ├── __manifest__.py
+│   ├── models/
+│   │   ├── __init__.py
+│   │   └── csv_import_profile.py  # csv.import.profile model
+│   ├── controllers/
+│   │   ├── __init__.py
+│   │   ├── import_controller.py   # Import run endpoints
+│   │   └── profile_controller.py  # Profile CRUD + ZIP upload/download
+│   └── security/
+│       └── ir.model.access.csv
+├── tests/
+│   ├── setup.ts                 # Test configuration
+│   ├── fixtures/                # Demo CSV data
+│   ├── unit/                    # Vitest unit tests (449 tests)
+│   ├── integration/             # Integration tests
+│   └── e2e/                     # Playwright e2e tests
+└── docs/
+    ├── project-overview.md
+    ├── implementation-tickets.md
+    ├── implementation-summary.md
+    └── import-profiles.md
 ```
 
 ---
 
-## Odoo Addon (Minimal)
+## Odoo Addon
 
 ```
 csv_import/
 ├── __manifest__.py
+├── models/
+│   ├── __init__.py
+│   └── csv_import_profile.py   # csv.import.profile model
 ├── controllers/
-│   └── import_controller.py   # Single endpoint
+│   ├── __init__.py
+│   ├── import_controller.py    # Import run endpoint (savepoints per row)
+│   └── profile_controller.py   # Profile CRUD + ZIP upload/download
 ├── security/
 │   └── ir.model.access.csv
-└── static/                    # Vue build (embedded mode)
+└── static/                     # Vue build (embedded mode)
 ```
 
 Keine Business-Logik im Addon — nur Validation, ACL-Check, und `Model.create()` mit Savepoints.
+Profile-Endpoint: CRUD + ZIP upload/download für `csv.import.profile` Records.
 
 ---
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted } from 'vue'
+import { useRouter, onBeforeRouteLeave } from 'vue-router'
+import type { NavigationGuardNext, RouteLocationNormalized } from 'vue-router'
 import { useRunStore } from '@/stores/run'
 import { useFilesStore } from '@/stores/files'
 import { ImportState } from '@/importer/stateMachine'
@@ -10,8 +11,6 @@ import { Button, Progress, Card, Table } from '@/ui'
 const router = useRouter()
 const run = useRunStore()
 const filesStore = useFilesStore()
-
-const engine = ref<ImportEngine | null>(null)
 
 const stateLabel = computed(() => {
   const labels: Record<ImportState, string> = {
@@ -45,6 +44,11 @@ const isRunning = computed(() =>
 )
 
 onMounted(async () => {
+  // If already running or completed, just show the current state
+  if (run.isActive || run.isCompleted) {
+    return
+  }
+
   const files = filesStore.files.map(f => ({
     id: f.id,
     name: f.name
@@ -53,33 +57,46 @@ onMounted(async () => {
   if (files.length === 0) return
 
   try {
-    engine.value = new ImportEngine()
-    await engine.value.start(files)
+    const newEngine = new ImportEngine()
+    run.setEngine(newEngine)
+    await newEngine.start(files)
   } catch (e) {
     console.error('Import engine error:', e)
   }
 })
 
-onUnmounted(() => {
-  if (engine.value && isRunning.value) {
-    engine.value.abort()
+// Warn before leaving during active import
+onBeforeRouteLeave(
+  (_to: RouteLocationNormalized, _from: RouteLocationNormalized, next: NavigationGuardNext) => {
+    if (run.isActive) {
+      const confirmed = window.confirm(
+        'An import is in progress. Leaving this page will abort the import.\n\nAre you sure you want to leave?'
+      )
+      if (!confirmed) {
+        next(false)
+        return
+      }
+      // User confirmed, abort the import
+      run.engine?.abort()
+    }
+    next()
   }
-})
+)
 
 function formatNumber(n: number): string {
   return n.toLocaleString()
 }
 
 function handlePause() {
-  engine.value?.pause()
+  run.engine?.pause()
 }
 
 function handleResume() {
-  engine.value?.resume()
+  run.engine?.resume()
 }
 
 function handleAbort() {
-  engine.value?.abort()
+  run.engine?.abort()
   router.push('/files')
 }
 

@@ -11,6 +11,7 @@ export interface FileListItem {
   size: number
   rowCount?: number
   headers?: string[]
+  sampleRows?: Record<string, string>[]
 }
 
 const props = defineProps<{
