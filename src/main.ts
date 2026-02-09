@@ -117,8 +117,7 @@ if (!window.api) {
 
 // Views
 import LoginView from './views/LoginView.vue'
-import FilesView from './views/FilesView.vue'
-import ConfigView from './views/ConfigView.vue'
+import ImportView from './views/ImportView.vue'
 import RunView from './views/RunView.vue'
 import ResultsView from './views/ResultsView.vue'
 import SavedProfilesView from './views/SavedProfilesView.vue'
@@ -126,11 +125,14 @@ import SavedProfilesView from './views/SavedProfilesView.vue'
 const routes = [
   { path: '/', redirect: '/login' },
   { path: '/login', component: LoginView },
-  { path: '/files', component: FilesView },
-  { path: '/config', component: ConfigView },
+  { path: '/import', component: ImportView },
+  { path: '/profiles', component: SavedProfilesView },
   { path: '/run', component: RunView },
   { path: '/results', component: ResultsView },
-  { path: '/mappings', component: SavedProfilesView }
+  // Backward compatibility redirects
+  { path: '/files', redirect: '/import' },
+  { path: '/config', redirect: '/import' },
+  { path: '/mappings', redirect: '/profiles' }
 ]
 
 const router = createRouter({
@@ -151,9 +153,9 @@ router.beforeEach((to, _from, next) => {
   const publicRoutes = ['/login', '/']
 
   if (publicRoutes.includes(to.path)) {
-    // If already authenticated and going to login, redirect to files
+    // If already authenticated and going to login, redirect to import
     if (session.isAuthenticated && to.path === '/login') {
-      next('/files')
+      next('/import')
     } else {
       next()
     }

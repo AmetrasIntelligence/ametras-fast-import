@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { DEFAULT_RUN_SETTINGS } from '@/constants/defaults'
 
 export interface RunSettings {
   batchSize: number
@@ -20,8 +21,6 @@ export interface RunSettings {
 export interface FileMapping {
   filename: string
   model: string
-  /** @deprecated ID column is now detected from fieldMappings (id→id or .id→.id) */
-  idColumn?: 'id' | '.id' | null
   fieldMappings: Record<string, string>
   /** Field names for natural key search (Strategy 2) */
   searchKeys?: string[]
@@ -30,19 +29,7 @@ export interface FileMapping {
 }
 
 export const useConfigStore = defineStore('config', () => {
-  const settings = ref<RunSettings>({
-    batchSize: 200,
-    retryLimit: 3,
-    retryDelayMs: 2000,
-    stopOnFatalError: false,
-    encoding: 'utf-8-sig',
-    delimiter: ',',
-    skipHeader: true,
-    dryRun: false,
-    lang: 'de_DE',
-    workers: 1,
-    strict: true
-  })
+  const settings = ref<RunSettings>({ ...DEFAULT_RUN_SETTINGS })
 
   const fileMappings = ref<Map<string, FileMapping>>(new Map())
   const importSequence = ref<string[]>([])
@@ -98,14 +85,6 @@ export const useConfigStore = defineStore('config', () => {
     return lines.join('\n')
   }
 
-  function exportMappingsCSV(): string {
-    const lines = ['filename,model,idColumn']
-    for (const [filename, mapping] of fileMappings.value) {
-      lines.push(`${filename},${mapping.model},${mapping.idColumn || ''}`)
-    }
-    return lines.join('\n')
-  }
-
   function exportSequenceCSV(): string {
     const lines = ['order,filename']
     importSequence.value.forEach((filename, idx) => {
@@ -148,7 +127,6 @@ export const useConfigStore = defineStore('config', () => {
     setSequence,
     moveInSequence,
     exportSettingsCSV,
-    exportMappingsCSV,
     exportSequenceCSV,
     importSettingsCSV
   }

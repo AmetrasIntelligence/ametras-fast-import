@@ -3,7 +3,6 @@ import { ref, computed, watch } from 'vue'
 import { fetchModelFields, type OdooField } from '@/api/odooClient'
 import type { FieldMapping, FieldTransform } from '@/types/fieldMapping'
 import { STANDARD_DB_ID_MODELS } from '@/types/fieldMapping'
-import { detectTransform } from '@/utils/smartFieldMapping'
 
 const props = defineProps<{
   filename: string
@@ -65,6 +64,30 @@ const fieldMap = computed(() => {
   return map
 })
 
+// Compute transform based on odooField pattern and field metadata
+function computeTransform(odooField: string, field: OdooField | undefined): FieldTransform {
+  if (!field) {
+    return { type: 'passthrough' }
+  }
+
+  const isRelational = field.type === 'many2one' || field.type === 'many2many'
+
+  // External ID reference: /id suffix
+  if (odooField.endsWith('/id') && isRelational && field.relation) {
+    if (field.type === 'many2many') {
+      return { type: 'm2m_ref', model: field.relation }
+    }
+    return { type: 'm2o_ref', model: field.relation }
+  }
+
+  // Database ID reference: /.id suffix
+  if (odooField.endsWith('/.id') && isRelational && field.relation) {
+    return { type: 'db_id', model: field.relation }
+  }
+
+  return { type: 'passthrough' }
+}
+
 // Actions
 function setMapping(csvHeader: string, odooField: string) {
   if (!odooField) {
@@ -84,10 +107,8 @@ function setMapping(csvHeader: string, odooField: string) {
   // Auto-detect required from Odoo field metadata
   const required = field?.required ?? false
 
-  // Auto-detect transform based on header pattern and field type
-  const transform: FieldTransform = field
-    ? detectTransform(csvHeader, field)
-    : { type: 'passthrough' }
+  // Auto-detect transform based on odooField pattern and field type
+  const transform: FieldTransform = computeTransform(odooField, field)
 
   const mapping: FieldMapping = {
     filename: props.filename,

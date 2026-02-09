@@ -25,7 +25,7 @@ const savedProfiles = computed(() => session.savedProfiles)
 
 onMounted(async () => {
   if (session.isAuthenticated) {
-    router.push('/files')
+    router.push('/import')
     return
   }
   await session.loadProfiles()
@@ -84,7 +84,7 @@ async function handleLogin() {
       },
       password.value
     )
-    router.push('/files')
+    router.push('/import')
   } catch (e) {
     error.value = e instanceof Error ? e.message : t('login.loginFailed')
     // Show advanced options on error

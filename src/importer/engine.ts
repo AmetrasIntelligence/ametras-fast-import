@@ -199,7 +199,6 @@ export class ImportEngine {
   ): Promise<BatchResult[]> {
     return executeBatch(mapping.model, batch.rows, {
       fieldMappings: mapping.fieldMappings,
-      idColumn: mapping.idColumn,
       searchKeys: mapping.searchKeys,
       strict: mapping.strict
     }, dryRun)
@@ -453,7 +452,6 @@ export class ImportEngine {
           rows,
           {
             fieldMappings: mapping.fieldMappings,
-            idColumn: mapping.idColumn,
             searchKeys: mapping.searchKeys,
             strict: mapping.strict
           },

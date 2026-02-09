@@ -28,23 +28,16 @@ function logout() {
       <nav v-if="session.isAuthenticated" class="csv-nav">
         <div class="csv-nav__links">
           <router-link
-            to="/files"
+            to="/import"
             class="csv-nav__link"
-            :class="{ 'csv-nav__link--active': route.path === '/files' }"
+            :class="{ 'csv-nav__link--active': route.path === '/import' }"
           >
-            {{ $t('nav.files') }}
+            {{ $t('nav.import') }}
           </router-link>
           <router-link
-            to="/config"
+            to="/profiles"
             class="csv-nav__link"
-            :class="{ 'csv-nav__link--active': route.path === '/config' }"
-          >
-            {{ $t('nav.configure') }}
-          </router-link>
-          <router-link
-            to="/mappings"
-            class="csv-nav__link"
-            :class="{ 'csv-nav__link--active': route.path === '/mappings' }"
+            :class="{ 'csv-nav__link--active': route.path === '/profiles' }"
           >
             {{ $t('nav.profiles') }}
           </router-link>
@@ -57,7 +50,7 @@ function logout() {
               'csv-nav__link--running': run.isActive
             }"
           >
-            {{ $t('nav.import') }}
+            {{ run.isCompleted ? $t('nav.result') : $t('nav.run') }}
             <span v-if="run.isActive" class="csv-nav__indicator"></span>
           </router-link>
         </div>

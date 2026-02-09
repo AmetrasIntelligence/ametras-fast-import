@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { fetchModels, type OdooModel } from '@/api/odooClient'
+import { useDropdown } from '@/composables/useDropdown'
 
 // Session-level cache
 let cachedModels: OdooModel[] | null = null
@@ -17,36 +18,27 @@ const emit = defineEmits<{
 const models = ref<OdooModel[]>([])
 const loading = ref(false)
 const searchQuery = ref('')
-const isOpen = ref(false)
-
-const referenceEl = ref<HTMLElement | null>(null)
-const dropdownEl = ref<HTMLElement | null>(null)
 const searchInputEl = ref<HTMLInputElement | null>(null)
-const dropdownStyle = ref<{ top: string; left: string }>({ top: '0px', left: '0px' })
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 const debouncedQuery = ref('')
 
-function updateDropdownPosition() {
-  if (!referenceEl.value) return
-  const rect = referenceEl.value.getBoundingClientRect()
-  const dropdownHeight = 320 // estimated max height
-  const spaceBelow = window.innerHeight - rect.bottom
-  const spaceAbove = rect.top
-
-  // Position below trigger, or above if not enough space below
-  if (spaceBelow >= dropdownHeight || spaceBelow >= spaceAbove) {
-    dropdownStyle.value = {
-      top: `${rect.bottom + 4}px`,
-      left: `${Math.max(8, Math.min(rect.left, window.innerWidth - 370))}px`
-    }
-  } else {
-    dropdownStyle.value = {
-      top: `${rect.top - dropdownHeight - 4}px`,
-      left: `${Math.max(8, Math.min(rect.left, window.innerWidth - 370))}px`
-    }
+const {
+  isOpen,
+  triggerRef: referenceEl,
+  dropdownRef: dropdownEl,
+  dropdownStyle,
+  toggle,
+  close
+} = useDropdown({
+  dropdownHeight: 320,
+  dropdownWidth: 360,
+  onOpen: () => {
+    searchQuery.value = ''
+    debouncedQuery.value = ''
+    setTimeout(() => searchInputEl.value?.focus(), 50)
   }
-}
+})
 
 watch(searchQuery, (val) => {
   if (debounceTimer) clearTimeout(debounceTimer)
@@ -90,41 +82,16 @@ onMounted(async () => {
 
 function toggleOpen() {
   if (props.disabled) return
-  isOpen.value = !isOpen.value
-  if (isOpen.value) {
-    searchQuery.value = ''
-    debouncedQuery.value = ''
-    updateDropdownPosition()
-    // Focus search input after dropdown opens
-    setTimeout(() => searchInputEl.value?.focus(), 50)
-  }
+  toggle()
 }
 
 function selectModel(model: OdooModel) {
   emit('update:modelValue', model.model)
-  isOpen.value = false
+  close()
   searchQuery.value = ''
 }
 
-function handleClickOutside(e: MouseEvent) {
-  if (
-    !referenceEl.value?.contains(e.target as Node) &&
-    !dropdownEl.value?.contains(e.target as Node)
-  ) {
-    isOpen.value = false
-  }
-}
-
-watch(isOpen, (open) => {
-  if (open) {
-    document.addEventListener('click', handleClickOutside, true)
-  } else {
-    document.removeEventListener('click', handleClickOutside, true)
-  }
-})
-
 onBeforeUnmount(() => {
-  document.removeEventListener('click', handleClickOutside, true)
   if (debounceTimer) clearTimeout(debounceTimer)
 })
 </script>

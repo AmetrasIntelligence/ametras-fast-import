@@ -1,5 +1,5 @@
 import type { ImportProfile, ProfileMapping, ProfileSequenceItem, ProfileFieldMapping } from '@/types/importProfile'
-import type { RunSettings } from '@/stores/config'
+import { DEFAULT_RUN_SETTINGS } from '@/constants/defaults'
 
 export interface ProfileTemplate {
   id: string
@@ -8,20 +8,6 @@ export interface ProfileTemplate {
   mappings: ProfileMapping[]
   sequence: ProfileSequenceItem[]
   fieldMappings: ProfileFieldMapping[]
-}
-
-const defaultRunSettings: RunSettings = {
-  batchSize: 200,
-  retryLimit: 3,
-  retryDelayMs: 2000,
-  stopOnFatalError: false,
-  encoding: 'utf-8-sig',
-  delimiter: ',',
-  skipHeader: true,
-  dryRun: false,
-  lang: 'de_DE',
-  workers: 1,
-  strict: true
 }
 
 const templates: ProfileTemplate[] = [
@@ -147,7 +133,7 @@ export function getTemplate(id: string): ImportProfile {
     description: template.description,
     mappings: template.mappings,
     sequence: template.sequence,
-    runSettings: { ...defaultRunSettings },
+    runSettings: { ...DEFAULT_RUN_SETTINGS },
     fieldMappings: template.fieldMappings,
     createdAt: Date.now(),
     updatedAt: Date.now()

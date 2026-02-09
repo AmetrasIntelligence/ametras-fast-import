@@ -7,6 +7,7 @@ import { useRunStore } from '@/stores/run'
 import { useFilesStore } from '@/stores/files'
 import { ImportState } from '@/importer/stateMachine'
 import { ImportEngine } from '@/importer/engine'
+import { formatNumber } from '@/utils/formatters'
 import { Button, Progress, Card, Table } from '@/ui'
 
 const { t } = useI18n()
@@ -103,10 +104,6 @@ onBeforeRouteLeave(
     next()
   }
 )
-
-function formatNumber(n: number): string {
-  return n.toLocaleString()
-}
 
 function handlePause() {
   run.engine?.pause()

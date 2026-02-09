@@ -2,6 +2,7 @@
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { OdooField } from '@/api/odooClient'
+import { useDropdown } from '@/composables/useDropdown'
 
 const { t } = useI18n()
 
@@ -24,36 +25,28 @@ const emit = defineEmits<{
   'update:modelValue': [value: string]
 }>()
 
-const isOpen = ref(false)
 const searchQuery = ref('')
 const debouncedQuery = ref('')
-const referenceEl = ref<HTMLElement | null>(null)
-const dropdownEl = ref<HTMLElement | null>(null)
 const searchInputEl = ref<HTMLInputElement | null>(null)
-const dropdownStyle = ref<{ top: string; left: string }>({ top: '0px', left: '0px' })
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
-function updateDropdownPosition() {
-  if (!referenceEl.value) return
-  const rect = referenceEl.value.getBoundingClientRect()
-  const dropdownHeight = 340 // estimated max height
-  const spaceBelow = window.innerHeight - rect.bottom
-  const spaceAbove = rect.top
-
-  // Position below trigger, or above if not enough space below
-  if (spaceBelow >= dropdownHeight || spaceBelow >= spaceAbove) {
-    dropdownStyle.value = {
-      top: `${rect.bottom + 4}px`,
-      left: `${Math.max(8, Math.min(rect.left, window.innerWidth - 408))}px`
-    }
-  } else {
-    dropdownStyle.value = {
-      top: `${rect.top - dropdownHeight - 4}px`,
-      left: `${Math.max(8, Math.min(rect.left, window.innerWidth - 408))}px`
-    }
+const {
+  isOpen,
+  triggerRef: referenceEl,
+  dropdownRef: dropdownEl,
+  dropdownStyle,
+  toggle,
+  close
+} = useDropdown({
+  dropdownHeight: 340,
+  dropdownWidth: 400,
+  onOpen: () => {
+    searchQuery.value = ''
+    debouncedQuery.value = ''
+    setTimeout(() => searchInputEl.value?.focus(), 50)
   }
-}
+})
 
 watch(searchQuery, (val) => {
   if (debounceTimer) clearTimeout(debounceTimer)
@@ -135,46 +128,22 @@ const selectedOption = computed(() =>
 
 function toggleOpen() {
   if (props.disabled) return
-  isOpen.value = !isOpen.value
-  if (isOpen.value) {
-    searchQuery.value = ''
-    debouncedQuery.value = ''
-    updateDropdownPosition()
-    setTimeout(() => searchInputEl.value?.focus(), 50)
-  }
+  toggle()
 }
 
 function selectOption(option: FieldOption) {
   emit('update:modelValue', option.value)
-  isOpen.value = false
+  close()
   searchQuery.value = ''
 }
 
 function selectSkip() {
   emit('update:modelValue', '')
-  isOpen.value = false
+  close()
   searchQuery.value = ''
 }
 
-function handleClickOutside(e: MouseEvent) {
-  if (
-    !referenceEl.value?.contains(e.target as Node) &&
-    !dropdownEl.value?.contains(e.target as Node)
-  ) {
-    isOpen.value = false
-  }
-}
-
-watch(isOpen, (open) => {
-  if (open) {
-    document.addEventListener('click', handleClickOutside, true)
-  } else {
-    document.removeEventListener('click', handleClickOutside, true)
-  }
-})
-
 onBeforeUnmount(() => {
-  document.removeEventListener('click', handleClickOutside, true)
   if (debounceTimer) clearTimeout(debounceTimer)
 })
 </script>
