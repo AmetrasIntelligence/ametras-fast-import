@@ -1,0 +1,5 @@
+key,value
+name,OneDrive PartX Import
+version,1.0
+odoo_min_version,16.0
+description,Sequential import of partners and products from OneDrive CSVs

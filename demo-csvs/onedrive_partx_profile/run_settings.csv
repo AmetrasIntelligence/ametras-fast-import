@@ -1,0 +1,10 @@
+key,value
+batchSize,200
+retryLimit,3
+retryDelayMs,2000
+stopOnFatalError,false
+encoding,utf-8-sig
+delimiter,","
+skipHeader,true
+dryRun,false
+lang,de_DE

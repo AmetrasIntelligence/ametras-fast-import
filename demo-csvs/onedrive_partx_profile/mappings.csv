@@ -1,0 +1,13 @@
+filename,model
+01_res_partner_title.csv,res.partner.title
+02_res_bank.csv,res.bank
+03_account_payment_term.csv,account.payment.term
+04_res_partner.csv,res.partner
+04a_partner_tour_config.csv,partner.tour.config
+05_minimum_order.csv,minimum.order
+06_res_partner_bank.csv,res.partner.bank
+07_account_payment_term_line.csv,account.payment.term.line
+08_product_category.csv,product.category
+09_product.text_module.csv,product.text_module
+10_product_template.csv,product.template
+11_product_template.csv,product.template

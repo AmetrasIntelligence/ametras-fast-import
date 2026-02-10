@@ -1,0 +1,121 @@
+filename,csv_header,odoo_field,required,transform,notes
+01_res_partner_title.csv,id,id,true,,External ID for upsert
+01_res_partner_title.csv,name,name,true,,Title name
+02_res_bank.csv,id,id,true,,External ID for upsert
+02_res_bank.csv,name,name,true,,Bank name
+02_res_bank.csv,bic,bic,false,,BIC/SWIFT code
+03_account_payment_term.csv,id,id,true,,External ID for upsert
+03_account_payment_term.csv,note,note,false,,Payment term description
+03_account_payment_term.csv,name,name,true,,Payment term name
+04_res_partner.csv,id,id,true,,External ID for upsert
+04_res_partner.csv,name,name,true,,Partner name
+04_res_partner.csv,name_two,name_two,false,,Secondary name
+04_res_partner.csv,street,street,false,,Street address
+04_res_partner.csv,zip,zip,false,,ZIP code
+04_res_partner.csv,city,city,false,,City
+04_res_partner.csv,fax,fax,false,,Fax number
+04_res_partner.csv,country_id/.id,country_id,false,db_id:res.country,Country database ID
+04_res_partner.csv,email,email,false,,Email address
+04_res_partner.csv,website,website,false,,Website URL
+04_res_partner.csv,internal_customer_ref,internal_customer_ref,false,,Internal customer reference
+04_res_partner.csv,user_id/.id,user_id,false,db_id:res.users,Salesperson database ID
+04_res_partner.csv,purchase_discount_instant,purchase_discount_instant,false,,Purchase discount
+04_res_partner.csv,customer_number,customer_number,false,,Customer number
+04_res_partner.csv,property_product_pricelist/.id,property_product_pricelist,false,db_id:product.pricelist,Pricelist database ID
+04_res_partner.csv,currency_id/.id,currency_id,false,db_id:res.currency,Currency database ID
+04_res_partner.csv,open_balance,open_balance,false,,Open balance
+04_res_partner.csv,supplier_number,supplier_number,false,,Supplier number
+04_res_partner.csv,supplier_rank,supplier_rank,false,,Supplier rank
+04_res_partner.csv,ref,ref,false,,Internal reference
+04_res_partner.csv,is_manufacturer,is_manufacturer,false,,Is manufacturer flag
+04_res_partner.csv,internal_manufacturer_ref,internal_manufacturer_ref,false,,Internal manufacturer reference
+04_res_partner.csv,maker_code,maker_code,false,,Maker code
+04_res_partner.csv,property_purchase_currency_id/.id,property_purchase_currency_id,false,db_id:res.currency,Purchase currency database ID
+04_res_partner.csv,use_collective,use_collective,false,,Use collective
+04_res_partner.csv,function,function,false,,Job position
+04_res_partner.csv,internal_vendor_ref,internal_vendor_ref,false,,Internal vendor reference
+04_res_partner.csv,phone,phone,false,,Phone number
+04_res_partner.csv,type,type,false,,Address type
+04_res_partner.csv,auto_create_invoice,auto_create_invoice,false,,Auto create invoice
+04_res_partner.csv,default_delivery_mode,default_delivery_mode,false,,Default delivery mode
+04_res_partner.csv,operating_unit_id/.id,operating_unit_id,false,db_id:operating.unit,Operating unit database ID
+04_res_partner.csv,inv_delivery_methods,inv_delivery_methods,false,,Invoice delivery methods
+04_res_partner.csv,active,active,false,,Active flag
+04_res_partner.csv,lang,lang,false,,Language code
+04_res_partner.csv,is_company,is_company,false,,Is company flag
+04_res_partner.csv,is_blacklisted,is_blacklisted,false,,Is blacklisted flag
+04_res_partner.csv,customer_payment_mode_id/.id,customer_payment_mode_id,false,db_id:account.payment.mode,Customer payment mode database ID
+04_res_partner.csv,property_payment_term_id/.id,property_payment_term_id,false,db_id:account.payment.term,Payment term database ID
+04_res_partner.csv,print_gross_price,print_gross_price,false,,Print gross price
+04_res_partner.csv,print_net_price,print_net_price,false,,Print net price
+04_res_partner.csv,print_effective_discount,print_effective_discount,false,,Print effective discount
+04_res_partner.csv,category_id/.id,category_id,false,db_id:res.partner.category,Partner category database ID
+04_res_partner.csv,parent_id/id,parent_id,false,m2o_ref:res.partner,Parent partner external ID
+04_res_partner.csv,title/id,title,false,m2o_ref:res.partner.title,Title external ID
+04a_partner_tour_config.csv,id,id,true,,External ID for upsert
+04a_partner_tour_config.csv,partner_id/id,partner_id,true,m2o_ref:res.partner,Partner external ID
+04a_partner_tour_config.csv,partner_shipping_ids/id,partner_shipping_ids,false,m2m_ref:res.partner,Shipping partners external IDs
+04a_partner_tour_config.csv,tour_pricing_id/.id,tour_pricing_id,false,db_id:tour.pricing,Tour pricing database ID
+05_minimum_order.csv,id,id,true,,External ID for upsert
+05_minimum_order.csv,minimum_amount,minimum_amount,true,,Minimum order amount
+05_minimum_order.csv,currency_id/.id,currency_id,false,db_id:res.currency,Currency database ID
+05_minimum_order.csv,warning_state,warning_state,false,,Warning state
+05_minimum_order.csv,info_text,info_text,false,,Info text
+05_minimum_order.csv,partner_id/id,partner_id,true,m2o_ref:res.partner,Partner external ID
+06_res_partner_bank.csv,id,id,true,,External ID for upsert
+06_res_partner_bank.csv,partner_id/id,partner_id,true,m2o_ref:res.partner,Partner external ID
+06_res_partner_bank.csv,bank_id/id,bank_id,false,m2o_ref:res.bank,Bank external ID
+06_res_partner_bank.csv,acc_number,acc_number,true,,Account number (IBAN)
+06_res_partner_bank.csv,acc_holder_name,acc_holder_name,false,,Account holder name
+06_res_partner_bank.csv,currency_id/.id,currency_id,false,db_id:res.currency,Currency database ID
+07_account_payment_term_line.csv,id,id,true,,External ID for upsert
+07_account_payment_term_line.csv,payment_id/id,payment_id,true,m2o_ref:account.payment.term,Payment term external ID
+07_account_payment_term_line.csv,value_amount,value_amount,false,,Value amount (percentage/fixed)
+07_account_payment_term_line.csv,value,value,false,,Value type (percent/fixed/balance)
+07_account_payment_term_line.csv,days,days,false,,Number of days
+08_product_category.csv,id,id,true,,External ID for upsert
+08_product_category.csv,groupkey,groupkey,false,,Group key
+08_product_category.csv,name,name,true,,Category name
+08_product_category.csv,parent_id/id,parent_id,false,m2o_ref:product.category,Parent category external ID
+09_product.text_module.csv,id,id,true,,External ID for upsert
+09_product.text_module.csv,name,name,true,,Text module name
+09_product.text_module.csv,description,description,false,,Text module description
+10_product_template.csv,id,id,true,,External ID for upsert
+10_product_template.csv,categ_id/id,categ_id,false,m2o_ref:product.category,Product category external ID
+10_product_template.csv,manufacturer_ref,manufacturer_ref,false,,Manufacturer reference
+10_product_template.csv,manufacturer_id/id,manufacturer_id,false,m2o_ref:res.partner,Manufacturer partner external ID
+10_product_template.csv,maker_code,maker_code,false,,Maker code
+10_product_template.csv,type,detailed_type,false,,Product type (consu/service/product)
+10_product_template.csv,name,name,true,,Product name
+10_product_template.csv,description,description,false,,Internal description
+10_product_template.csv,description_sale,description_sale,false,,Sales description
+10_product_template.csv,description_picking,description_picking,false,,Picking description
+10_product_template.csv,description_pickingin,description_pickingin,false,,Picking in description
+10_product_template.csv,description_pickingout,description_pickingout,false,,Picking out description
+10_product_template.csv,description_purchase,description_purchase,false,,Purchase description
+10_product_template.csv,sale_ok,sale_ok,false,,Can be sold
+10_product_template.csv,purchase_ok,purchase_ok,false,,Can be purchased
+10_product_template.csv,invoice_policy,invoice_policy,false,,Invoice policy
+10_product_template.csv,purchase_line_warn,purchase_line_warn,false,,Purchase order line warning
+10_product_template.csv,sale_line_warn,sale_line_warn,false,,Sales order line warning
+10_product_template.csv,hs_code,hs_code,false,,HS code for customs
+10_product_template.csv,uom_id/.id,uom_id,false,db_id:uom.uom,Unit of measure database ID
+10_product_template.csv,tracking,tracking,false,,Tracking (none/serial/lot)
+10_product_template.csv,currency_id/.id,currency_id,false,db_id:res.currency,Currency database ID
+10_product_template.csv,dimensional_uom_id/.id,dimensional_uom_id,false,db_id:uom.uom,Dimensional UoM database ID
+10_product_template.csv,product_length,product_length,false,,Product length
+10_product_template.csv,product_width,product_width,false,,Product width
+10_product_template.csv,product_height,product_height,false,,Product height
+10_product_template.csv,list_price,list_price,false,,Sales price
+10_product_template.csv,standard_price,standard_price,false,,Cost price
+10_product_template.csv,last_purchase_price,last_purchase_price,false,,Last purchase price
+10_product_template.csv,weight,weight,false,,Weight in kg
+10_product_template.csv,active,active,false,,Active flag
+10_product_template.csv,route_ids/id,route_ids,false,m2m_ref:stock.route,Routes external IDs
+10_product_template.csv,default_code,default_code,false,,Internal reference (SKU)
+10_product_template.csv,barcode,barcode,false,,Primary barcode (EAN)
+10_product_template.csv,manufacturer_ref_two,manufacturer_ref_two,false,,Secondary manufacturer reference
+10_product_template.csv,deposit_value,deposit_value,false,,Deposit value
+10_product_template.csv,available_in_pos,available_in_pos,false,,Available in POS
+11_product_template.csv,id,id,true,,External ID for upsert
+11_product_template.csv,text_module_ids/id,text_module_ids,false,m2m_ref:product.text.module,Text modules external IDs
