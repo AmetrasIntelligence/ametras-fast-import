@@ -172,4 +172,16 @@ describe('detectIdColumn', () => {
     const fieldMappings = { 'id': 'id', 'country_id/id': 'country_id/id', 'name': 'name' }
     expect(detectIdColumn(fieldMappings)).toBe('id')
   })
+
+  it('detects external id when any CSV column is mapped to id', () => {
+    // CSV column can have any name as long as it's mapped to 'id'
+    const fieldMappings = { 'external_id': 'id', 'name': 'name' }
+    expect(detectIdColumn(fieldMappings)).toBe('id')
+  })
+
+  it('detects database id when any CSV column is mapped to .id', () => {
+    // CSV column can have any name as long as it's mapped to '.id'
+    const fieldMappings = { 'db_id': '.id', 'name': 'name' }
+    expect(detectIdColumn(fieldMappings)).toBe('.id')
+  })
 })

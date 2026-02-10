@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useRunStore } from '@/stores/run'
+import { useFilesStore } from '@/stores/files'
 import { ImportEngine } from '@/importer/engine'
 import { Button, Card, Table } from '@/ui'
 
@@ -78,11 +79,22 @@ function downloadJSON(data: unknown, filename: string) {
 async function retryFailedRows() {
   if (isRetrying.value) return
 
+  // Check if files are still available before retrying
+  const filesStore = useFilesStore()
+  const hasFiles = filesStore.files.length > 0
+  if (!hasFiles) {
+    alert('Files are no longer available for retry. Please start a new import.')
+    return
+  }
+
   isRetrying.value = true
   try {
     const engine = new ImportEngine()
     run.setEngine(engine)
     await engine.retryFailedRows()
+  } catch (e) {
+    console.error('Retry failed:', e)
+    alert(`Retry failed: ${e instanceof Error ? e.message : 'Unknown error'}`)
   } finally {
     isRetrying.value = false
     run.setEngine(null)

@@ -5,7 +5,6 @@ import type { ImportProfile } from '@/types/importProfile'
 import type { RunConfig } from '@/types/runConfig'
 import type { RunSettings } from '@/stores/config'
 import { serializeTransform } from '@/types/fieldMapping'
-import { Button } from '@/ui'
 
 const { t } = useI18n()
 
@@ -86,25 +85,6 @@ const fieldMappings = computed(() => props.profile.richFieldMappings || [])
 
 <template>
   <div class="csv-profile-editor">
-    <!-- Header -->
-    <div class="csv-profile-editor__header">
-      <div>
-        <h3 class="csv-font-medium csv-text-sm">{{ profile.name }}</h3>
-        <span class="csv-text-xs csv-text-muted">
-          v{{ profile.version }}
-          <template v-if="profile.description"> &middot; {{ profile.description }}</template>
-        </span>
-      </div>
-      <Button
-        v-if="hasOverrides"
-        variant="ghost"
-        size="sm"
-        @click="emit('reset-all')"
-      >
-        {{ $t('profileEditor.resetAll') }}
-      </Button>
-    </div>
-
     <!-- Tab Buttons -->
     <div class="csv-profile-editor__tabs">
       <button
@@ -380,16 +360,7 @@ const fieldMappings = computed(() => props.profile.richFieldMappings || [])
 
 <style scoped>
 .csv-profile-editor {
-  border: 1px solid #e5e7eb;
-  border-radius: var(--radius, 0.375rem);
   background: white;
-}
-.csv-profile-editor__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.75rem;
-  border-bottom: 1px solid #e5e7eb;
 }
 .csv-profile-editor__tabs {
   display: flex;

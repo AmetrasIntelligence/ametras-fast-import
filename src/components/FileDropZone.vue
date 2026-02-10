@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 
+defineProps<{
+  compact?: boolean
+}>()
+
 const emit = defineEmits<{
   filesDropped: [files: File[]]
   browse: []
@@ -47,14 +51,18 @@ function onDrop(e: DragEvent) {
 <template>
   <div
     class="csv-drop-zone"
-    :class="{ 'csv-drop-zone--active': isDragOver }"
+    :class="{
+      'csv-drop-zone--active': isDragOver,
+      'csv-drop-zone--compact': compact
+    }"
     @dragenter="onDragEnter"
     @dragleave="onDragLeave"
     @dragover="onDragOver"
     @drop="onDrop"
   >
-    <div class="csv-flex csv-flex-col csv-items-center csv-gap-2">
+    <div class="csv-flex csv-items-center csv-gap-2" :class="{ 'csv-flex-col': !compact }">
       <svg
+        v-if="!compact"
         class="csv-drop-zone__icon"
         fill="none"
         stroke="currentColor"
@@ -67,10 +75,10 @@ function onDrop(e: DragEvent) {
           d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
         />
       </svg>
-      <p class="csv-text-sm csv-text-muted">
+      <p :class="compact ? 'csv-text-xs csv-text-muted' : 'csv-text-sm csv-text-muted'">
         <span v-if="isDragOver">{{ $t('files.dropZone.drop') }}</span>
         <span v-else>
-          {{ $t('files.dropZone.dragAndDrop') }}
+          {{ compact ? $t('files.dropZone.addMore') : $t('files.dropZone.dragAndDrop') }}
           <button
             type="button"
             class="csv-drop-zone__browse"
@@ -98,6 +106,15 @@ function onDrop(e: DragEvent) {
 .csv-drop-zone--active {
   border-color: #2563eb;
   background-color: #eff6ff;
+}
+.csv-drop-zone--compact {
+  padding: 0.75rem;
+  border-width: 1px;
+  border-color: #e5e7eb;
+}
+.csv-drop-zone--compact:hover {
+  border-color: #d1d5db;
+  background-color: #fafafa;
 }
 .csv-drop-zone__icon {
   width: 2.5rem;

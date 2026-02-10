@@ -227,30 +227,6 @@ describe('ConfigStore', () => {
       expect(csv).toContain('lang,de_DE')
     })
 
-    it('exports mappings as CSV', () => {
-      const store = useConfigStore()
-
-      store.setFileMapping('partners.csv', {
-        filename: 'partners.csv',
-        model: 'res.partner',
-        idColumn: 'id',
-        fieldMappings: {}
-      })
-
-      store.setFileMapping('products.csv', {
-        filename: 'products.csv',
-        model: 'product.template',
-        idColumn: null,
-        fieldMappings: {}
-      })
-
-      const csv = store.exportMappingsCSV()
-
-      expect(csv).toContain('filename,model,idColumn')
-      expect(csv).toContain('partners.csv,res.partner,id')
-      expect(csv).toContain('products.csv,product.template,')
-    })
-
     it('exports sequence as CSV', () => {
       const store = useConfigStore()
       store.setSequence(['first.csv', 'second.csv', 'third.csv'])

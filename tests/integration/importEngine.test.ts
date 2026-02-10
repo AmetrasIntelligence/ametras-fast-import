@@ -540,11 +540,12 @@ describe('ImportEngine Integration', () => {
       currentEngine = new ImportEngine()
       await currentEngine!.start([{ id: 'file-1', name: 'partners.csv' }])
 
+      // idColumn is now auto-detected from fieldMappings (id→id)
       expect(mockExecuteBatch).toHaveBeenCalledWith(
         'res.partner',
         expect.any(Array),
         expect.objectContaining({
-          idColumn: 'id'
+          fieldMappings: { id: 'id', name: 'name' }
         }),
         false
       )
@@ -557,8 +558,7 @@ describe('ImportEngine Integration', () => {
       config.setFileMapping('partners.csv', {
         filename: 'partners.csv',
         model: 'res.partner',
-        idColumn: '.id',
-        fieldMappings: { name: 'name' }
+        fieldMappings: { '.id': '.id', name: 'name' }
       })
 
       mockApi.files.streamChunks.mockImplementation(async (_id, _size, callback) => {
@@ -571,11 +571,12 @@ describe('ImportEngine Integration', () => {
       currentEngine = new ImportEngine()
       await currentEngine!.start([{ id: 'file-1', name: 'partners.csv' }])
 
+      // idColumn is now auto-detected from fieldMappings (.id→.id)
       expect(mockExecuteBatch).toHaveBeenCalledWith(
         'res.partner',
         expect.any(Array),
         expect.objectContaining({
-          idColumn: '.id'
+          fieldMappings: { '.id': '.id', name: 'name' }
         }),
         false
       )

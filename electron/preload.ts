@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 export interface ProfileUploadResult {
   ok: boolean
@@ -14,6 +14,7 @@ export interface ElectronAPI {
     readHead: (id: string, bytes: number) => Promise<string>
     countLines: (id: string) => Promise<number>
     streamChunks: (id: string, chunkLines: number, onChunk: (chunk: ChunkData) => void) => Promise<void>
+    getPathForFile: (file: File) => string
   }
   odoo: {
     call: <T>(payload: OdooPayload) => Promise<OdooCallResult<T>>
@@ -83,6 +84,7 @@ contextBridge.exposeInMainWorld('api', {
     read: (id: string) => ipcRenderer.invoke('files:read', id),
     readHead: (id: string, bytes: number) => ipcRenderer.invoke('files:readHead', id, bytes),
     countLines: (id: string) => ipcRenderer.invoke('files:countLines', id),
+    getPathForFile: (file: File) => webUtils.getPathForFile(file),
     streamChunks: async (id: string, chunkLines: number, onChunk: (chunk: ChunkData) => void) => {
       const streamId = await ipcRenderer.invoke('files:streamChunks', id, chunkLines)
 

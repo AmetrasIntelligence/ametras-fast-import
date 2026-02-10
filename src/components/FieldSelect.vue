@@ -41,6 +41,7 @@ const {
 } = useDropdown({
   dropdownHeight: 340,
   dropdownWidth: 400,
+  minSpaceBelow: 180,
   onOpen: () => {
     searchQuery.value = ''
     debouncedQuery.value = ''
@@ -287,8 +288,12 @@ onBeforeUnmount(() => {
   border-radius: var(--radius, 0.375rem);
   background: white;
   box-shadow: 0 10px 25px -3px rgba(0,0,0,0.15), 0 4px 6px -2px rgba(0,0,0,0.05);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 .csv-field-sel__search {
+  flex-shrink: 0;
   padding: 0.5rem;
   border-bottom: 1px solid #e5e7eb;
 }
@@ -307,8 +312,9 @@ onBeforeUnmount(() => {
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
 }
 .csv-field-sel__results {
+  flex: 1;
   overflow-y: auto;
-  max-height: 300px;
+  min-height: 0;
 }
 .csv-field-sel__empty {
   padding: 1rem;

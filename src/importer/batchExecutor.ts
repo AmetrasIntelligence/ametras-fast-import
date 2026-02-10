@@ -20,12 +20,21 @@ export interface RowState {
 /**
  * Detect which ID column is being used for upsert based on fieldMappings.
  * Returns 'id' for external ID, '.id' for database ID, or null if neither.
+ *
+ * Note: Any CSV column can be mapped to 'id' or '.id' - we check the target field,
+ * not the source column name.
  */
 export function detectIdColumn(fieldMappings: Record<string, string>): 'id' | '.id' | null {
-  // Check if 'id' CSV column is mapped to 'id' (external ID for upsert)
-  if (fieldMappings['id'] === 'id') return 'id'
-  // Check if '.id' CSV column is mapped to '.id' (database ID for upsert)
-  if (fieldMappings['.id'] === '.id') return '.id'
+  // New implementation: Check if ANY CSV column is mapped to 'id' or '.id'
+  for (const odooField of Object.values(fieldMappings)) {
+    if (odooField === 'id') return 'id'
+    if (odooField === '.id') return '.id'
+  }
+
+  // Old implementation (fallback - only works if CSV column is literally named 'id' or '.id'):
+  // if (fieldMappings['id'] === 'id') return 'id'
+  // if (fieldMappings['.id'] === '.id') return '.id'
+
   return null
 }
 
@@ -36,46 +45,45 @@ function transformRow(
   const result: Record<string, unknown> = {}
 
   for (const [csvCol, odooField] of Object.entries(mapping.fieldMappings)) {
-    // Handle id/.id columns specially for upsert (Strategy 1: External ID)
-    if (csvCol === 'id' && odooField === 'id') {
-      const value = row.data['id']
-      if (value !== undefined && value !== '') {
-        result['__external_id__'] = value
-      }
-      continue
-    }
-    if (csvCol === '.id' && odooField === '.id') {
-      const value = row.data['.id']
-      if (value !== undefined && value !== '') {
-        result['id'] = parseInt(value, 10)
-      }
-      continue
-    }
-
-    // Handle operation column for Strategy 3: Explicit Operation
-    if ((csvCol === 'op' || csvCol === '__op__') && odooField === '__op__') {
-      const value = row.data[csvCol]
-      if (value !== undefined && value !== '') {
-        result['__op__'] = value
-      }
-      continue
-    }
-
     const value = row.data[csvCol]
     if (value === undefined || value === '') continue
 
-    // Handle reference suffixes in CSV column headers
-    // /id suffix: External ID reference - pass as string for backend resolution
-    if (csvCol.endsWith('/id')) {
-      const targetField = odooField.endsWith('/id') ? odooField.slice(0, -3) : odooField
-      result[targetField] = value
+    // Handle id/.id fields specially for upsert
+    // Any CSV column can be mapped to 'id' (external ID) or '.id' (database ID)
+    if (odooField === 'id') {
+      result['__external_id__'] = value
+      continue
+    }
+    if (odooField === '.id') {
+      result['id'] = parseInt(value, 10)
       continue
     }
 
-    // /.id suffix: Database ID - convert to integer (validated by backend)
-    if (csvCol.endsWith('/.id')) {
-      const targetField = odooField.endsWith('/.id') ? odooField.slice(0, -4) : odooField
+    // Old implementation (fallback - only works if CSV column is literally named 'id' or '.id'):
+    // if (csvCol === 'id' && odooField === 'id') {
+    //   result['__external_id__'] = value
+    //   continue
+    // }
+    // if (csvCol === '.id' && odooField === '.id') {
+    //   result['id'] = parseInt(value, 10)
+    //   continue
+    // }
+
+    // Handle operation column for Strategy 3: Explicit Operation
+    if (odooField === '__op__') {
+      result['__op__'] = value
+      continue
+    }
+
+    // Handle reference suffixes: /id for external ID, /.id for database ID
+    if (odooField.endsWith('/.id')) {
+      const targetField = odooField.slice(0, -4)
       result[targetField] = parseInt(value, 10)
+      continue
+    }
+    if (odooField.endsWith('/id')) {
+      const targetField = odooField.slice(0, -3)
+      result[targetField] = value
       continue
     }
 

@@ -22,7 +22,11 @@ if (!window.api) {
       read: async () => '',
       readHead: async () => '',
       countLines: async () => 0,
-      streamChunks: async () => {}
+      streamChunks: async () => {},
+      getPathForFile: () => {
+        console.warn('getPathForFile not available in browser mode')
+        return ''
+      }
     },
     odoo: {
       call: async (payload) => {

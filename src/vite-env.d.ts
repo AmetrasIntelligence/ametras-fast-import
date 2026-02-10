@@ -59,6 +59,7 @@ interface ElectronAPI {
     readHead: (id: string, bytes: number) => Promise<string>
     countLines: (id: string) => Promise<number>
     streamChunks: (id: string, chunkLines: number, onChunk: (chunk: ChunkData) => void) => Promise<void>
+    getPathForFile: (file: File) => string
   }
   odoo: {
     call: <T>(payload: OdooPayload) => Promise<OdooCallResult<T>>

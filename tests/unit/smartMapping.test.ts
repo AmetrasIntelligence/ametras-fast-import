@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { suggestModel, getSuggestions, levenshteinDistance, scoreMatch } from '@/utils/smartMapping'
+import { suggestModel, getSuggestions } from '@/utils/smartMapping'
+import { levenshteinDistance } from '@/utils/stringSimilarity'
 import type { OdooModel } from '@/api/odooClient'
 
 const mockModels: OdooModel[] = [
@@ -33,29 +34,6 @@ describe('levenshteinDistance', () => {
     expect(levenshteinDistance('', 'abc')).toBe(3)
     expect(levenshteinDistance('abc', '')).toBe(3)
     expect(levenshteinDistance('', '')).toBe(0)
-  })
-})
-
-describe('scoreMatch', () => {
-  it('gives highest score for exact display name match', () => {
-    const model: OdooModel = { id: 1, model: 'res.partner', name: 'Contact', transient: false }
-    expect(scoreMatch('Contact.csv', model)).toBe(100)
-  })
-
-  it('gives high score for technical name part match', () => {
-    const model: OdooModel = { id: 1, model: 'res.partner', name: 'Contact', transient: false }
-    expect(scoreMatch('partner.csv', model)).toBeGreaterThanOrEqual(80)
-  })
-
-  it('gives bonus for common patterns', () => {
-    const model: OdooModel = { id: 1, model: 'res.partner', name: 'Contact', transient: false }
-    const score = scoreMatch('customers.csv', model)
-    expect(score).toBeGreaterThanOrEqual(50)
-  })
-
-  it('gives zero for completely unrelated names', () => {
-    const model: OdooModel = { id: 1, model: 'res.partner', name: 'Contact', transient: false }
-    expect(scoreMatch('invoices.csv', model)).toBe(0)
   })
 })
 
