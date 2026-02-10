@@ -9,6 +9,38 @@ export interface ProfileUploadResult {
   error?: string
 }
 
+/**
+ * Validate URL is a proper HTTP(S) URL to prevent SSRF and injection attacks.
+ */
+function validateBaseUrl(baseUrl: string): { valid: boolean; error?: string } {
+  try {
+    const url = new URL(baseUrl)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return { valid: false, error: 'Only HTTP and HTTPS protocols are allowed' }
+    }
+    return { valid: true }
+  } catch {
+    return { valid: false, error: 'Invalid URL format' }
+  }
+}
+
+/**
+ * Validate file path to prevent path traversal attacks.
+ */
+function validateFilePath(filePath: string): { valid: boolean; error?: string } {
+  // Check for path traversal patterns
+  if (filePath.includes('..') || filePath.includes('\0')) {
+    return { valid: false, error: 'Invalid file path' }
+  }
+
+  // Ensure it's an absolute path
+  if (!path.isAbsolute(filePath)) {
+    return { valid: false, error: 'File path must be absolute' }
+  }
+
+  return { valid: true }
+}
+
 // Select a ZIP file via dialog
 ipcMain.handle('profile:selectZip', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog({
@@ -32,6 +64,16 @@ ipcMain.handle('profile:upload', async (_event, payload: {
   baseUrl: string
   filePath: string
 }): Promise<ProfileUploadResult> => {
+  const urlCheck = validateBaseUrl(payload.baseUrl)
+  if (!urlCheck.valid) {
+    return { ok: false, error: urlCheck.error }
+  }
+
+  const pathCheck = validateFilePath(payload.filePath)
+  if (!pathCheck.valid) {
+    return { ok: false, error: pathCheck.error }
+  }
+
   try {
     const { baseUrl, filePath } = payload
     const session = getSession(baseUrl)
@@ -80,6 +122,11 @@ ipcMain.handle('profile:export', async (_event, payload: {
   profileId: number
   profileName: string
 }): Promise<boolean> => {
+  const urlCheck = validateBaseUrl(payload.baseUrl)
+  if (!urlCheck.valid) {
+    throw new Error(urlCheck.error || 'Invalid URL')
+  }
+
   try {
     const { baseUrl, profileId, profileName } = payload
     const session = getSession(baseUrl)

@@ -10,10 +10,10 @@ export interface ElectronAPI {
   files: {
     select: () => Promise<FileHandle[]>
     register: (paths: string[]) => Promise<FileHandle[]>
-    read: (id: string) => Promise<string>
-    readHead: (id: string, bytes: number) => Promise<string>
+    read: (id: string, encoding?: string) => Promise<string>
+    readHead: (id: string, bytes: number, encoding?: string) => Promise<string>
     countLines: (id: string) => Promise<number>
-    streamChunks: (id: string, chunkLines: number, onChunk: (chunk: ChunkData) => void) => Promise<void>
+    streamChunks: (id: string, chunkLines: number, onChunk: (chunk: ChunkData) => void, encoding?: string) => Promise<void>
     getPathForFile: (file: File) => string
   }
   odoo: {
@@ -81,12 +81,12 @@ contextBridge.exposeInMainWorld('api', {
   files: {
     select: () => ipcRenderer.invoke('files:select'),
     register: (paths: string[]) => ipcRenderer.invoke('files:register', paths),
-    read: (id: string) => ipcRenderer.invoke('files:read', id),
-    readHead: (id: string, bytes: number) => ipcRenderer.invoke('files:readHead', id, bytes),
+    read: (id: string, encoding?: string) => ipcRenderer.invoke('files:read', id, encoding),
+    readHead: (id: string, bytes: number, encoding?: string) => ipcRenderer.invoke('files:readHead', id, bytes, encoding),
     countLines: (id: string) => ipcRenderer.invoke('files:countLines', id),
     getPathForFile: (file: File) => webUtils.getPathForFile(file),
-    streamChunks: async (id: string, chunkLines: number, onChunk: (chunk: ChunkData) => void) => {
-      const streamId = await ipcRenderer.invoke('files:streamChunks', id, chunkLines)
+    streamChunks: async (id: string, chunkLines: number, onChunk: (chunk: ChunkData) => void, encoding?: string) => {
+      const streamId = await ipcRenderer.invoke('files:streamChunks', id, chunkLines, encoding)
 
       return new Promise<void>((resolve, reject) => {
         const handler = (_event: unknown, chunk: ChunkData) => {

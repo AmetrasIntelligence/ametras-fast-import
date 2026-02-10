@@ -10,12 +10,55 @@ interface OdooSession {
 
 const sessions = new Map<string, OdooSession>()
 
+/**
+ * Validate URL is a proper HTTP(S) URL to prevent SSRF and injection attacks.
+ */
+function validateBaseUrl(baseUrl: string): { valid: boolean; error?: string } {
+  try {
+    const url = new URL(baseUrl)
+
+    // Only allow HTTP(S) protocols
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return { valid: false, error: 'Only HTTP and HTTPS protocols are allowed' }
+    }
+
+    // Prevent localhost/internal network access in production (optional - remove if needed for dev)
+    // const isLocal = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname.startsWith('192.168.')
+    // if (isLocal && process.env.NODE_ENV === 'production') {
+    //   return { valid: false, error: 'Local network access not allowed' }
+    // }
+
+    return { valid: true }
+  } catch {
+    return { valid: false, error: 'Invalid URL format' }
+  }
+}
+
+/**
+ * Validate endpoint is a relative path, not an absolute URL.
+ */
+function validateEndpoint(endpoint: string): { valid: boolean; error?: string } {
+  // Endpoint must start with / and not contain protocol
+  if (!endpoint.startsWith('/')) {
+    return { valid: false, error: 'Endpoint must start with /' }
+  }
+  if (endpoint.includes('://')) {
+    return { valid: false, error: 'Endpoint must be a relative path' }
+  }
+  return { valid: true }
+}
+
 function getSessionKey(baseUrl: string, db: string): string {
   return `${baseUrl}::${db}`
 }
 
 // Fetch available databases from Odoo server
 ipcMain.handle('odoo:listDatabases', async (_event, baseUrl: string) => {
+  const urlCheck = validateBaseUrl(baseUrl)
+  if (!urlCheck.valid) {
+    return { ok: false, databases: [], error: urlCheck.error }
+  }
+
   try {
     const response = await fetch(`${baseUrl}/web/database/list`, {
       method: 'POST',
@@ -48,6 +91,11 @@ ipcMain.handle('odoo:authenticate', async (_event, params: {
   login: string
   password: string
 }) => {
+  const urlCheck = validateBaseUrl(params.baseUrl)
+  if (!urlCheck.valid) {
+    return { ok: false, error: urlCheck.error }
+  }
+
   try {
     const { baseUrl, db, login, password } = params
 
@@ -104,6 +152,16 @@ ipcMain.handle('odoo:call', async (_event, payload: {
   endpoint: string
   params: Record<string, unknown>
 }) => {
+  const urlCheck = validateBaseUrl(payload.baseUrl)
+  if (!urlCheck.valid) {
+    return { ok: false, error: urlCheck.error }
+  }
+
+  const endpointCheck = validateEndpoint(payload.endpoint)
+  if (!endpointCheck.valid) {
+    return { ok: false, error: endpointCheck.error }
+  }
+
   try {
     const { baseUrl, endpoint, params } = payload
 
