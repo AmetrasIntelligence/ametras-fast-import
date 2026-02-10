@@ -24,6 +24,16 @@ A desktop application for importing large CSV files into Odoo with streaming pro
 - **File Preview** - Expandable file rows showing CSV headers and first 4 sample rows
 - **Persistent Navigation** - Top nav bar with Files / Configure / Profiles links and server info
 
+## Documentation
+
+Detailed documentation is available in the `docs/` directory:
+
+*   **[Introduction](docs/index.md)** - Overview and Key Features
+*   **[Getting Started](docs/getting-started/installation.md)** - Installation and Quickstart
+*   **[User Guide](docs/user-guide/connection.md)** - Comprehensive usage instructions
+*   **[Technical Reference](docs/reference/strategies.md)** - Strategies, transforms, and settings
+*   **[Developer Guide](docs/developer-guide/architecture.md)** - Architecture, testing, and extending
+
 ## Architecture
 
 ```
@@ -253,50 +263,13 @@ For Many2One and Many2Many fields, use suffixed column headers:
 
 **Many2Many:** Use pipe-delimited IDs: `tag_ids/id` → `tag_a|tag_b|tag_c`
 
-See [docs/reference-resolution.md](docs/reference-resolution.md) for full documentation.
+See [docs/reference/transforms.md](docs/reference/transforms.md) for full documentation.
 
 ## Test Suite
 
-### Unit Tests (491+ tests: 475 TypeScript + 26 Python)
+The project includes a comprehensive test suite with over 500 tests covering both the TypeScript frontend and Python backend.
 
-| Module | Tests | Coverage |
-|--------|-------|----------|
-| csvParser | 14 | Parsing, delimiter detection, streaming |
-| stateMachine | 31 | All state transitions, edge cases |
-| retryQueue | 14 | Failed row tracking, CSV export |
-| logger | 15 | Log levels, filtering, ring buffer |
-| workerPool | 15 | Async queue, workers, throughput |
-| stores/session | 15 | Auth, multi-server, profiles |
-| stores/config | 32 | Settings, mappings, CSV import/export |
-| stores/files | 19 | Add/remove files, analysis, dedup, clearAll |
-| stores/run | 24 | Progress tracking, ETA calculation |
-| stores/profiles | 12 | Server-fetched profiles, cache TTL, delete |
-| stores/savedMappings | 12 | Per-server storage, glob matching, suggestions |
-| smartMapping | 21 | Filename scoring, Levenshtein, common patterns |
-| smartFieldMapping | 29 | Header scoring, German aliases, /id detection |
-| useDialog | 22 | Alert/confirm/prompt, sequential dialogs |
-| profileValidator | 24 | Dependency validation, circular deps, ProfileDraft |
-| importProfile | 25 | CSV parse/export roundtrips, rich field mappings |
-| profileTemplates | 13 | Template listing, getTemplate, run settings |
-| profileVersioning | 13 | Version parsing, Odoo compatibility |
-| profileExporter | 16 | Override merging, CSV generators, version bump |
-| profileApi | 6 | Server API with mocked IPC |
-| runConfig | 12 | RunConfig create, override merging, hasOverrides |
-| fieldMapping | 23 | Transforms: m2o_ref, m2m_ref, db_id |
-| batchExecutorMappings | 22 | Reference transforms in batch execution |
-| components/Button | 16 | Variants, sizes, loading state |
-| components/Progress | 12 | Width calculation, clamping |
-| integration/engine | 16 | Full import flow, abort, failures |
-| **Python: reference_resolution** | 26 | External ID parsing, normalization, lookup |
-
-### E2E Tests (41 scenarios)
-
-- Login flow with validation
-- File selection and management
-- Config view with settings modification
-- Run view with progress monitoring
-- Results view with export functionality
-- Navigation between all views
+See **[Testing Strategy](docs/developer-guide/testing.md)** for details on how to run and extend tests.
 
 ## Design Decisions
 
