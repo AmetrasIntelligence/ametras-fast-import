@@ -41,10 +41,10 @@ interface ProfileFullData extends ProfileListItem {
   field_mappings: Array<Record<string, unknown>>
 }
 
-function getBaseUrl(): string {
+function getSessionInfo(): { baseUrl: string; db?: string } {
   const session = useSessionStore()
   if (!session.baseUrl) throw new Error('Not connected')
-  return session.baseUrl
+  return { baseUrl: session.baseUrl, db: session.currentServer?.db }
 }
 
 function toImportProfile(data: ProfileFullData): ImportProfile {
@@ -69,7 +69,8 @@ function toImportProfile(data: ProfileFullData): ImportProfile {
       dryRun: runSettings.dryRun === 'true',
       lang: (runSettings.lang as string) || 'de_DE',
       workers: 1,  // Runtime-only setting, not stored in profile
-      strict: runSettings.strict !== 'false'
+      strict: runSettings.strict !== 'false',
+      legacyImport: runSettings.legacyImport === 'true'
     },
     fieldMappings: data.field_mappings?.filter(
       (fm): fm is { filename: string; csvColumn: string; odooField: string } =>
@@ -112,7 +113,8 @@ function toProfileSummary(data: ProfileListItem): Omit<ImportProfile, 'mappings'
       dryRun: false,
       lang: 'de_DE',
       workers: 1,  // Runtime-only setting, not stored in profile
-      strict: true
+      strict: true,
+      legacyImport: false
     },
     createdAt: data.created_at ? new Date(data.created_at).getTime() : Date.now(),
     updatedAt: data.updated_at ? new Date(data.updated_at).getTime() : Date.now()
@@ -123,8 +125,8 @@ function toProfileSummary(data: ProfileListItem): Omit<ImportProfile, 'mappings'
  * Upload a profile ZIP file to the server.
  */
 export async function uploadProfileZip(filePath: string): Promise<ImportProfile> {
-  const baseUrl = getBaseUrl()
-  const response = await window.api.profile.upload({ baseUrl, filePath })
+  const { baseUrl, db } = getSessionInfo()
+  const response = await window.api.profile.upload({ baseUrl, db, filePath })
 
   if (!response.ok) {
     throw new Error(response.error || 'Upload failed')
@@ -137,9 +139,10 @@ export async function uploadProfileZip(filePath: string): Promise<ImportProfile>
  * Fetch list of all profiles (summary only, no mappings/sequence data).
  */
 export async function fetchProfiles(): Promise<ImportProfile[]> {
-  const baseUrl = getBaseUrl()
+  const { baseUrl, db } = getSessionInfo()
   const response = await window.api.odoo.call<ProfileListItem[]>({
     baseUrl,
+    db,
     endpoint: '/csv_import/profile/list',
     params: {}
   })
@@ -155,9 +158,10 @@ export async function fetchProfiles(): Promise<ImportProfile[]> {
  * Fetch a single profile with full data.
  */
 export async function fetchProfile(id: number): Promise<ImportProfile> {
-  const baseUrl = getBaseUrl()
+  const { baseUrl, db } = getSessionInfo()
   const response = await window.api.odoo.call<ProfileFullData>({
     baseUrl,
+    db,
     endpoint: `/csv_import/profile/${id}`,
     params: {}
   })
@@ -178,9 +182,10 @@ export async function fetchProfile(id: number): Promise<ImportProfile> {
  * Delete a profile from the server.
  */
 export async function deleteProfile(id: number): Promise<void> {
-  const baseUrl = getBaseUrl()
+  const { baseUrl, db } = getSessionInfo()
   const response = await window.api.odoo.call<{ ok?: boolean; error?: string }>({
     baseUrl,
+    db,
     endpoint: `/csv_import/profile/${id}/delete`,
     params: {}
   })
@@ -199,8 +204,8 @@ export async function deleteProfile(id: number): Promise<void> {
  * Export a profile as a clean ZIP (server-side download).
  */
 export async function exportProfileClean(profileId: number, name: string): Promise<boolean> {
-  const baseUrl = getBaseUrl()
-  return window.api.profile.export({ baseUrl, profileId, profileName: name })
+  const { baseUrl, db } = getSessionInfo()
+  return window.api.profile.export({ baseUrl, db, profileId, profileName: name })
 }
 
 /**
@@ -235,6 +240,7 @@ function toBackendRunSettings(runSettings: Partial<RunSettings>): Record<string,
   if (runSettings.dryRun !== undefined) result.dryRun = String(runSettings.dryRun)
   if (runSettings.lang !== undefined) result.lang = runSettings.lang
   if (runSettings.strict !== undefined) result.strict = String(runSettings.strict)
+  if (runSettings.legacyImport !== undefined) result.legacyImport = String(runSettings.legacyImport)
   // Note: 'workers' is intentionally omitted - runtime-only, not stored in profiles
   return result
 }
@@ -243,7 +249,7 @@ function toBackendRunSettings(runSettings: Partial<RunSettings>): Record<string,
  * Create a new profile on the server.
  */
 export async function createProfile(data: ProfileCreateData): Promise<ImportProfile> {
-  const baseUrl = getBaseUrl()
+  const { baseUrl, db } = getSessionInfo()
 
   const payload = {
     name: data.name,
@@ -258,6 +264,7 @@ export async function createProfile(data: ProfileCreateData): Promise<ImportProf
 
   const response = await window.api.odoo.call<ProfileFullData | { error: string }>({
     baseUrl,
+    db,
     endpoint: '/csv_import/profile/create',
     params: { data: payload }
   })
@@ -278,7 +285,7 @@ export async function createProfile(data: ProfileCreateData): Promise<ImportProf
  * Update an existing profile on the server.
  */
 export async function updateProfile(id: number, data: Partial<ProfileCreateData>): Promise<ImportProfile> {
-  const baseUrl = getBaseUrl()
+  const { baseUrl, db } = getSessionInfo()
 
   const payload: Record<string, unknown> = {}
   if (data.name !== undefined) payload.name = data.name
@@ -292,6 +299,7 @@ export async function updateProfile(id: number, data: Partial<ProfileCreateData>
 
   const response = await window.api.odoo.call<ProfileFullData | { error: string }>({
     baseUrl,
+    db,
     endpoint: `/csv_import/profile/${id}/update`,
     params: { data: payload }
   })

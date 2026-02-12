@@ -144,7 +144,7 @@ function removeSelectedProfile() {
               :key="profile.id"
               :value="profile.id"
             >
-              {{ profile.name }} ({{ profile.db }}@{{ profile.baseUrl }})
+              {{ profile.name }} ({{ profile.db }} - {{ profile.baseUrl }})
             </option>
           </select>
           <button

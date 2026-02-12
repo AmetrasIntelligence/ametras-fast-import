@@ -19,9 +19,11 @@ export interface OdooField {
 export async function fetchModels(): Promise<OdooModel[]> {
   const session = useSessionStore()
   if (!session.baseUrl) throw new Error('Not connected')
+  const db = session.currentServer?.db
 
   const response = await window.api.odoo.call<Array<{ id: number; model: string; name: string }>>({
     baseUrl: session.baseUrl,
+    db,
     endpoint: '/web/dataset/call_kw',
     params: {
       model: 'ir.model',
@@ -47,6 +49,7 @@ export async function fetchModels(): Promise<OdooModel[]> {
 export async function fetchModelFields(modelName: string): Promise<OdooField[]> {
   const session = useSessionStore()
   if (!session.baseUrl) throw new Error('Not connected')
+  const db = session.currentServer?.db
 
   const response = await window.api.odoo.call<Record<string, {
     string: string
@@ -56,6 +59,7 @@ export async function fetchModelFields(modelName: string): Promise<OdooField[]> 
     relation?: string
   }>>({
     baseUrl: session.baseUrl,
+    db,
     endpoint: '/web/dataset/call_kw',
     params: {
       model: modelName,
@@ -82,9 +86,11 @@ export async function fetchModelFields(modelName: string): Promise<OdooField[]> 
 export async function checkImportAccess(modelName: string): Promise<boolean> {
   const session = useSessionStore()
   if (!session.baseUrl) throw new Error('Not connected')
+  const db = session.currentServer?.db
 
   const response = await window.api.odoo.call<boolean>({
     baseUrl: session.baseUrl,
+    db,
     endpoint: '/web/dataset/call_kw',
     params: {
       model: modelName,

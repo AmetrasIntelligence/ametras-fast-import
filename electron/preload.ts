@@ -1,12 +1,12 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
+const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
-export interface ProfileUploadResult {
+interface ProfileUploadResult {
   ok: boolean
   result?: Record<string, unknown>
   error?: string
 }
 
-export interface ElectronAPI {
+interface ElectronAPI {
   files: {
     select: () => Promise<FileHandle[]>
     register: (paths: string[]) => Promise<FileHandle[]>
@@ -27,8 +27,8 @@ export interface ElectronAPI {
   }
   profile: {
     selectZip: () => Promise<{ path: string; name: string } | null>
-    upload: (payload: { baseUrl: string; filePath: string }) => Promise<ProfileUploadResult>
-    export: (payload: { baseUrl: string; profileId: number; profileName: string }) => Promise<boolean>
+    upload: (payload: { baseUrl: string; db?: string; filePath: string }) => Promise<ProfileUploadResult>
+    export: (payload: { baseUrl: string; db?: string; profileId: number; profileName: string }) => Promise<boolean>
   }
 }
 
@@ -46,6 +46,7 @@ interface ChunkData {
 
 interface OdooPayload {
   baseUrl: string
+  db?: string
   endpoint: string
   params: Record<string, unknown>
 }
@@ -120,7 +121,7 @@ contextBridge.exposeInMainWorld('api', {
     export: (payload: { baseUrl: string; profileId: number; profileName: string }) =>
       ipcRenderer.invoke('profile:export', payload)
   }
-} satisfies ElectronAPI)
+} as ElectronAPI)
 
 declare global {
   interface Window {

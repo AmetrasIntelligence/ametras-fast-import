@@ -223,6 +223,15 @@ const encodingOptions = [
           />
           <label for="dryRun" class="csv-text-sm">{{ $t('settings.dryRun') }}</label>
         </div>
+        <div class="csv-flex csv-items-center csv-gap-2 csv-pt-4">
+          <input
+            :checked="config.settings.legacyImport"
+            type="checkbox"
+            id="legacyImport"
+            @change="config.setSettings({ legacyImport: ($event.target as HTMLInputElement).checked })"
+          />
+          <label for="legacyImport" class="csv-text-sm">{{ $t('settings.legacyImport') }}</label>
+        </div>
         <div>
           <label class="csv-text-xs csv-text-muted csv-block csv-mb-1">{{ $t('settings.language') }}</label>
           <input

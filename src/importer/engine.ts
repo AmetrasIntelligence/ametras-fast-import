@@ -200,7 +200,8 @@ export class ImportEngine {
     return executeBatch(mapping.model, batch.rows, {
       fieldMappings: mapping.fieldMappings,
       searchKeys: mapping.searchKeys,
-      strict: mapping.strict
+      strict: mapping.strict,
+      legacyImport: useConfigStore().settings.legacyImport
     }, dryRun)
   }
 
@@ -275,7 +276,12 @@ export class ImportEngine {
 
     // Process retries in single batches (serialized, workers=1)
     const rows = retryable.map(r => r.row)
-    const results = await executeBatch(mapping.model, rows, mapping, config.settings.dryRun)
+    const results = await executeBatch(
+      mapping.model,
+      rows,
+      { ...mapping, legacyImport: config.settings.legacyImport },
+      config.settings.dryRun
+    )
 
     if (this.abortController?.signal.aborted) return
 

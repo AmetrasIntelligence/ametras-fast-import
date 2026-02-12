@@ -109,6 +109,7 @@
     "skipHeader": "Skip header row",
     "dryRun": "Dry run (validate only)",
     "language": "Language",
+    "legacyImport": "Use legacy threaded import",
     "summary": {
       "batch": "Batch",
       "workers": "Workers",

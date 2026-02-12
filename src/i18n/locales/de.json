@@ -109,6 +109,7 @@
     "skipHeader": "Kopfzeile überspringen",
     "dryRun": "Probelauf (nur validieren)",
     "language": "Sprache",
+    "legacyImport": "Veralteten Threaded-Import verwenden",
     "summary": {
       "batch": "Stapel",
       "workers": "Arbeiter",

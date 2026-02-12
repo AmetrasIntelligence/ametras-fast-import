@@ -149,6 +149,7 @@ ipcMain.handle('odoo:authenticate', async (_event, params: {
 
 ipcMain.handle('odoo:call', async (_event, payload: {
   baseUrl: string
+  db?: string
   endpoint: string
   params: Record<string, unknown>
 }) => {
@@ -165,8 +166,13 @@ ipcMain.handle('odoo:call', async (_event, payload: {
   try {
     const { baseUrl, endpoint, params } = payload
 
-    const session = Array.from(sessions.values())
-      .find(s => s.baseUrl === baseUrl)
+    let session = payload.db
+      ? sessions.get(getSessionKey(baseUrl, payload.db))
+      : undefined
+    if (!session) {
+      session = Array.from(sessions.values())
+        .find(s => s.baseUrl === baseUrl)
+    }
 
     if (!session) {
       return { ok: false, error: 'Not authenticated' }
@@ -199,7 +205,10 @@ ipcMain.handle('odoo:call', async (_event, payload: {
   }
 })
 
-export function getSession(baseUrl: string): OdooSession | undefined {
+export function getSession(baseUrl: string, db?: string): OdooSession | undefined {
+  if (db) {
+    return sessions.get(getSessionKey(baseUrl, db))
+  }
   return Array.from(sessions.values()).find(s => s.baseUrl === baseUrl)
 }
 

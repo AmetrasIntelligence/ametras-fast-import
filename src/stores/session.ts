@@ -74,6 +74,7 @@ export const useSessionStore = defineStore('session', () => {
     try {
       const result = await window.api.odoo.call<{ version: string }>({
         baseUrl,
+        db: currentServer.value?.db,
         endpoint: '/csv_import/info',
         params: {}
       })

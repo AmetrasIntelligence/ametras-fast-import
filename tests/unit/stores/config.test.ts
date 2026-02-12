@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useConfigStore } from '@/stores/config'
 import { mockRunSettings } from '../../fixtures'
+import Papa from 'papaparse'
 
 describe('ConfigStore', () => {
   beforeEach(() => {
@@ -216,15 +217,23 @@ describe('ConfigStore', () => {
       store.setSettings({ batchSize: 50, retryLimit: 2 })
 
       const csv = store.exportSettingsCSV()
+      const parsed = Papa.parse<{ key?: string; value?: string }>(csv, {
+        header: true,
+        skipEmptyLines: true
+      })
+      const map = Object.fromEntries(
+        parsed.data
+          .filter(row => row.key)
+          .map(row => [row.key as string, row.value as string])
+      )
 
-      expect(csv).toContain('key,value')
-      expect(csv).toContain('batchSize,50')
-      expect(csv).toContain('retryLimit,2')
-      expect(csv).toContain('encoding,utf-8-sig')
-      expect(csv).toContain('delimiter,,')
-      expect(csv).toContain('skipHeader,true')
-      expect(csv).toContain('dryRun,false')
-      expect(csv).toContain('lang,de_DE')
+      expect(map.batchSize).toBe('50')
+      expect(map.retryLimit).toBe('2')
+      expect(map.encoding).toBe('utf-8-sig')
+      expect(map.delimiter).toBe(',')
+      expect(map.skipHeader).toBe('true')
+      expect(map.dryRun).toBe('false')
+      expect(map.lang).toBe('de_DE')
     })
 
     it('exports sequence as CSV', () => {

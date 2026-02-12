@@ -15,5 +15,6 @@ export const DEFAULT_RUN_SETTINGS: RunSettings = {
   dryRun: false,
   lang: 'de_DE',
   workers: 1,
-  strict: true
+  strict: true,
+  legacyImport: false
 }

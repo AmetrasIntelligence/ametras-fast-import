@@ -14,6 +14,7 @@ interface ChunkData {
 
 interface OdooPayload {
   baseUrl: string
+  db?: string
   endpoint: string
   params: Record<string, unknown>
 }
@@ -72,8 +73,8 @@ interface ElectronAPI {
   }
   profile: {
     selectZip: () => Promise<{ path: string; name: string } | null>
-    upload: (payload: { baseUrl: string; filePath: string }) => Promise<ProfileUploadResult>
-    export: (payload: { baseUrl: string; profileId: number; profileName: string }) => Promise<boolean>
+    upload: (payload: { baseUrl: string; db?: string; filePath: string }) => Promise<ProfileUploadResult>
+    export: (payload: { baseUrl: string; db?: string; profileId: number; profileName: string }) => Promise<boolean>
   }
 }
 

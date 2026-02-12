@@ -100,6 +100,8 @@ export interface MappingConfig {
   searchKeys?: string[]
   /** If true, fail on missing keys instead of falling back to create */
   strict?: boolean
+  /** Use legacy threaded import (Odoo standard load via import_threaded) */
+  legacyImport?: boolean
 }
 
 export async function executeBatch(
@@ -110,6 +112,7 @@ export async function executeBatch(
 ): Promise<BatchResult[]> {
   const session = useSessionStore()
   if (!session.baseUrl) throw new Error('Not connected')
+  const db = session.currentServer?.db
 
   // Detect ID column from fieldMappings if not explicitly provided
   const idColumn = mapping.idColumn ?? detectIdColumn(mapping.fieldMappings)
@@ -130,6 +133,7 @@ export async function executeBatch(
     }>
   }>({
     baseUrl: session.baseUrl,
+    db,
     endpoint: '/csv_import/run',
     params: {
       model,
@@ -137,7 +141,8 @@ export async function executeBatch(
       use_external_id: idColumn === 'id',
       search_keys: mapping.searchKeys || null,
       dry_run: dryRun || false,
-      strict: mapping.strict || false
+      strict: mapping.strict || false,
+      use_legacy: mapping.legacyImport || false
     }
   })
 

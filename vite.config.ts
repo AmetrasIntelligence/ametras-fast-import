@@ -4,6 +4,20 @@ import electron from 'vite-plugin-electron'
 import renderer from 'vite-plugin-electron-renderer'
 import VueI18nPlugin from '@intlify/unplugin-vue-i18n/vite'
 import path from 'path'
+import fs from 'fs'
+
+// Simple plugin to copy preload.cjs to dist-electron
+function copyPreload() {
+  return {
+    name: 'copy-preload',
+    writeBundle() {
+      const src = path.resolve(__dirname, 'electron/preload.cjs')
+      const dest = path.resolve(__dirname, 'dist-electron/preload.cjs')
+      fs.mkdirSync(path.dirname(dest), { recursive: true })
+      fs.copyFileSync(src, dest)
+    }
+  }
+}
 
 const isElectron = process.env.npm_lifecycle_event?.includes('electron') ||
                    process.argv.includes('electron')
@@ -14,7 +28,8 @@ export default defineConfig(({ mode }) => ({
     VueI18nPlugin({
       include: [path.resolve(__dirname, 'src/i18n/locales/**')],
       strictMessage: false,
-      escapeHtml: false
+      escapeHtml: false,
+      runtimeOnly: true
     }),
     ...(isElectron ? [
       electron([
@@ -26,29 +41,8 @@ export default defineConfig(({ mode }) => ({
               rollupOptions: {
                 external: ['electron']
               }
-            }
-          }
-        },
-        {
-          entry: 'electron/preload.ts',
-          onstart(options) {
-            options.reload()
-          },
-          vite: {
-            build: {
-              outDir: 'dist-electron',
-              lib: {
-                entry: 'electron/preload.ts',
-                formats: ['cjs'],
-                fileName: () => 'preload.cjs'
-              },
-              rollupOptions: {
-                external: ['electron']
-              },
-              commonjsOptions: {
-                transformMixedEsModules: true
-              }
-            }
+            },
+            plugins: [copyPreload()]
           }
         }
       ]),
@@ -58,7 +52,6 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),
-      // Use runtime-only build - messages are pre-compiled by VueI18nPlugin
       'vue-i18n': 'vue-i18n/dist/vue-i18n.runtime.esm-bundler.js'
     }
   },

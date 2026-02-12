@@ -1,6 +1,7 @@
+import csv
 import logging
-from collections import defaultdict
-from odoo import http
+from collections import Counter, defaultdict
+from odoo import http, api
 from odoo.http import request
 
 _logger = logging.getLogger(__name__)
@@ -21,7 +22,7 @@ class CSVImportController(http.Controller):
 
     @http.route('/csv_import/run', type='json', auth='user', methods=['POST'])
     def run_import(self, model, rows, use_external_id=False, search_keys=None,
-                   dry_run=False, strict=False):
+                   dry_run=False, strict=False, use_legacy=False):
         """
         Import rows into specified model with deterministic upsert logic.
 
@@ -48,6 +49,11 @@ class CSVImportController(http.Controller):
         """
         Model = request.env[model]
 
+        if use_legacy:
+            return self._run_legacy_import(
+                Model, rows, dry_run, use_external_id, search_keys, strict
+            )
+
         # Security check
         Model.check_access_rights('create')
         Model.check_access_rights('write')
@@ -59,6 +65,18 @@ class CSVImportController(http.Controller):
                 if key not in model_fields:
                     return {'error': f"Search key '{key}' not found on model {model}"}
 
+        return self._run_standard_import(
+            Model, rows, use_external_id, search_keys, dry_run, strict
+        )
+
+    def _run_standard_import(self, Model, rows, use_external_id, search_keys,
+                              dry_run, strict, warning=None):
+        """
+        Standard row-by-row import with savepoint per row.
+
+        Args:
+            warning: Optional warning message to include in response (e.g., fallback notice)
+        """
         # Phase 1: Prefetch all external ID references in batch
         try:
             ref_map = self._prefetch_references(Model, rows)
@@ -67,6 +85,9 @@ class CSVImportController(http.Controller):
 
         results = []
         warnings = []
+
+        if warning:
+            warnings.append(warning)
 
         for row in rows:
             try:
@@ -86,7 +107,7 @@ class CSVImportController(http.Controller):
                         result['dry_run'] = True
 
             except Exception as e:
-                _logger.warning(f"Import error for {model}: {e}")
+                _logger.warning(f"Import error for {Model._name}: {e}")
                 results.append({
                     'ok': False,
                     'error': str(e)
@@ -96,6 +117,178 @@ class CSVImportController(http.Controller):
         if warnings:
             response['warnings'] = warnings
         return response
+
+    def _run_legacy_import(self, Model, rows, dry_run, use_external_id, search_keys, strict):
+        """
+        Use import_threaded utility from ametras_csv_importer as an alternative.
+        Falls back to standard import if the addon is not available.
+        """
+        if not rows:
+            return {'results': []}
+
+        try:
+            from odoo.addons.csv_import.legacy_importer import import_threaded
+            # TODO(legacy-import): Once ametras_csv_importer includes these fixes, switch to:
+            # from odoo.addons.ametras_csv_importer.odoo_csv_tools.odoo_csv_tools import import_threaded
+            # and remove csv_import/legacy_importer.
+        except ImportError:
+            try:
+                from odoo.addons.ametras_csv_importer.odoo_csv_tools.odoo_csv_tools import import_threaded
+            except ImportError:
+                _logger.warning(
+                    "Legacy threaded import requested but ametras_csv_importer addon is not available. "
+                    "Falling back to standard import."
+                )
+                return self._run_standard_import(
+                    Model, rows, use_external_id, search_keys, dry_run, strict,
+                    warning='Legacy import addon not available, used standard import instead.'
+                )
+
+        if dry_run:
+            _logger.info("Dry run requested with legacy mode - falling back to standard import.")
+            return self._run_standard_import(
+                Model, rows, use_external_id, search_keys, dry_run, strict,
+                warning='Dry run not supported in legacy mode, used standard import instead.'
+            )
+
+        import tempfile
+        import os
+
+        def normalize_legacy_value(value):
+            if value is None:
+                return ''
+            return str(value)
+
+        raw_header = list(rows[0].keys())
+        header = []
+        header_keys = []
+
+        for key in raw_header:
+            if key == '__op__':
+                continue
+            if key == '__external_id__':
+                if use_external_id:
+                    header.append('id')
+                    header_keys.append('__external_id__')
+                continue
+            if key == 'id':
+                header.append('.id')
+                header_keys.append('id')
+                continue
+            header.append(key)
+            header_keys.append(key)
+
+        data = [[row.get(h) for h in header_keys] for row in rows]
+
+        # Ensure 'id' column exists (required by import_threaded for indexing)
+        if 'id' not in header:
+            header.insert(0, 'id')
+            for row in data:
+                row.insert(0, '')
+
+        # Create temp file for failures (import_threaded expects a file path, not StringIO)
+        fail_fd, fail_file_path = tempfile.mkstemp(suffix='.csv', prefix='csv_import_fail_')
+        os.close(fail_fd)
+
+        # Check if backend importer job model exists and create a temporary job for logging
+        backend_importer_id = None
+        job_model = 'ametras.backend.importer.job'
+        if job_model in request.env:
+            try:
+                # Create a temporary job record for logging purposes
+                job = request.env[job_model].sudo().create({
+                    'name': f'Legacy import: {Model._name}',
+                    'state': 'running',
+                })
+                backend_importer_id = job.id
+            except Exception as e:
+                _logger.warning(f"Could not create backend importer job: {e}")
+
+        try:
+            # Define a wrapper for odoo execute_kw that calls load()
+            def odoo_load_wrapper(dbname, uid, model, method, args, kwargs=None):
+                # args[0] is header, args[1] is lines
+                # import_threaded calls it with "load"
+                # Use a new cursor for thread safety
+                with request.env.registry.cursor() as cr:
+                    env = api.Environment(cr, uid, request.env.context)
+                    result = env[model].load(args[0], args[1])
+                    cr.commit()
+                    return result
+
+            # Call the legacy threaded importer
+            import_threaded.import_data(
+                odoo_kw_method=odoo_load_wrapper,
+                model=Model._name,
+                header=header,
+                data=data,
+                fail_file=fail_file_path,
+                registry=request.env.registry,
+                dbname=request.db,
+                uid=request.uid,
+                environment=api.Environment,
+                superuser=request.uid,
+                max_connection=2,
+                batch_size=max(10, min(100, len(rows) // 4)),
+                context=dict(request.env.context),
+                backend_importer_id=backend_importer_id,
+            )
+
+            # Check if there were failures by reading the fail file
+            failed_rows = []
+            if os.path.exists(fail_file_path) and os.path.getsize(fail_file_path) > 0:
+                with open(fail_file_path, 'r', encoding='utf-8', newline='') as f:
+                    reader = csv.reader(f, delimiter=';')
+                    next(reader, None)  # skip header
+                    failed_rows = list(reader)
+
+            # Build results
+            failed_row_counts = Counter(
+                tuple(normalize_legacy_value(v) for v in row)
+                for row in failed_rows
+            )
+            results = []
+            failed_count = 0
+
+            for row in data:
+                key = tuple(normalize_legacy_value(v) for v in row)
+                if failed_row_counts.get(key, 0) > 0:
+                    failed_row_counts[key] -= 1
+                    failed_count += 1
+                    results.append({
+                        'ok': False,
+                        'strategy': 'legacy_threaded',
+                        'error': 'Row failed during import'
+                    })
+                else:
+                    results.append({'ok': True, 'strategy': 'legacy_threaded'})
+
+            success_count = len(rows) - failed_count
+
+            # Update job state if it exists
+            if backend_importer_id and job_model in request.env:
+                try:
+                    job = request.env[job_model].sudo().browse(backend_importer_id)
+                    job.write({'state': 'done' if failed_count == 0 else 'error'})
+                except Exception:
+                    pass
+
+            return {
+                'results': results,
+                'note': f'Imported using legacy threaded mode. {success_count}/{len(rows)} rows succeeded.'
+            }
+
+        except Exception as e:
+            _logger.error(f"Legacy import failed: {e}")
+            return {'error': f'Legacy import failed: {str(e)}'}
+
+        finally:
+            # Cleanup temp file
+            if os.path.exists(fail_file_path):
+                try:
+                    os.unlink(fail_file_path)
+                except Exception:
+                    pass
 
     def _import_row(self, Model, row, use_external_id, search_keys=None, strict=False):
         """

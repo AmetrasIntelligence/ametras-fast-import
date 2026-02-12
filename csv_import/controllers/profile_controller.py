@@ -339,42 +339,42 @@ class ProfileController(http.Controller):
 
     def _serialize_profile_csv(self, data):
         """Serialize profile metadata to CSV."""
-        lines = ['key,value']
-        lines.append(f"name,{data.get('name', '')}")
-        lines.append(f"version,{data.get('version', '1.0')}")
+        rows = [['key', 'value']]
+        rows.append(['name', data.get('name', '')])
+        rows.append(['version', data.get('version', '1.0')])
         if data.get('odoo_min_version'):
-            lines.append(f"odoo_min_version,{data['odoo_min_version']}")
+            rows.append(['odoo_min_version', data['odoo_min_version']])
         if data.get('description'):
-            lines.append(f"description,{data['description']}")
-        return '\n'.join(lines)
+            rows.append(['description', data['description']])
+        return self._serialize_csv(rows)
 
     def _serialize_key_value_csv(self, data):
         """Serialize a dict to key,value CSV."""
-        lines = ['key,value']
+        rows = [['key', 'value']]
         for key, value in data.items():
-            lines.append(f'{key},{value}')
-        return '\n'.join(lines)
+            rows.append([key, value])
+        return self._serialize_csv(rows)
 
     def _serialize_mappings_csv(self, mappings):
         """Serialize mappings list to CSV."""
-        lines = ['filename,model']
+        rows = [['filename', 'model']]
         for m in mappings:
-            lines.append(f"{m['filename']},{m['model']}")
-        return '\n'.join(lines)
+            rows.append([m.get('filename', ''), m.get('model', '')])
+        return self._serialize_csv(rows)
 
     def _serialize_sequence_csv(self, sequence):
         """Serialize sequence list to CSV."""
         has_requires = any(s.get('requires') for s in sequence)
         if has_requires:
-            lines = ['order,filename,requires']
+            rows = [['order', 'filename', 'requires']]
             for s in sequence:
                 requires = ';'.join(s.get('requires', []))
-                lines.append(f"{s['order']},{s['filename']},{requires}")
+                rows.append([s.get('order', ''), s.get('filename', ''), requires])
         else:
-            lines = ['order,filename']
+            rows = [['order', 'filename']]
             for s in sequence:
-                lines.append(f"{s['order']},{s['filename']}")
-        return '\n'.join(lines)
+                rows.append([s.get('order', ''), s.get('filename', '')])
+        return self._serialize_csv(rows)
 
     def _serialize_field_mappings_csv(self, field_mappings):
         """Serialize field mappings to CSV — detects format from data."""
@@ -383,26 +383,33 @@ class ProfileController(http.Controller):
         sample = field_mappings[0]
         if 'csvHeader' in sample or 'required' in sample:
             # Rich format
-            lines = ['filename,csv_header,odoo_field,required,transform,notes']
+            rows = [['filename', 'csv_header', 'odoo_field', 'required', 'transform', 'notes']]
             for m in field_mappings:
-                lines.append(','.join([
+                rows.append([
                     m.get('filename', ''),
                     m.get('csvHeader', ''),
                     m.get('odooField', ''),
                     str(m.get('required', False)).lower(),
                     m.get('transform', ''),
                     m.get('notes', ''),
-                ]))
+                ])
         else:
             # Simple format
-            lines = ['filename,csv_column,odoo_field']
+            rows = [['filename', 'csv_column', 'odoo_field']]
             for m in field_mappings:
-                lines.append(','.join([
+                rows.append([
                     m.get('filename', ''),
                     m.get('csvColumn', ''),
                     m.get('odooField', ''),
-                ]))
-        return '\n'.join(lines)
+                ])
+        return self._serialize_csv(rows)
+
+    def _serialize_csv(self, rows):
+        """Serialize a list of rows to CSV with proper quoting."""
+        buf = io.StringIO()
+        writer = csv.writer(buf, lineterminator='\n')
+        writer.writerows(rows)
+        return buf.getvalue().rstrip('\n')
 
     # ── Helpers ──────────────────────────────────────────────────────
 

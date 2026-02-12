@@ -62,6 +62,7 @@ ipcMain.handle('profile:selectZip', async () => {
 // Upload a ZIP file to Odoo via multipart POST
 ipcMain.handle('profile:upload', async (_event, payload: {
   baseUrl: string
+  db?: string
   filePath: string
 }): Promise<ProfileUploadResult> => {
   const urlCheck = validateBaseUrl(payload.baseUrl)
@@ -76,7 +77,7 @@ ipcMain.handle('profile:upload', async (_event, payload: {
 
   try {
     const { baseUrl, filePath } = payload
-    const session = getSession(baseUrl)
+    const session = getSession(baseUrl, payload.db)
 
     if (!session) {
       return { ok: false, error: 'Not authenticated' }
@@ -119,6 +120,7 @@ ipcMain.handle('profile:upload', async (_event, payload: {
 // Download/export a profile ZIP from Odoo
 ipcMain.handle('profile:export', async (_event, payload: {
   baseUrl: string
+  db?: string
   profileId: number
   profileName: string
 }): Promise<boolean> => {
@@ -129,7 +131,7 @@ ipcMain.handle('profile:export', async (_event, payload: {
 
   try {
     const { baseUrl, profileId, profileName } = payload
-    const session = getSession(baseUrl)
+    const session = getSession(baseUrl, payload.db)
 
     if (!session) {
       throw new Error('Not authenticated')

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { DEFAULT_RUN_SETTINGS } from '@/constants/defaults'
+import Papa from 'papaparse'
 
 export interface RunSettings {
   batchSize: number
@@ -16,6 +17,8 @@ export interface RunSettings {
   workers: number
   /** Strict mode: fail on unresolved references instead of skipping. Default: true */
   strict: boolean
+  /** Use legacy threaded import (Odoo standard load via import_threaded) */
+  legacyImport: boolean
 }
 
 export interface FileMapping {
@@ -78,11 +81,11 @@ export const useConfigStore = defineStore('config', () => {
   }
 
   function exportSettingsCSV(): string {
-    const lines = ['key,value']
-    for (const [key, value] of Object.entries(settings.value)) {
-      lines.push(`${key},${value}`)
-    }
-    return lines.join('\n')
+    const rows = Object.entries(settings.value).map(([key, value]) => ({
+      key,
+      value: String(value)
+    }))
+    return Papa.unparse(rows, { columns: ['key', 'value'], header: true })
   }
 
   function exportSequenceCSV(): string {
@@ -94,11 +97,15 @@ export const useConfigStore = defineStore('config', () => {
   }
 
   function importSettingsCSV(csv: string) {
-    const lines = csv.trim().split('\n').slice(1)
+    const parsed = Papa.parse<{ key?: string; value?: string }>(csv, {
+      header: true,
+      skipEmptyLines: true
+    })
     const newSettings: Partial<RunSettings> = {}
 
-    for (const line of lines) {
-      const [key, value] = line.split(',')
+    for (const row of parsed.data) {
+      const key = row.key || ''
+      const value = row.value || ''
       if (key === 'batchSize') newSettings.batchSize = parseInt(value, 10)
       if (key === 'retryLimit') newSettings.retryLimit = parseInt(value, 10)
       if (key === 'retryDelayMs') newSettings.retryDelayMs = parseInt(value, 10)
@@ -109,6 +116,7 @@ export const useConfigStore = defineStore('config', () => {
       if (key === 'dryRun') newSettings.dryRun = value === 'true'
       if (key === 'lang') newSettings.lang = value
       if (key === 'strict') newSettings.strict = value === 'true'
+      if (key === 'legacyImport') newSettings.legacyImport = value === 'true'
       // Note: 'workers' is intentionally NOT loaded from CSV - it's a runtime-only setting
     }
 
