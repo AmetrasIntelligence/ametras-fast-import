@@ -76,7 +76,7 @@ function downloadJSON(data: unknown, filename: string) {
   URL.revokeObjectURL(url)
 }
 
-async function retryFailedRows() {
+function retryFailedRows() {
   if (isRetrying.value) return
 
   // Check if files are still available before retrying
@@ -88,17 +88,18 @@ async function retryFailedRows() {
   }
 
   isRetrying.value = true
-  try {
-    const engine = new ImportEngine()
-    run.setEngine(engine)
-    await engine.retryFailedRows()
-  } catch (e) {
+
+  // Create engine and start retry
+  const engine = new ImportEngine()
+  run.setEngine(engine)
+
+  // Start retry in background (don't await - let RunView display progress)
+  engine.retryFailedRows().catch(e => {
     console.error('Retry failed:', e)
-    alert(`Retry failed: ${e instanceof Error ? e.message : 'Unknown error'}`)
-  } finally {
-    isRetrying.value = false
-    run.setEngine(null)
-  }
+  })
+
+  // Navigate to run view immediately to show progress
+  router.push('/run')
 }
 
 function startNew() {

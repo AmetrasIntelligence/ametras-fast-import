@@ -120,6 +120,7 @@ export class WorkerPool {
   private aborted = false
   private paused = false
   private pauseResolvers: Array<() => void> = []
+  private pendingCallbacks: Promise<void>[] = []
 
   private onBatchComplete?: (result: BatchProcessResult) => void
   private processBatch?: (batch: Batch) => Promise<BatchResult[]>
@@ -143,6 +144,7 @@ export class WorkerPool {
     this.onBatchComplete = onBatchComplete
     this.aborted = false
     this.processedBatches = 0
+    this.pendingCallbacks = []
 
     // Spawn workers
     for (let i = 0; i < this.workerCount; i++) {
@@ -178,6 +180,12 @@ export class WorkerPool {
         Promise.all(this.workers),
         timeoutPromise
       ])
+
+      // Wait for all pending callbacks to complete
+      // This ensures progress updates are fully applied before marking file complete
+      if (this.pendingCallbacks.length > 0) {
+        await Promise.all(this.pendingCallbacks)
+      }
     } catch (error) {
       logger.worker.error('Worker pool error or timeout', {
         error: error instanceof Error ? error.message : String(error)
@@ -186,6 +194,7 @@ export class WorkerPool {
     }
 
     this.workers = []
+    this.pendingCallbacks = []
     // Reset queue for next file
     this.batchQueue = new AsyncQueue<Batch>()
   }
@@ -196,6 +205,7 @@ export class WorkerPool {
   abort(): void {
     this.aborted = true
     this.batchQueue.close()
+    this.pendingCallbacks = []
     // Release any paused workers so they can exit
     this.resume()
   }
@@ -302,18 +312,22 @@ export class WorkerPool {
             rows: batch.rows.length,
             durationMs: duration
           })
-          try {
-            this.onBatchComplete?.({
-              batchId: batch.id,
-              results,
-              processingTimeMs: duration
-            })
-          } catch (callbackError) {
-            logger.worker.error(`Worker ${workerId}: Error in batch callback`, {
-              batchId: batch.id,
-              error: callbackError instanceof Error ? callbackError.message : String(callbackError)
-            })
-          }
+          // Track callback as pending to ensure it completes before finishFile returns
+          const callbackPromise = Promise.resolve().then(() => {
+            try {
+              this.onBatchComplete?.({
+                batchId: batch.id,
+                results,
+                processingTimeMs: duration
+              })
+            } catch (callbackError) {
+              logger.worker.error(`Worker ${workerId}: Error in batch callback`, {
+                batchId: batch.id,
+                error: callbackError instanceof Error ? callbackError.message : String(callbackError)
+              })
+            }
+          })
+          this.pendingCallbacks.push(callbackPromise)
         }
       } catch (error) {
         logger.worker.error(`Worker ${workerId}: Error processing batch ${batch.id}`, {
@@ -323,22 +337,26 @@ export class WorkerPool {
         // On error, mark all rows as failed
         if (!this.aborted) {
           this.processedBatches++
-          try {
-            this.onBatchComplete?.({
-              batchId: batch.id,
-              results: batch.rows.map(row => ({
-                ok: false,
-                error: error instanceof Error ? error.message : 'Worker error',
-                rowIndex: row.index
-              })),
-              processingTimeMs: Date.now() - startTime
-            })
-          } catch (callbackError) {
-            logger.worker.error(`Worker ${workerId}: Error in error callback`, {
-              batchId: batch.id,
-              error: callbackError instanceof Error ? callbackError.message : String(callbackError)
-            })
-          }
+          // Track error callback as pending
+          const errorCallbackPromise = Promise.resolve().then(() => {
+            try {
+              this.onBatchComplete?.({
+                batchId: batch.id,
+                results: batch.rows.map(row => ({
+                  ok: false,
+                  error: error instanceof Error ? error.message : 'Worker error',
+                  rowIndex: row.index
+                })),
+                processingTimeMs: Date.now() - startTime
+              })
+            } catch (callbackError) {
+              logger.worker.error(`Worker ${workerId}: Error in error callback`, {
+                batchId: batch.id,
+                error: callbackError instanceof Error ? callbackError.message : String(callbackError)
+              })
+            }
+          })
+          this.pendingCallbacks.push(errorCallbackPromise)
         }
       } finally {
         this.activeWorkers--
