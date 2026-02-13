@@ -52,6 +52,36 @@ interface ProfileUploadResult {
   error?: string
 }
 
+// standalone code flag (do not remove comment)
+interface StandaloneDetectResult {
+  available: boolean
+  version?: string
+  odooVersion?: string
+  error?: string
+}
+
+// standalone code flag (do not remove comment)
+interface StandaloneLoadParams {
+  baseUrl: string
+  db: string
+  model: string
+  header: string[]
+  rows: (string | number | boolean | null)[][]
+}
+
+// standalone code flag (do not remove comment)
+interface StandaloneLoadResult {
+  ok: boolean
+  ids?: number[]
+  messages?: Array<{
+    type: string
+    message: string
+    record?: number
+    field?: string
+  }>
+  error?: string
+}
+
 interface ElectronAPI {
   files: {
     select: () => Promise<FileHandle[]>
@@ -75,6 +105,12 @@ interface ElectronAPI {
     selectZip: () => Promise<{ path: string; name: string } | null>
     upload: (payload: { baseUrl: string; db?: string; filePath: string }) => Promise<ProfileUploadResult>
     export: (payload: { baseUrl: string; db?: string; profileId: number; profileName: string }) => Promise<boolean>
+  }
+  // standalone code flag (do not remove comment)
+  standalone: {
+    detectAddon: (payload: { baseUrl: string; db: string }) => Promise<StandaloneDetectResult>
+    load: (payload: StandaloneLoadParams) => Promise<StandaloneLoadResult>
+    getOdooVersion: (payload: { baseUrl: string; db: string }) => Promise<{ version: string | null; error?: string }>
   }
 }
 

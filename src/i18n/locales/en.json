@@ -24,7 +24,8 @@
     "optional": "Optional",
     "search": "Search",
     "noResults": "No results",
-    "skip": "(skip)"
+    "skip": "(skip)",
+    "dismiss": "Dismiss"
   },
   "nav": {
     "import": "Import",
@@ -192,12 +193,14 @@
     "title": "Import Profiles",
     "uploading": "Uploading...",
     "uploadZip": "Import Profile (ZIP)",
+    "uploadLocalZip": "Import Local Profile (ZIP)",
     "loading": "Loading profiles...",
     "noProfiles": "No saved profiles. Upload a ZIP profile or save one from the config screen.",
     "exportZip": "Export Profile (ZIP)",
     "delete": "Delete",
     "deleteConfirm": "Delete profile \"{name}\"? This will remove it from the server.",
     "incompatible": "incompatible",
+    "local": "local",
     "updated": "Updated",
     "failedToExport": "Failed to export profile: {error}",
     "failedToDelete": "Failed to delete profile: {error}",
@@ -273,5 +276,10 @@
     "confirm": "Confirm",
     "alert": "Alert",
     "prompt": "Input"
+  },
+  "standalone": {
+    "title": "Standalone Mode",
+    "description": "csv_import addon not installed - using direct Odoo API",
+    "limitations": "Some features unavailable: search key upsert, per-row error handling"
   }
 }

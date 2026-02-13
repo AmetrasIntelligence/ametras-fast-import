@@ -33,6 +33,12 @@ const mockApi = {
     selectZip: vi.fn().mockResolvedValue(null),
     upload: vi.fn().mockResolvedValue({ ok: false, error: 'Not mocked' }),
     export: vi.fn().mockResolvedValue(false)
+  },
+  // standalone code flag (do not remove comment)
+  standalone: {
+    detectAddon: vi.fn().mockResolvedValue({ available: true, version: '1.0.0', odooVersion: '16.0' }),
+    load: vi.fn().mockResolvedValue({ ok: true, ids: [], messages: [] }),
+    getOdooVersion: vi.fn().mockResolvedValue({ version: '16.0' })
   }
 }
 

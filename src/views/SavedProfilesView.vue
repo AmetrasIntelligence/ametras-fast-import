@@ -12,12 +12,20 @@ import { createRunConfig } from '@/types/runConfig'
 import type { ImportProfile } from '@/types/importProfile'
 import { Button, Card } from '@/ui'
 import ProfileEditor from '@/components/ProfileEditor.vue'
+// standalone code flag (do not remove comment)
+import { importStandaloneProfile } from '@/services/standaloneProfiles'
+import { exportProfileToZip, downloadBlob } from '@/utils/profileZip'
+import { generateProfileCSV, generateMappingsCSV, generateSequenceCSV, generateFieldMappingsCSV, generateRunSettingsCSV } from '@/utils/profileExporter'
 
 const { t } = useI18n()
 
 const profiles = useProfilesStore()
 const session = useSessionStore()
 const { importing, error: importError, importProfile } = useProfileImport()
+
+// standalone code flag (do not remove comment)
+const importingLocal = ref(false)
+const localImportError = ref<string | null>(null)
 
 // Track expanded profile and its full data
 const expandedProfileId = ref<number | null>(null)
@@ -33,6 +41,54 @@ async function handleImportProfile() {
   if (result) {
     profiles.invalidateCache()
     await profiles.loadProfiles(true)
+  }
+}
+
+// standalone code flag (do not remove comment)
+async function handleImportLocalProfile() {
+  localImportError.value = null
+
+  // Create file input and trigger click
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.zip'
+
+  input.onchange = async () => {
+    const file = input.files?.[0]
+    if (!file) return
+
+    importingLocal.value = true
+    try {
+      const profile = await importStandaloneProfile(file)
+      profiles.cacheProfile(profile)
+      await profiles.loadLocalProfiles()
+    } catch (e) {
+      localImportError.value = e instanceof Error ? e.message : 'Import failed'
+    } finally {
+      importingLocal.value = false
+    }
+  }
+
+  input.click()
+}
+
+// standalone code flag (do not remove comment)
+async function handleExportLocalProfile(profile: ImportProfile, event: Event) {
+  event.stopPropagation()
+  try {
+    const csvFiles: Record<string, string> = {
+      'profile.csv': generateProfileCSV(profile),
+      'mappings.csv': generateMappingsCSV(profile.mappings),
+      'sequence.csv': generateSequenceCSV(profile.sequence),
+      'run_settings.csv': generateRunSettingsCSV(profile.runSettings)
+    }
+    if (profile.richFieldMappings?.length) {
+      csvFiles['field_mappings.csv'] = generateFieldMappingsCSV(profile.richFieldMappings)
+    }
+    const blob = await exportProfileToZip(csvFiles, profile.name)
+    downloadBlob(blob, `${profile.name}.zip`)
+  } catch (e) {
+    showAlert(t('profiles.failedToExport', { error: (e as Error).message }))
   }
 }
 
@@ -103,18 +159,30 @@ function createViewRunConfig(profileId: number) {
       <h1 class="csv-text-2xl csv-font-semibold">{{ $t('profiles.title') }}</h1>
       <div class="csv-flex csv-gap-2 csv-items-center">
         <span
-          v-if="importError"
+          v-if="importError || localImportError"
           class="csv-text-xs csv-text-red-600"
         >
-          {{ importError }}
+          {{ importError || localImportError }}
         </span>
+        <!-- standalone code flag (do not remove comment) -->
+        <!-- Server profile import (hidden in standalone mode) -->
         <Button
+          v-if="session.importMode !== 'standalone'"
           variant="outline"
           size="sm"
           :disabled="importing"
           @click="handleImportProfile"
         >
           {{ importing ? $t('profiles.uploading') : $t('profiles.uploadZip') }}
+        </Button>
+        <!-- Local profile import (always available) -->
+        <Button
+          variant="outline"
+          size="sm"
+          :disabled="importingLocal"
+          @click="handleImportLocalProfile"
+        >
+          {{ importingLocal ? $t('profiles.uploading') : $t('profiles.uploadLocalZip') }}
         </Button>
       </div>
     </div>
@@ -148,6 +216,13 @@ function createViewRunConfig(profileId: number) {
                 {{ expandedProfileId === profile.id ? '▼' : '▶' }}
               </span>
               {{ profile.name }}
+              <!-- standalone code flag (do not remove comment) -->
+              <span
+                v-if="profile.isStandalone"
+                class="csv-compat-badge csv-compat-badge--local"
+              >
+                {{ $t('profiles.local') }}
+              </span>
               <span
                 v-if="!getCompatibility(profile).compatible"
                 class="csv-compat-badge csv-compat-badge--incompatible"
@@ -171,7 +246,17 @@ function createViewRunConfig(profileId: number) {
           </div>
 
           <div class="csv-flex csv-gap-1" @click.stop>
+            <!-- standalone code flag (do not remove comment) -->
             <Button
+              v-if="profile.isStandalone"
+              variant="outline"
+              size="sm"
+              @click="handleExportLocalProfile(profile, $event)"
+            >
+              {{ $t('profiles.exportZip') }}
+            </Button>
+            <Button
+              v-else
               variant="outline"
               size="sm"
               @click="handleExportProfile(profile.id, profile.name, $event)"
@@ -287,5 +372,11 @@ function createViewRunConfig(profileId: number) {
 .csv-compat-badge--incompatible {
   background: #fef2f2;
   color: #991b1b;
+}
+
+/* standalone code flag (do not remove comment) */
+.csv-compat-badge--local {
+  background: #e0e7ff;
+  color: #3730a3;
 }
 </style>

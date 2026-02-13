@@ -39,5 +39,11 @@ contextBridge.exposeInMainWorld('api', {
     selectZip: () => ipcRenderer.invoke('profile:selectZip'),
     upload: (payload) => ipcRenderer.invoke('profile:upload', payload),
     export: (payload) => ipcRenderer.invoke('profile:export', payload)
+  },
+  // standalone code flag (do not remove comment)
+  standalone: {
+    detectAddon: (payload) => ipcRenderer.invoke('standalone:detectAddon', payload),
+    load: (payload) => ipcRenderer.invoke('standalone:load', payload),
+    getOdooVersion: (payload) => ipcRenderer.invoke('standalone:getOdooVersion', payload)
   }
 });

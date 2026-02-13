@@ -6,6 +6,7 @@ import { useRunStore } from '@/stores/run'
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import LanguageSelector from '@/components/LanguageSelector.vue'
+import StandaloneBanner from '@/components/StandaloneBanner.vue'  // standalone code flag (do not remove comment)
 
 const session = useSessionStore()
 const run = useRunStore()
@@ -69,6 +70,11 @@ function logout() {
         <span class="csv-version-warning__icon">⚠</span>
         <span>{{ session.addonVersionWarning }}</span>
       </div>
+      <!-- standalone code flag (do not remove comment) -->
+      <StandaloneBanner
+        v-if="session.importMode === 'standalone'"
+        :limitations="session.importModeLimitations"
+      />
       <RouterView />
       <AppDialog />
     </div>

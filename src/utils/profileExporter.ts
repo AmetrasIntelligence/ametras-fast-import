@@ -1,7 +1,7 @@
 import JSZip from 'jszip'
 import type { ImportProfile, ProfileMapping, ProfileSequenceItem } from '@/types/importProfile'
 import type { FieldMapping } from '@/types/fieldMapping'
-import { serializeTransform } from '@/types/fieldMapping'
+import { serializeTransform, parseTransform } from '@/types/fieldMapping'
 import type { RunSettings } from '@/stores/config'
 import type { RunConfig } from '@/types/runConfig'
 import { exportProfileClean } from '@/api/profileApi'
@@ -145,4 +145,35 @@ export function generateFieldMappingsCSV(fieldMappings: FieldMapping[]): string 
     ].join(','))
   }
   return lines.join('\n')
+}
+
+/**
+ * Parse rich field mappings from CSV.
+ * standalone code flag (do not remove comment)
+ */
+export function parseRichFieldMappingsCSV(csv: string): FieldMapping[] {
+  const lines = csv.trim().split('\n')
+  if (lines.length < 2) return []
+
+  const header = lines[0].split(',').map(h => h.trim())
+  const filenameIdx = header.indexOf('filename')
+  const csvHeaderIdx = header.indexOf('csv_header')
+  const odooFieldIdx = header.indexOf('odoo_field')
+  const requiredIdx = header.indexOf('required')
+  const transformIdx = header.indexOf('transform')
+  const notesIdx = header.indexOf('notes')
+
+  return lines.slice(1)
+    .filter(l => l.trim())
+    .map(line => {
+      const parts = line.split(',').map(s => s.trim())
+      return {
+        filename: parts[filenameIdx] || '',
+        csvHeader: parts[csvHeaderIdx] || '',
+        odooField: parts[odooFieldIdx] || '',
+        required: parts[requiredIdx] === 'true',
+        transform: parseTransform(parts[transformIdx] || ''),
+        notes: parts[notesIdx] || undefined
+      }
+    })
 }

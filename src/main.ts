@@ -115,6 +115,63 @@ if (!window.api) {
         console.warn('Profile export not available in browser mode')
         return false
       }
+    },
+    // standalone code flag (do not remove comment)
+    standalone: {
+      detectAddon: async (payload) => {
+        // In browser mode, try to detect addon via direct fetch
+        try {
+          const response = await fetch(`${payload.baseUrl}/csv_import/info`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params: {}, id: Date.now() })
+          })
+          const data = await response.json()
+          if (data.error) {
+            return { available: false }
+          }
+          return {
+            available: true,
+            version: data.result?.version,
+            odooVersion: data.result?.odoo_version
+          }
+        } catch {
+          return { available: false }
+        }
+      },
+      load: async (payload) => {
+        try {
+          const response = await fetch(`${payload.baseUrl}/web/dataset/call_kw`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              method: 'call',
+              params: {
+                model: payload.model,
+                method: 'load',
+                args: [payload.header, payload.rows],
+                kwargs: {}
+              },
+              id: Date.now()
+            })
+          })
+          const data = await response.json()
+          if (data.error) {
+            return { ok: false, error: data.error.data?.message || 'Import failed' }
+          }
+          return {
+            ok: true,
+            ids: data.result?.ids || [],
+            messages: data.result?.messages || []
+          }
+        } catch (e) {
+          return { ok: false, error: e instanceof Error ? e.message : 'Request failed' }
+        }
+      },
+      getOdooVersion: async () => ({ version: null })
     }
   }
 }

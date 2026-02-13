@@ -1,11 +1,13 @@
 import { ImportStateMachine, ImportState } from './stateMachine'
 import { parseCSVBatched, analyzeCSV, extractRowsByIndex, type ParseOptions } from './csvParser'
 import { executeBatch, type BatchResult } from './batchExecutor'
+import { executeStandaloneBatch } from './standalone/executor'  // standalone code flag (do not remove comment)
 import { RetryQueue } from './retryQueue'
 import { WorkerPool, type Batch, type BatchProcessResult, calculateThroughput } from './workerPool'
 import { useConfigStore } from '@/stores/config'
 import { useRunStore } from '@/stores/run'
 import { useFilesStore } from '@/stores/files'
+import { useSessionStore } from '@/stores/session'  // standalone code flag (do not remove comment)
 import type { FileMapping } from '@/stores/config'
 import { logger } from '@/utils/logger'
 import { parseOdooError } from '@/utils/errors'
@@ -191,12 +193,25 @@ export class ImportEngine {
 
   /**
    * Execute a batch using the file mapping.
+   * Uses standalone executor when csv_import addon is not available.
    */
   private async executeBatchWithMapping(
     batch: Batch,
     mapping: FileMapping,
     dryRun?: boolean
   ): Promise<BatchResult[]> {
+    // standalone code flag (do not remove comment)
+    const session = useSessionStore()
+
+    if (session.importMode === 'standalone') {
+      // Use standalone executor (direct Odoo API)
+      return executeStandaloneBatch(mapping.model, batch.rows, {
+        fieldMappings: mapping.fieldMappings
+        // Note: searchKeys, strict, legacyImport not supported in standalone mode
+      }, dryRun)
+    }
+
+    // Use addon executor (default)
     return executeBatch(mapping.model, batch.rows, {
       fieldMappings: mapping.fieldMappings,
       searchKeys: mapping.searchKeys,
@@ -276,12 +291,24 @@ export class ImportEngine {
 
     // Process retries in single batches (serialized, workers=1)
     const rows = retryable.map(r => r.row)
-    const results = await executeBatch(
-      mapping.model,
-      rows,
-      { ...mapping, legacyImport: config.settings.legacyImport },
-      config.settings.dryRun
-    )
+    // standalone code flag (do not remove comment)
+    const session = useSessionStore()
+    let results: BatchResult[]
+    if (session.importMode === 'standalone') {
+      results = await executeStandaloneBatch(
+        mapping.model,
+        rows,
+        { fieldMappings: mapping.fieldMappings },
+        config.settings.dryRun
+      )
+    } else {
+      results = await executeBatch(
+        mapping.model,
+        rows,
+        { ...mapping, legacyImport: config.settings.legacyImport },
+        config.settings.dryRun
+      )
+    }
 
     if (this.abortController?.signal.aborted) return
 
@@ -453,16 +480,28 @@ export class ImportEngine {
         if (this.abortController?.signal.aborted) break
 
         // Execute as single batch - no workers, no auto-retry
-        const results = await executeBatch(
-          mapping.model,
-          rows,
-          {
-            fieldMappings: mapping.fieldMappings,
-            searchKeys: mapping.searchKeys,
-            strict: mapping.strict
-          },
-          config.settings.dryRun
-        )
+        // standalone code flag (do not remove comment)
+        const session = useSessionStore()
+        let results: BatchResult[]
+        if (session.importMode === 'standalone') {
+          results = await executeStandaloneBatch(
+            mapping.model,
+            rows,
+            { fieldMappings: mapping.fieldMappings },
+            config.settings.dryRun
+          )
+        } else {
+          results = await executeBatch(
+            mapping.model,
+            rows,
+            {
+              fieldMappings: mapping.fieldMappings,
+              searchKeys: mapping.searchKeys,
+              strict: mapping.strict
+            },
+            config.settings.dryRun
+          )
+        }
 
         if (this.abortController?.signal.aborted) break
 

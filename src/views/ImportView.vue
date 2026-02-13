@@ -442,6 +442,15 @@ function updateTransformForFile(filename: string, csvHeader: string, transform: 
 }
 
 async function validateRowForFile(filename: string) {
+  // standalone code flag (do not remove comment)
+  if (session.importMode === 'standalone') {
+    validationResults.value.set(filename, {
+      ok: false,
+      message: 'Row validation not available in standalone mode'
+    })
+    return
+  }
+
   const mapping = config.getFileMapping(filename)
   const file = filesStore.files.find(f => f.name === filename)
   const analysis = file ? filesStore.getAnalysis(file.id) : null

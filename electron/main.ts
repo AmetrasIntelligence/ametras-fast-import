@@ -11,6 +11,7 @@ import './ipc/files'
 import './ipc/odoo'
 import './ipc/store'
 import './ipc/profile'
+import './ipc/standalone'  // standalone code flag (do not remove comment)
 
 let mainWindow: BrowserWindow | null = null
 

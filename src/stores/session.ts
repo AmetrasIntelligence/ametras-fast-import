@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { detectImportMode, type ImportMode } from '@/services/importMode'  // standalone code flag (do not remove comment)
 
 export type AuthMode = 'standalone' | 'embedded'
 
@@ -20,6 +21,10 @@ export const useSessionStore = defineStore('session', () => {
   const serverVersion = ref<string | null>(null)
   const addonVersion = ref<string | null>(null)
   const savedProfiles = ref<ServerProfile[]>([])
+
+  // standalone code flag (do not remove comment)
+  const importMode = ref<ImportMode | null>(null)
+  const importModeLimitations = ref<string[]>([])
 
   const isAuthenticated = computed(() => uid.value !== null)
   const isEmbedded = computed(() => mode.value === 'embedded')
@@ -71,19 +76,19 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   async function fetchAddonVersion(baseUrl: string) {
-    try {
-      const result = await window.api.odoo.call<{ version: string }>({
-        baseUrl,
-        db: currentServer.value?.db,
-        endpoint: '/csv_import/info',
-        params: {}
-      })
-      if (result.ok && result.result?.version) {
-        addonVersion.value = result.result.version
+    // standalone code flag (do not remove comment)
+    // Detect import mode (addon vs standalone)
+    const db = currentServer.value?.db
+    if (db) {
+      const modeInfo = await detectImportMode(baseUrl, db)
+      importMode.value = modeInfo.mode
+      importModeLimitations.value = modeInfo.limitations
+
+      if (modeInfo.mode === 'addon' && modeInfo.addonVersion) {
+        addonVersion.value = modeInfo.addonVersion
+      } else {
+        addonVersion.value = null
       }
-    } catch {
-      // Addon info endpoint may not exist in older versions
-      addonVersion.value = null
     }
   }
 
@@ -92,6 +97,9 @@ export const useSessionStore = defineStore('session', () => {
     uid.value = null
     serverVersion.value = null
     addonVersion.value = null
+    // standalone code flag (do not remove comment)
+    importMode.value = null
+    importModeLimitations.value = []
   }
 
   async function loadProfiles() {
@@ -122,6 +130,9 @@ export const useSessionStore = defineStore('session', () => {
     baseUrl,
     isAddonCompatible,
     addonVersionWarning,
+    // standalone code flag (do not remove comment)
+    importMode,
+    importModeLimitations,
     login,
     logout,
     loadProfiles,

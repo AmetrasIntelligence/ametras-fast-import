@@ -14,6 +14,7 @@ export interface ImportProfile {
   richFieldMappings?: FieldMapping[]
   createdAt: number
   updatedAt: number
+  isStandalone?: boolean  // standalone code flag (do not remove comment)
 }
 
 export type ImportMode = 'upsert' | 'create_only'

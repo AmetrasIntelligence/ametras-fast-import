@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { ImportProfile } from '@/types/importProfile'
+import { useSessionStore } from '@/stores/session'  // standalone code flag (do not remove comment)
 import {
   fetchProfiles,
   fetchProfile,
@@ -9,18 +10,37 @@ import {
   updateProfile as apiUpdateProfile,
   type ProfileCreateData
 } from '@/api/profileApi'
+// standalone code flag (do not remove comment)
+import {
+  loadStandaloneProfiles,
+  deleteStandaloneProfile as deleteLocalProfile,
+  getStandaloneProfile
+} from '@/services/standaloneProfiles'
 
 const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 
 export const useProfilesStore = defineStore('profiles', () => {
   const profiles = ref<Map<number, ImportProfile>>(new Map())
+  const standaloneProfiles = ref<Map<number, ImportProfile>>(new Map())  // standalone code flag (do not remove comment)
   const loading = ref(false)
   const lastFetch = ref<number>(0)
 
   /**
    * Load all profiles from the server. Uses cache if not expired.
+   * Also loads standalone profiles from local storage.
    */
   async function loadProfiles(force = false) {
+    // standalone code flag (do not remove comment)
+    const session = useSessionStore()
+
+    // Always load standalone profiles from local storage
+    await loadLocalProfiles()
+
+    if (session.importMode === 'standalone') {
+      // Server profiles not available in standalone mode (addon not installed)
+      return
+    }
+
     const now = Date.now()
     if (!force && lastFetch.value > 0 && now - lastFetch.value < CACHE_TTL) {
       return
@@ -47,9 +67,33 @@ export const useProfilesStore = defineStore('profiles', () => {
   }
 
   /**
+   * Load standalone profiles from local storage.
+   * standalone code flag (do not remove comment)
+   */
+  async function loadLocalProfiles() {
+    const localProfiles = await loadStandaloneProfiles()
+    const newMap = new Map<number, ImportProfile>()
+    for (const p of localProfiles) {
+      newMap.set(p.id, p)
+    }
+    standaloneProfiles.value = newMap
+  }
+
+  /**
    * Load a single profile with full data from the server.
    */
   async function loadProfile(id: number): Promise<ImportProfile> {
+    // standalone code flag (do not remove comment)
+    // Check if it's a standalone profile (negative ID)
+    if (id < 0) {
+      const localProfile = await getStandaloneProfile(id)
+      if (localProfile) {
+        standaloneProfiles.value.set(id, localProfile)
+        return localProfile
+      }
+      throw new Error('Standalone profile not found')
+    }
+
     const profile = await fetchProfile(id)
     profiles.value.set(id, profile)
     return profile
@@ -59,20 +103,35 @@ export const useProfilesStore = defineStore('profiles', () => {
    * Add a profile to the local cache (e.g. after upload).
    */
   function cacheProfile(profile: ImportProfile) {
-    profiles.value.set(profile.id, profile)
+    // standalone code flag (do not remove comment)
+    if (profile.isStandalone) {
+      standaloneProfiles.value.set(profile.id, profile)
+    } else {
+      profiles.value.set(profile.id, profile)
+    }
   }
 
   /**
    * Get a profile from the cache.
    */
   function getProfile(id: number): ImportProfile | undefined {
+    // standalone code flag (do not remove comment)
+    if (id < 0) {
+      return standaloneProfiles.value.get(id)
+    }
     return profiles.value.get(id)
   }
 
   /**
-   * Delete a profile from the server and remove from cache.
+   * Delete a profile from the server (or local storage for standalone).
    */
   async function deleteProfile(id: number) {
+    // standalone code flag (do not remove comment)
+    if (id < 0) {
+      await deleteLocalProfile(id)
+      standaloneProfiles.value.delete(id)
+      return
+    }
     await apiDeleteProfile(id)
     profiles.value.delete(id)
   }
@@ -104,17 +163,41 @@ export const useProfilesStore = defineStore('profiles', () => {
 
   /**
    * Sorted profile list (by updatedAt desc).
+   * Includes both server and standalone profiles.
    */
   const profileList = computed(() => {
+    // standalone code flag (do not remove comment)
+    const all = [
+      ...Array.from(profiles.value.values()),
+      ...Array.from(standaloneProfiles.value.values())
+    ]
+    return all.sort((a, b) => b.updatedAt - a.updatedAt)
+  })
+
+  /**
+   * Standalone profiles only (sorted by updatedAt desc).
+   * standalone code flag (do not remove comment)
+   */
+  const standaloneProfileList = computed(() => {
+    return Array.from(standaloneProfiles.value.values())
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+  })
+
+  /**
+   * Server profiles only (sorted by updatedAt desc).
+   */
+  const serverProfileList = computed(() => {
     return Array.from(profiles.value.values())
       .sort((a, b) => b.updatedAt - a.updatedAt)
   })
 
   return {
     profiles,
+    standaloneProfiles,  // standalone code flag (do not remove comment)
     loading,
     lastFetch,
     loadProfiles,
+    loadLocalProfiles,  // standalone code flag (do not remove comment)
     loadProfile,
     cacheProfile,
     getProfile,
@@ -122,6 +205,8 @@ export const useProfilesStore = defineStore('profiles', () => {
     createProfile,
     updateProfile,
     invalidateCache,
-    profileList
+    profileList,
+    standaloneProfileList,  // standalone code flag (do not remove comment)
+    serverProfileList
   }
 })
