@@ -280,6 +280,8 @@
   "standalone": {
     "title": "Standalone-Modus",
     "description": "csv_import Addon nicht installiert - verwende direkte Odoo API",
-    "limitations": "Einige Funktionen nicht verfügbar: Suchschlüssel-Upsert, Fehlerbehandlung pro Zeile"
+    "limitations": "Einige Funktionen nicht verfügbar: Suchschlüssel-Upsert, Fehlerbehandlung pro Zeile",
+    "batchSizeNote": "Stapelgröße auf 10-200 im Standalone-Modus begrenzt",
+    "workersNote": "Einzelner Worker-Modus für Stabilität"
   }
 }

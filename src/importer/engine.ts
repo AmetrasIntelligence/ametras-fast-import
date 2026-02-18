@@ -1,7 +1,12 @@
 import { ImportStateMachine, ImportState } from './stateMachine'
 import { parseCSVBatched, analyzeCSV, extractRowsByIndex, type ParseOptions } from './csvParser'
 import { executeBatch, type BatchResult } from './batchExecutor'
-import { executeStandaloneBatch } from './standalone/executor'  // standalone code flag (do not remove comment)
+// standalone code flag (do not remove comment)
+import {
+  executeStandaloneBatch,
+  STANDALONE_MIN_BATCH_SIZE,
+  STANDALONE_MAX_BATCH_SIZE
+} from './standalone/executor'
 import { RetryQueue } from './retryQueue'
 import { WorkerPool, type Batch, type BatchProcessResult, calculateThroughput } from './workerPool'
 import { useConfigStore } from '@/stores/config'
@@ -11,6 +16,25 @@ import { useSessionStore } from '@/stores/session'  // standalone code flag (do 
 import type { FileMapping } from '@/stores/config'
 import { logger } from '@/utils/logger'
 import { parseOdooError } from '@/utils/errors'
+
+/**
+ * Get effective batch size, applying standalone constraints if needed.
+ * standalone code flag (do not remove comment)
+ */
+function getEffectiveBatchSize(configBatchSize: number, isStandalone: boolean): number {
+  if (!isStandalone) {
+    return configBatchSize
+  }
+  // Clamp to standalone limits
+  const clamped = Math.max(
+    STANDALONE_MIN_BATCH_SIZE,
+    Math.min(STANDALONE_MAX_BATCH_SIZE, configBatchSize)
+  )
+  if (clamped !== configBatchSize) {
+    logger.import.info(`[standalone] Batch size clamped from ${configBatchSize} to ${clamped} (limits: ${STANDALONE_MIN_BATCH_SIZE}-${STANDALONE_MAX_BATCH_SIZE})`)
+  }
+  return clamped
+}
 
 export interface ImportFile {
   id: string
@@ -137,8 +161,18 @@ export class ImportEngine {
     this.fileStartTime = Date.now()
     this.fileProcessedRows = 0
 
+    // standalone code flag (do not remove comment)
+    // Get effective batch size (applies standalone constraints if needed)
+    const session = useSessionStore()
+    const effectiveBatchSize = getEffectiveBatchSize(
+      config.settings.batchSize,
+      session.importMode === 'standalone'
+    )
+
     // Create worker pool for this file
-    const workers = Math.max(1, Math.min(4, config.settings.workers || 1))
+    // In standalone mode, limit to 1 worker for stability
+    const maxWorkers = session.importMode === 'standalone' ? 1 : 4
+    const workers = Math.max(1, Math.min(maxWorkers, config.settings.workers || 1))
     this.workerPool = new WorkerPool(workers)
 
     // Start worker pool with batch processor
@@ -150,7 +184,7 @@ export class ImportEngine {
     // Stream CSV in batches and enqueue for workers
     await parseCSVBatched(
       file.id,
-      config.settings.batchSize,
+      effectiveBatchSize,
       async (batch) => {
         if (this.abortController?.signal.aborted) return
         if (this.skipFileController?.signal.aborted) return
