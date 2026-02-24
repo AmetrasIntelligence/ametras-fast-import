@@ -1,0 +1,52 @@
+name: Build
+
+on:
+  push:
+    branches: [v1]
+    tags: ['v*']
+  pull_request:
+    branches: [v1]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npx vitest run
+
+  build:
+    needs: lint-and-test
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+          - os: windows-latest
+            platform: win
+          - os: ubuntu-latest
+            platform: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx electron-builder --${{ matrix.platform }} --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: csv-import-${{ matrix.platform }}
+          path: |
+            release/*.dmg
+            release/*.exe
+            release/*.AppImage
+          if-no-files-found: ignore
