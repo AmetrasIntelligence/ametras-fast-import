@@ -2,7 +2,7 @@
 /**
  * Import mode detection service.
  * Determines whether to use addon mode or standalone mode based on
- * whether the csv_import addon is installed on the Odoo server.
+ * whether the ametras_fast_import addon is installed on the Odoo server.
  */
 
 import { logger } from '@/utils/logger'
@@ -18,7 +18,7 @@ export interface ImportModeInfo {
 
 /**
  * Detect which import mode to use based on addon availability.
- * Tries to reach the csv_import addon endpoint first, falls back to standalone.
+ * Tries to reach the ametras_fast_import addon endpoint first, falls back to standalone.
  */
 export async function detectImportMode(
   baseUrl: string,

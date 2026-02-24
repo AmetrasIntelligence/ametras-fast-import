@@ -2,17 +2,17 @@
 
 ## Overview
 
-Standalone mode allows the CSV Import client to function without the `csv_import` Odoo addon installed. It uses Odoo's native `model.load()` API directly, providing basic import functionality for legacy systems or environments where the addon cannot be installed.
+Standalone mode allows the CSV Import client to function without the `ametras_fast_import` Odoo addon installed. It uses Odoo's native `model.load()` API directly, providing basic import functionality for legacy systems or environments where the addon cannot be installed.
 
 ## How It Works
 
 ### Detection
 
-On login, the client attempts to detect the `csv_import` addon by calling `/csv_import/info`. If this endpoint is not available, the client automatically switches to standalone mode.
+On login, the client attempts to detect the `ametras_fast_import` addon by calling `/ametras_fast_import/info`. If this endpoint is not available, the client automatically switches to standalone mode.
 
 ### Import Method
 
-- **Addon Mode**: Uses the `csv_import` addon's enhanced API with features like search key upsert, per-row error handling, and server-side profiles.
+- **Addon Mode**: Uses the `ametras_fast_import` addon's enhanced API with features like search key upsert, per-row error handling, and server-side profiles.
 - **Standalone Mode**: Calls Odoo's standard `/web/dataset/call_kw` endpoint with `model.load()` method directly. Includes adaptive retry with geometric splitting and adaptive batch sizing.
 
 ## Features Comparison
@@ -40,7 +40,7 @@ When in standalone mode, a dismissible warning banner appears below the navigati
 
 ```
 ⚠ Standalone Mode
-csv_import addon not installed - using direct Odoo API
+ametras_fast_import addon not installed - using direct Odoo API
 Some features unavailable: search key upsert, per-row error handling
 ```
 

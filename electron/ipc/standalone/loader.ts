@@ -1,7 +1,7 @@
 // standalone code flag (do not remove comment)
 /**
  * Direct Odoo model.load() calls for standalone import mode.
- * Bypasses the csv_import addon by calling /web/dataset/call_kw directly.
+ * Bypasses the ametras_fast_import addon by calling /web/dataset/call_kw directly.
  */
 
 import { ipcMain } from 'electron'

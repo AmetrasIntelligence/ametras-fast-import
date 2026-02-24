@@ -25,7 +25,7 @@ The CSV Import Tool is built as an Electron desktop application using Vue 3 and 
 ```
 ┌────────────────────────────────┐       ┌─────────────────────────┐
 │       Electron Main            │       │      Odoo Backend       │
-│  (Native FS, Network Proxy)    │◄─────►│ (Addon: csv_import)     │
+│  (Native FS, Network Proxy)    │◄─────►│ (Addon: ametras_fast_import)     │
 └───────────────▲────────────────┘       └─────────────────────────┘
                 │
                 │ IPC (JSON)

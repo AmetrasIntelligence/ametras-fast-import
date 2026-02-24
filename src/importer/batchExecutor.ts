@@ -78,7 +78,7 @@ export async function executeBatch(
   }>({
     baseUrl: session.baseUrl,
     db,
-    endpoint: '/csv_import/run',
+    endpoint: '/ametras_fast_import/run',
     params: {
       model,
       rows: transformedRows.map(r => r.data),

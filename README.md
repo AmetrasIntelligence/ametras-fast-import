@@ -57,8 +57,8 @@ Detailed documentation is available in the `docs/` directory:
             ▼ JSON-RPC
 ┌─────────────────────────────────────────────────────────────┐
 │  Odoo 16+ Backend                                            │
-│  /csv_import/run (savepoint per row, upsert via xml_id)     │
-│  /csv_import/profile/* (CRUD, ZIP upload/download)          │
+│  /ametras_fast_import/run (savepoint per row, upsert)       │
+│  /ametras_fast_import/profile/* (CRUD, ZIP upload/download) │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -74,7 +74,7 @@ Detailed documentation is available in the `docs/` directory:
 
 - Node.js 18+
 - npm 9+
-- Odoo 16+ instance with the `csv_import` addon installed
+- Odoo 16+ instance with the `ametras_fast_import_addon` addon installed
 
 ## Installation
 
@@ -83,7 +83,7 @@ Detailed documentation is available in the `docs/` directory:
 npm install
 
 # Install the Odoo addon
-cp -r csv_import /path/to/odoo/addons/
+cp -r ametras_fast_import_addon /path/to/odoo/addons/
 # Then install via Odoo Apps menu
 ```
 
@@ -227,7 +227,7 @@ csv-client/
 │   ├── App.vue
 │   ├── main.ts
 │   └── shims-vue.d.ts           # Vue SFC type declarations
-├── csv_import/                  # Odoo addon
+├── ametras_fast_import_addon/    # Odoo addon
 │   ├── __init__.py
 │   ├── __manifest__.py
 │   ├── models/

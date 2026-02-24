@@ -70,7 +70,7 @@ The following files were removed during refactoring and their functionality has 
 
 ## Extending the Odoo Backend
 
-The backend logic is primarily in `csv_import/controllers/import_controller.py`.
+The backend logic is primarily in `ametras_fast_import_addon/controllers/import_controller.py`.
 
 *   **Custom Upsert Logic**: If you need to change how records are identified, modify the `_import_row` method.
 *   **Post-processing**: To perform actions after a row is imported (e.g., triggering a workflow), add logic to `run_import` after the `_import_row` call.

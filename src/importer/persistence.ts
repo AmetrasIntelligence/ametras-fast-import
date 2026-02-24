@@ -134,7 +134,7 @@ export interface PersistedRunState {
   timestamp: number
 }
 
-const STORAGE_KEY = 'csv_import_run_state'
+const STORAGE_KEY = 'ametras_fast_import_run_state'
 
 export async function persistRunState(
   state: ImportState,

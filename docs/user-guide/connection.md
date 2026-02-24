@@ -27,4 +27,4 @@ The application remembers the credentials and settings for multiple servers. Whe
 
 *   **Network Error**: Check your internet connection and ensure the Odoo server is reachable.
 *   **Access Denied**: Verify your username and password. Ensure the user has the necessary permissions in Odoo (at least 'create' and 'write' access for the models you intend to import).
-*   **Incompatible Addon**: Ensure the `csv_import` addon is installed on the Odoo server. The tool will check for the addon's presence upon connection.
+*   **Incompatible Addon**: Ensure the `ametras_fast_import_addon` addon is installed on the Odoo server. The tool will check for the addon's presence upon connection.

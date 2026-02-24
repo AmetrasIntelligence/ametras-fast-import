@@ -1,12 +1,12 @@
 # Odoo Backend Integration
 
-The `csv_import` Odoo addon provides the server-side logic for data processing and profile storage.
+The `ametras_fast_import_addon` Odoo addon provides the server-side logic for data processing and profile storage.
 
 ## API Endpoints
 
 All API calls are authenticated and require a valid Odoo session.
 
-### `POST /csv_import/run` (JSON-RPC)
+### `POST /ametras_fast_import/run` (JSON-RPC)
 The main entry point for data import.
 *   **Parameters**:
     *   `model`: Technical name of the Odoo model.
@@ -20,13 +20,13 @@ The main entry point for data import.
     3.  **Deterministic Upsert**: Follows the priority defined in the Technical Reference.
 *   **Return**: A list of results per row (Success, Error Message, Action taken).
 
-### `POST /csv_import/models` (JSON-RPC)
+### `POST /ametras_fast_import/models` (JSON-RPC)
 Returns a list of all non-transient models that the current user has 'create' access to.
 
 ### Profile Endpoints
-*   `GET /csv_import/profile/list`: Lists all saved import profiles.
-*   `POST /csv_import/profile/upload`: Accepts a ZIP file, validates its structure, and saves it.
-*   `GET /csv_import/profile/<id>/export`: Downloads the profile as a ZIP file.
+*   `GET /ametras_fast_import/profile/list`: Lists all saved import profiles.
+*   `POST /ametras_fast_import/profile/upload`: Accepts a ZIP file, validates its structure, and saves it.
+*   `GET /ametras_fast_import/profile/<id>/export`: Downloads the profile as a ZIP file.
 
 ## Data Models
 

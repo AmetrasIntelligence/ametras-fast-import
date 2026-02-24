@@ -475,7 +475,7 @@ async function validateRowForFile(filename: string) {
     const result = await window.api.odoo.call<{ results: Array<{ ok: boolean; action?: string; error?: string }> }>({
       baseUrl: session.baseUrl,
       db: session.currentServer?.db,
-      endpoint: '/csv_import/run',
+      endpoint: '/ametras_fast_import/run',
       params: {
         model: mapping.model,
         rows: [mappedData],

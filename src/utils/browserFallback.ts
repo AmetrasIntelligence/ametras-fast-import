@@ -141,7 +141,7 @@ export function installBrowserFallback(): void {
     standalone: {
       detectAddon: async (payload) => {
         try {
-          const response = await fetch(`${payload.baseUrl}/csv_import/info`, {
+          const response = await fetch(`${payload.baseUrl}/ametras_fast_import/info`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',

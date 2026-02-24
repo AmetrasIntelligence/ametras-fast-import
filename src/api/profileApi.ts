@@ -130,7 +130,7 @@ export async function fetchProfiles(): Promise<ImportProfile[]> {
   const response = await window.api.odoo.call<ProfileListItem[]>({
     baseUrl,
     db,
-    endpoint: '/csv_import/profile/list',
+    endpoint: '/ametras_fast_import/profile/list',
     params: {}
   })
 
@@ -149,7 +149,7 @@ export async function fetchProfile(id: number): Promise<ImportProfile> {
   const response = await window.api.odoo.call<ProfileFullData>({
     baseUrl,
     db,
-    endpoint: `/csv_import/profile/${id}`,
+    endpoint: `/ametras_fast_import/profile/${id}`,
     params: {}
   })
 
@@ -173,7 +173,7 @@ export async function deleteProfile(id: number): Promise<void> {
   const response = await window.api.odoo.call<{ ok?: boolean; error?: string }>({
     baseUrl,
     db,
-    endpoint: `/csv_import/profile/${id}/delete`,
+    endpoint: `/ametras_fast_import/profile/${id}/delete`,
     params: {}
   })
 
@@ -251,7 +251,7 @@ export async function createProfile(data: ProfileCreateData): Promise<ImportProf
   const response = await window.api.odoo.call<ProfileFullData | { error: string }>({
     baseUrl,
     db,
-    endpoint: '/csv_import/profile/create',
+    endpoint: '/ametras_fast_import/profile/create',
     params: { data: payload }
   })
 
@@ -286,7 +286,7 @@ export async function updateProfile(id: number, data: Partial<ProfileCreateData>
   const response = await window.api.odoo.call<ProfileFullData | { error: string }>({
     baseUrl,
     db,
-    endpoint: `/csv_import/profile/${id}/update`,
+    endpoint: `/ametras_fast_import/profile/${id}/update`,
     params: { data: payload }
   })
 

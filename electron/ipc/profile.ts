@@ -95,7 +95,7 @@ ipcMain.handle('profile:upload', async (_event, payload: {
     const footerBuf = Buffer.from(footer, 'utf-8')
     const body = Buffer.concat([headerBuf, fileBuffer, footerBuf])
 
-    const response = await fetch(`${baseUrl}/csv_import/profile/upload`, {
+    const response = await fetch(`${baseUrl}/ametras_fast_import/profile/upload`, {
       method: 'POST',
       headers: {
         'Content-Type': `multipart/form-data; boundary=${boundary}`,
@@ -149,7 +149,7 @@ ipcMain.handle('profile:export', async (_event, payload: {
     if (canceled || !filePath) return false
 
     const response = await fetch(
-      `${baseUrl}/csv_import/profile/${profileId}/export`,
+      `${baseUrl}/ametras_fast_import/profile/${profileId}/export`,
       {
         method: 'GET',
         headers: {

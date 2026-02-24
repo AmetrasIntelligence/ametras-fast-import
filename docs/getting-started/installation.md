@@ -12,10 +12,10 @@ To use the CSV Import Tool, you need to set up both the Odoo backend and the des
 
 The Odoo addon provides the necessary API endpoints and the `csv.import.profile` model.
 
-1.  Locate the `csv_import` directory in the root of this project.
+1.  Locate the `ametras_fast_import_addon` directory in the root of this project.
 2.  Copy this directory to your Odoo addons path.
     ```bash
-    cp -r csv_import /your/odoo/addons/
+    cp -r ametras_fast_import_addon /your/odoo/addons/
     ```
 3.  Restart your Odoo server.
 4.  Log in to Odoo as an Administrator.

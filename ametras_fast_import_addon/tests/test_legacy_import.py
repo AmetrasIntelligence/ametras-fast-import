@@ -1,6 +1,6 @@
 """
 Unit tests for legacy import integration.
-Run with: python3 development/ametras-addons/csv-client/csv_import/tests/test_legacy_import.py
+Run with: python3 development/ametras-addons/csv-client/ametras_fast_import_addon/tests/test_legacy_import.py
 """
 import csv
 import unittest
@@ -32,9 +32,9 @@ mock_import_threaded_old = types.ModuleType('import_threaded_old')
 mock_import_threaded_old.import_data = MagicMock()
 
 sys.modules['odoo.addons'] = types.ModuleType('odoo.addons')
-sys.modules['odoo.addons.csv_import'] = types.ModuleType('odoo.addons.csv_import')
-sys.modules['odoo.addons.csv_import.legacy_importer'] = types.ModuleType('odoo.addons.csv_import.legacy_importer')
-sys.modules['odoo.addons.csv_import.legacy_importer'].import_threaded = mock_import_threaded_local
+sys.modules['odoo.addons.ametras_fast_import_addon'] = types.ModuleType('odoo.addons.ametras_fast_import_addon')
+sys.modules['odoo.addons.ametras_fast_import_addon.legacy_importer'] = types.ModuleType('odoo.addons.ametras_fast_import_addon.legacy_importer')
+sys.modules['odoo.addons.ametras_fast_import_addon.legacy_importer'].import_threaded = mock_import_threaded_local
 sys.modules['odoo.addons.ametras_csv_importer'] = types.ModuleType('odoo.addons.ametras_csv_importer')
 sys.modules['odoo.addons.ametras_csv_importer.odoo_csv_tools'] = types.ModuleType('odoo.addons.ametras_csv_importer.odoo_csv_tools')
 sys.modules['odoo.addons.ametras_csv_importer.odoo_csv_tools.odoo_csv_tools'] = types.ModuleType('odoo.addons.ametras_csv_importer.odoo_csv_tools.odoo_csv_tools')

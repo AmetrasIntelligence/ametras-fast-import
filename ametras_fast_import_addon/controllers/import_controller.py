@@ -20,7 +20,7 @@ STANDARD_DB_ID_MODELS = {
 
 class CSVImportController(http.Controller):
 
-    @http.route('/csv_import/run', type='json', auth='user', methods=['POST'])
+    @http.route('/ametras_fast_import/run', type='json', auth='user', methods=['POST'])
     def run_import(self, model, rows, use_external_id=False, search_keys=None,
                    dry_run=False, strict=False, use_legacy=False):
         """
@@ -127,10 +127,10 @@ class CSVImportController(http.Controller):
             return {'results': []}
 
         try:
-            from odoo.addons.csv_import.legacy_importer import import_threaded
+            from odoo.addons.ametras_fast_import_addon.legacy_importer import import_threaded
             # TODO(legacy-import): Once ametras_csv_importer includes these fixes, switch to:
             # from odoo.addons.ametras_csv_importer.odoo_csv_tools.odoo_csv_tools import import_threaded
-            # and remove csv_import/legacy_importer.
+            # and remove ametras_fast_import_addon/legacy_importer.
         except ImportError:
             try:
                 from odoo.addons.ametras_csv_importer.odoo_csv_tools.odoo_csv_tools import import_threaded
@@ -187,7 +187,7 @@ class CSVImportController(http.Controller):
                 row.insert(0, '')
 
         # Create temp file for failures (import_threaded expects a file path, not StringIO)
-        fail_fd, fail_file_path = tempfile.mkstemp(suffix='.csv', prefix='csv_import_fail_')
+        fail_fd, fail_file_path = tempfile.mkstemp(suffix='.csv', prefix='ametras_fast_import_fail_')
         os.close(fail_fd)
 
         # Check if backend importer job model exists and create a temporary job for logging
@@ -662,7 +662,7 @@ class CSVImportController(http.Controller):
             )
         return ref_map[key]
 
-    @http.route('/csv_import/models', type='json', auth='user', methods=['POST'])
+    @http.route('/ametras_fast_import/models', type='json', auth='user', methods=['POST'])
     def list_models(self):
         """List importable models for current user."""
         models = request.env['ir.model'].search([
@@ -683,7 +683,7 @@ class CSVImportController(http.Controller):
 
         return result
 
-    @http.route('/csv_import/info', type='json', auth='user', methods=['POST'])
+    @http.route('/ametras_fast_import/info', type='json', auth='user', methods=['POST'])
     def get_info(self):
         """
         Return addon information including version.
@@ -694,7 +694,7 @@ class CSVImportController(http.Controller):
         """
         # Get the module's installed version from ir.module.module
         module = request.env['ir.module.module'].sudo().search([
-            ('name', '=', 'csv_import'),
+            ('name', '=', 'ametras_fast_import_addon'),
             ('state', '=', 'installed')
         ], limit=1)
 

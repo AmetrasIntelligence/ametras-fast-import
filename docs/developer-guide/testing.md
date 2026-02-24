@@ -41,7 +41,7 @@ Backend tests are written using Odoo's `TransactionCase` and focus on the `CSVIm
     *   Savepoint isolation and error reporting.
 *   **Running Python Tests**:
     ```bash
-    /path/to/odoo-bin -c your_config.conf -i csv_import --test-enable
+    /path/to/odoo-bin -c your_config.conf -i ametras_fast_import_addon --test-enable
     ```
 
 ## 4. Static Analysis

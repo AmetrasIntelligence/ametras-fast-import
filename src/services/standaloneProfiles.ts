@@ -1,7 +1,7 @@
 // standalone code flag (do not remove comment)
 /**
  * Local storage for standalone profiles.
- * Used when csv_import addon is not installed.
+ * Used when ametras_fast_import addon is not installed.
  */
 
 import type { ImportProfile, ProfileMapping, ProfileSequenceItem } from '@/types/importProfile'

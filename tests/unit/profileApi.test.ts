@@ -49,7 +49,7 @@ describe('profileApi', () => {
       expect(mockApi.odoo.call).toHaveBeenCalledWith({
         baseUrl: 'http://localhost:8069',
         db: 'test',
-        endpoint: '/csv_import/profile/list',
+        endpoint: '/ametras_fast_import/profile/list',
         params: {}
       })
 
@@ -99,7 +99,7 @@ describe('profileApi', () => {
       expect(mockApi.odoo.call).toHaveBeenCalledWith({
         baseUrl: 'http://localhost:8069',
         db: 'test',
-        endpoint: '/csv_import/profile/42',
+        endpoint: '/ametras_fast_import/profile/42',
         params: {}
       })
 
@@ -125,7 +125,7 @@ describe('profileApi', () => {
       expect(mockApi.odoo.call).toHaveBeenCalledWith({
         baseUrl: 'http://localhost:8069',
         db: 'test',
-        endpoint: '/csv_import/profile/5/delete',
+        endpoint: '/ametras_fast_import/profile/5/delete',
         params: {}
       })
     })

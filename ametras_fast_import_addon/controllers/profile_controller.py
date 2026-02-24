@@ -17,7 +17,7 @@ class ProfileController(http.Controller):
 
     # ── Upload (HTTP multipart) ──────────────────────────────────────
 
-    @http.route('/csv_import/profile/upload', type='http', auth='user',
+    @http.route('/ametras_fast_import/profile/upload', type='http', auth='user',
                 methods=['POST'], csrf=False)
     def upload_profile(self, **kwargs):
         """Upload a profile ZIP file. Returns JSON with the new profile."""
@@ -39,7 +39,7 @@ class ProfileController(http.Controller):
 
     # ── List ─────────────────────────────────────────────────────────
 
-    @http.route('/csv_import/profile/list', type='json', auth='user',
+    @http.route('/ametras_fast_import/profile/list', type='json', auth='user',
                 methods=['POST'])
     def list_profiles(self):
         """Return summary list of all profiles."""
@@ -48,7 +48,7 @@ class ProfileController(http.Controller):
 
     # ── Get single ───────────────────────────────────────────────────
 
-    @http.route('/csv_import/profile/<int:profile_id>', type='json',
+    @http.route('/ametras_fast_import/profile/<int:profile_id>', type='json',
                 auth='user', methods=['POST'])
     def get_profile(self, profile_id):
         """Return full profile data."""
@@ -59,7 +59,7 @@ class ProfileController(http.Controller):
 
     # ── Create (JSON-RPC) ─────────────────────────────────────────────
 
-    @http.route('/csv_import/profile/create', type='json', auth='user',
+    @http.route('/ametras_fast_import/profile/create', type='json', auth='user',
                 methods=['POST'])
     def create_profile(self, data):
         """Create a new profile from JSON data (used by ConfigView)."""
@@ -85,7 +85,7 @@ class ProfileController(http.Controller):
 
     # ── Update (JSON-RPC) ─────────────────────────────────────────────
 
-    @http.route('/csv_import/profile/<int:profile_id>/update', type='json',
+    @http.route('/ametras_fast_import/profile/<int:profile_id>/update', type='json',
                 auth='user', methods=['POST'])
     def update_profile(self, profile_id, data):
         """Update an existing profile from JSON data."""
@@ -124,7 +124,7 @@ class ProfileController(http.Controller):
 
     # ── Delete ───────────────────────────────────────────────────────
 
-    @http.route('/csv_import/profile/<int:profile_id>/delete', type='json',
+    @http.route('/ametras_fast_import/profile/<int:profile_id>/delete', type='json',
                 auth='user', methods=['POST'])
     def delete_profile(self, profile_id):
         """Delete a profile."""
@@ -136,7 +136,7 @@ class ProfileController(http.Controller):
 
     # ── Export (HTTP download) ───────────────────────────────────────
 
-    @http.route('/csv_import/profile/<int:profile_id>/export', type='http',
+    @http.route('/ametras_fast_import/profile/<int:profile_id>/export', type='http',
                 auth='user', methods=['GET'])
     def export_profile(self, profile_id):
         """Download profile as a ZIP file."""

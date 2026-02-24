@@ -14,7 +14,7 @@ release/
 test-results/
 playwright-report/
 
-# Python bytecode (csv_import addon)
+# Python bytecode (ametras_fast_import_addon)
 __pycache__/
 *.pyc
 

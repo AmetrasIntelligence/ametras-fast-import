@@ -259,7 +259,7 @@ export class ImportEngine {
 
   /**
    * Execute a batch using the file mapping.
-   * Uses standalone executor when csv_import addon is not available.
+   * Uses standalone executor when ametras_fast_import addon is not available.
    * Accepts snapshotted values to avoid re-reading stores mid-file.
    */
   private async executeBatchWithMapping(

@@ -2,7 +2,7 @@
 /**
  * Standalone batch executor.
  * Executes CSV imports directly via Odoo's model.load() API
- * without requiring the csv_import addon.
+ * without requiring the ametras_fast_import addon.
  *
  * Features:
  * - Adaptive retry: splits failed batches to isolate failing rows
@@ -416,7 +416,7 @@ export async function executeStandaloneBatch(
   retryDepth: number = DEFAULT_RETRY_DEPTH
 ): Promise<BatchResult[]> {
   if (dryRun) {
-    throw new Error('Dry-run is not supported in standalone mode. Disable dry-run or install the csv_import addon.')
+    throw new Error('Dry-run is not supported in standalone mode. Disable dry-run or install the ametras_fast_import addon.')
   }
 
   const session = useSessionStore()
@@ -508,7 +508,7 @@ export class StandaloneBatchExecutor {
 
   async execute(rows: ParsedRow[], dryRun?: boolean, signal?: AbortSignal): Promise<BatchResult[]> {
     if (dryRun) {
-      throw new Error('Dry-run is not supported in standalone mode. Disable dry-run or install the csv_import addon.')
+      throw new Error('Dry-run is not supported in standalone mode. Disable dry-run or install the ametras_fast_import addon.')
     }
     return executeStandaloneBatch(this.model, rows, this.mapping, undefined, signal)
   }

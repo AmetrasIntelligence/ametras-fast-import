@@ -1,7 +1,7 @@
 // standalone code flag (do not remove comment)
 /**
  * Addon detection for standalone mode fallback.
- * Checks if csv_import addon is installed on the Odoo server.
+ * Checks if ametras_fast_import_addon is installed on the Odoo server.
  */
 
 import { ipcMain } from 'electron'
@@ -30,8 +30,8 @@ ipcMain.handle('standalone:detectAddon', async (
   }
 
   try {
-    // Try to call the csv_import/info endpoint
-    const response = await fetch(`${baseUrl}/csv_import/info`, {
+    // Try to call the ametras_fast_import/info endpoint
+    const response = await fetch(`${baseUrl}/ametras_fast_import/info`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

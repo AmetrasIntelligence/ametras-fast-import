@@ -1,7 +1,7 @@
 """
 Unit tests for reference resolution helper functions.
 These tests don't require Odoo - they test the pure Python helper methods.
-Run with: python3 csv_import/tests/test_reference_resolution.py
+Run with: python3 ametras_fast_import_addon/tests/test_reference_resolution.py
 """
 import unittest
 import sys
