@@ -48,7 +48,7 @@ If your CSV header ends with `/id` or `/.id`, the tool will automatically sugges
 
 Configure the execution parameters for the entire import:
 
-*   **Batch Size**: Number of rows sent to Odoo in a single request. Default is 200. Smaller batches are safer; larger batches are faster.
+*   **Batch Size**: Number of rows sent to Odoo in a single request. Default is 200. In standalone mode, automatically clamped to a maximum of 100 (range 10-100). Smaller batches are safer; larger batches are faster.
 *   **Workers**: Number of parallel processes (1-4). Parallelism can significantly speed up large imports but may cause locking issues in Odoo if the models are highly interconnected.
 *   **Retry Limit**: How many times to retry a failed row before giving up.
 *   **Retry Delay**: Milliseconds to wait between retries.

@@ -5,6 +5,8 @@
  * whether the csv_import addon is installed on the Odoo server.
  */
 
+import { logger } from '@/utils/logger'
+
 export type ImportMode = 'addon' | 'standalone'
 
 export interface ImportModeInfo {
@@ -34,7 +36,9 @@ export async function detectImportMode(
       }
     }
   } catch (error) {
-    console.warn('Addon detection failed, using standalone mode:', error)
+    logger.api.warn('Addon detection failed, using standalone mode', {
+      error: error instanceof Error ? error.message : String(error)
+    })
   }
 
   // Fallback to standalone mode

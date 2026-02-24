@@ -180,8 +180,8 @@ function selectProfile(profile: ProfileItem | null) {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid #e5e7eb;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid #d1d5db;
   border-radius: var(--radius, 0.375rem);
   background: white;
   cursor: pointer;
@@ -191,7 +191,7 @@ function selectProfile(profile: ProfileItem | null) {
 }
 
 .csv-profile-select__trigger:hover:not(:disabled) {
-  border-color: #d1d5db;
+  border-color: #9ca3af;
   background: #fafafa;
 }
 
@@ -280,10 +280,10 @@ function selectProfile(profile: ProfileItem | null) {
   z-index: 1000;
   width: 400px;
   max-width: calc(100vw - 2rem);
-  border: 1px solid #e5e7eb;
+  border: 1px solid #d1d5db;
   border-radius: var(--radius, 0.375rem);
   background: white;
-  box-shadow: 0 10px 25px -3px rgba(0,0,0,0.15), 0 4px 6px -2px rgba(0,0,0,0.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.06);
   overflow: hidden;
   display: flex;
   flex-direction: column;

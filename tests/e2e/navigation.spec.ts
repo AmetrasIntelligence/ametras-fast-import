@@ -1,71 +1,70 @@
 import { test, expect } from '@playwright/test'
+import { mockLogin, setEnglishLocale } from './helpers'
 
-test.describe('Navigation', () => {
+test.describe('Navigation - Public Routes', () => {
   test('redirects root to login', async ({ page }) => {
     await page.goto('/')
     await expect(page).toHaveURL(/#\/login/)
   })
 
-  test('can navigate through all views', async ({ page }) => {
-    // Login
+  test('login page accessible without auth', async ({ page }) => {
+    await setEnglishLocale(page)
     await page.goto('/#/login')
+    await expect(page.locator('#csv-import-app')).toBeVisible({ timeout: 15000 })
     await expect(page.getByRole('heading', { name: /odoo connection/i })).toBeVisible()
-
-    // Files
-    await page.goto('/#/files')
-    await expect(page.getByRole('heading', { name: /select csv files/i })).toBeVisible()
-
-    // Config
-    await page.goto('/#/config')
-    await expect(page.getByRole('heading', { name: /configure import/i })).toBeVisible()
-
-    // Run
-    await page.goto('/#/run')
-    await expect(page.locator('#csv-import-app')).toBeVisible()
-
-    // Results
-    await page.goto('/#/results')
-    await expect(page.getByRole('heading', { name: /import complete/i })).toBeVisible()
-
-    // Saved Mappings
-    await page.goto('/#/mappings')
-    await expect(page.getByRole('heading', { name: /saved mappings/i })).toBeVisible()
   })
 })
 
-test.describe('Full Import Flow Navigation', () => {
-  test('workflow: files -> config -> run -> results', async ({ page }) => {
-    // Start at files
-    await page.goto('/#/files')
-    await expect(page.getByRole('heading', { name: /select csv files/i })).toBeVisible()
+test.describe('Navigation - Auth Guard', () => {
+  test('redirects protected routes to login when unauthenticated', async ({ page }) => {
+    await page.goto('/#/import')
+    await expect(page).toHaveURL(/#\/login/)
+  })
 
-    // Navigate to config (would normally click after selecting files)
-    await page.goto('/#/config')
-    await expect(page.getByRole('heading', { name: /configure import/i })).toBeVisible()
+  test('allows access to import after login', async ({ page }) => {
+    await mockLogin(page)
+    await expect(page).toHaveURL(/#\/import/)
+    await expect(page.getByRole('heading', { name: /^import$/i })).toBeVisible()
+  })
+})
 
-    // Start import button should be visible (may be disabled without files)
-    await expect(page.getByRole('button', { name: /start import/i })).toBeVisible()
+test.describe('Navigation - Authenticated Routes', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockLogin(page)
+  })
 
-    // After completion would navigate to results
+  test('can navigate to import view', async ({ page }) => {
+    await page.goto('/#/import')
+    await expect(page.getByRole('heading', { name: /^import$/i })).toBeVisible()
+  })
+
+  test('can navigate to profiles view', async ({ page }) => {
+    await page.goto('/#/profiles')
+    await expect(page.getByRole('heading', { name: /import profiles/i })).toBeVisible()
+  })
+
+  test('can navigate to run view', async ({ page }) => {
+    await page.goto('/#/run')
+    await expect(page.locator('#csv-import-app')).toBeVisible()
+  })
+
+  test('can navigate to results view', async ({ page }) => {
     await page.goto('/#/results')
     await expect(page.getByRole('heading', { name: /import complete/i })).toBeVisible()
   })
 
-  test('can go back from config to files', async ({ page }) => {
+  test('backward compat: /files redirects to /import', async ({ page }) => {
+    await page.goto('/#/files')
+    await expect(page).toHaveURL(/#\/import/)
+  })
+
+  test('backward compat: /config redirects to /import', async ({ page }) => {
     await page.goto('/#/config')
-    await page.getByRole('button', { name: /back/i }).click()
-    await expect(page).toHaveURL(/#\/files/)
+    await expect(page).toHaveURL(/#\/import/)
   })
 
-  test('can start new import from results', async ({ page }) => {
-    await page.goto('/#/results')
-    await page.getByRole('button', { name: /start new import/i }).click()
-    await expect(page).toHaveURL(/#\/files/)
-  })
-
-  test('can navigate to saved mappings', async ({ page }) => {
+  test('backward compat: /mappings redirects to /profiles', async ({ page }) => {
     await page.goto('/#/mappings')
-    await expect(page.getByRole('heading', { name: /saved mappings/i })).toBeVisible()
-    await expect(page.getByText(/no saved mappings yet/i)).toBeVisible()
+    await expect(page).toHaveURL(/#\/profiles/)
   })
 })

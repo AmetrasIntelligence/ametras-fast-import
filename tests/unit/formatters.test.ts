@@ -1,33 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import {
-  formatModel,
-  formatModelName,
   formatField,
-  formatFieldFull,
-  formatRelationalField,
   formatNumber,
   formatBytes,
   formatDuration,
-  formatRowCount,
-  formatFileCount,
   truncate,
-  formatErrorMessage,
-  formatPercent
+  formatErrorMessage
 } from '@/utils/formatters'
-import type { OdooModel, OdooField } from '@/api/odooClient'
-
-describe('formatModel', () => {
-  it('formats model with name and technical name', () => {
-    const model: OdooModel = { name: 'Product Template', model: 'product.template' }
-    expect(formatModel(model)).toBe('Product Template (product.template)')
-  })
-})
-
-describe('formatModelName', () => {
-  it('formats separate name and technical name', () => {
-    expect(formatModelName('Customer', 'res.partner')).toBe('Customer (res.partner)')
-  })
-})
+import type { OdooField } from '@/api/odooClient'
 
 describe('formatField', () => {
   it('formats basic field', () => {
@@ -48,30 +28,6 @@ describe('formatField', () => {
   it('includes multiple attributes', () => {
     const field: OdooField = { name: 'name', type: 'char', string: 'Name', required: true, readonly: true }
     expect(formatField(field)).toBe('name (char, required, readonly)')
-  })
-})
-
-describe('formatFieldFull', () => {
-  it('shows label and technical name when different', () => {
-    const field: OdooField = { name: 'partner_id', type: 'many2one', string: 'Customer' }
-    expect(formatFieldFull(field)).toBe('Customer [partner_id] (many2one)')
-  })
-
-  it('shows just label when same as name', () => {
-    const field: OdooField = { name: 'name', type: 'char', string: 'name' }
-    expect(formatFieldFull(field)).toBe('name (char)')
-  })
-})
-
-describe('formatRelationalField', () => {
-  it('formats many2one field with relation', () => {
-    const field: OdooField = { name: 'partner_id', type: 'many2one', string: 'Customer', relation: 'res.partner' }
-    expect(formatRelationalField(field)).toBe('partner_id → res.partner (many2one)')
-  })
-
-  it('falls back to basic format for non-relational field', () => {
-    const field: OdooField = { name: 'name', type: 'char', string: 'Name' }
-    expect(formatRelationalField(field)).toBe('name (char)')
   })
 })
 
@@ -121,30 +77,6 @@ describe('formatDuration', () => {
   })
 })
 
-describe('formatRowCount', () => {
-  it('formats single row', () => {
-    expect(formatRowCount(1)).toBe('1 row')
-  })
-
-  it('formats multiple rows', () => {
-    expect(formatRowCount(100)).toBe('100 rows')
-  })
-
-  it('formats large numbers', () => {
-    expect(formatRowCount(10000)).toMatch(/10.*000 rows/)
-  })
-})
-
-describe('formatFileCount', () => {
-  it('formats single file', () => {
-    expect(formatFileCount(1)).toBe('1 file')
-  })
-
-  it('formats multiple files', () => {
-    expect(formatFileCount(5)).toBe('5 files')
-  })
-})
-
 describe('truncate', () => {
   it('does not truncate short strings', () => {
     expect(truncate('hello', 10)).toBe('hello')
@@ -179,23 +111,5 @@ describe('formatErrorMessage', () => {
   it('returns default for unknown types', () => {
     expect(formatErrorMessage(null)).toBe('Unknown error')
     expect(formatErrorMessage(undefined)).toBe('Unknown error')
-  })
-})
-
-describe('formatPercent', () => {
-  it('formats percentage without decimals', () => {
-    expect(formatPercent(0.5)).toBe('50%')
-  })
-
-  it('formats percentage with decimals', () => {
-    expect(formatPercent(0.123, 1)).toBe('12.3%')
-  })
-
-  it('handles zero', () => {
-    expect(formatPercent(0)).toBe('0%')
-  })
-
-  it('handles 100%', () => {
-    expect(formatPercent(1)).toBe('100%')
   })
 })

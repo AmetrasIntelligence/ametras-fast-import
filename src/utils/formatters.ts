@@ -1,28 +1,4 @@
-import type { OdooModel, OdooField } from '@/api/odooClient'
-
-/**
- * Format a model for display, showing both display name and technical name.
- * Example: "Product Template (product.template)"
- */
-export function formatModel(model: OdooModel): string {
-  return `${model.name} (${model.model})`
-}
-
-/**
- * Format a model from separate name and technical name.
- * Example: "Product Template (product.template)"
- */
-export function formatModelName(displayName: string, technicalName: string): string {
-  return `${displayName} (${technicalName})`
-}
-
-/**
- * Format just the technical name for compact display.
- * Example: "product.template"
- */
-export function formatModelTechnical(model: OdooModel): string {
-  return model.model
-}
+import type { OdooField } from '@/api/odooClient'
 
 /**
  * Format a field for display, showing name and type.
@@ -40,27 +16,6 @@ export function formatField(field: OdooField): string {
   }
 
   return parts.join(' ')
-}
-
-/**
- * Format a field with its string (label) and technical name.
- * Example: "Product Name [name] (char)"
- */
-export function formatFieldFull(field: OdooField): string {
-  const label = field.string || field.name
-  const tech = field.name !== label ? ` [${field.name}]` : ''
-  return `${label}${tech} (${field.type})`
-}
-
-/**
- * Format a relational field showing the target model.
- * Example: "category_id → product.category (many2one)"
- */
-export function formatRelationalField(field: OdooField): string {
-  if (!field.relation) {
-    return formatField(field)
-  }
-  return `${field.name} → ${field.relation} (${field.type})`
 }
 
 /**
@@ -96,20 +51,6 @@ export function formatDuration(ms: number): string {
 }
 
 /**
- * Format a row count with "row" or "rows".
- */
-export function formatRowCount(count: number): string {
-  return `${formatNumber(count)} ${count === 1 ? 'row' : 'rows'}`
-}
-
-/**
- * Format a file count with "file" or "files".
- */
-export function formatFileCount(count: number): string {
-  return `${count} ${count === 1 ? 'file' : 'files'}`
-}
-
-/**
  * Truncate a string with ellipsis if too long.
  */
 export function truncate(str: string, maxLength: number): string {
@@ -131,13 +72,6 @@ export function formatErrorMessage(error: unknown): string {
 }
 
 /**
- * Format a percentage with specified decimal places.
- */
-export function formatPercent(value: number, decimals: number = 0): string {
-  return `${(value * 100).toFixed(decimals)}%`
-}
-
-/**
  * Format a timestamp to locale string.
  */
 export function formatTimestamp(timestamp: number | string | Date): string {
@@ -145,14 +79,4 @@ export function formatTimestamp(timestamp: number | string | Date): string {
                typeof timestamp === 'string' ? new Date(timestamp) :
                timestamp
   return date.toLocaleString()
-}
-
-/**
- * Format a timestamp to time only (HH:MM:SS).
- */
-export function formatTime(timestamp: number | string | Date): string {
-  const date = typeof timestamp === 'number' ? new Date(timestamp) :
-               typeof timestamp === 'string' ? new Date(timestamp) :
-               timestamp
-  return date.toTimeString().split(' ')[0]
 }

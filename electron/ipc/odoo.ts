@@ -6,9 +6,89 @@ interface OdooSession {
   uid: number
   sessionId: string
   serverVersion: string
+  lastActivity: number  // Timestamp of last activity
+  createdAt: number     // Timestamp of creation
 }
 
+// Session TTL: 30 minutes of inactivity
+const SESSION_TTL_MS = 30 * 60 * 1000
+// Maximum session age: 8 hours
+const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000
+// Cleanup interval: 5 minutes
+const CLEANUP_INTERVAL_MS = 5 * 60 * 1000
+
+// Request timeouts for Odoo RPC calls
+const RPC_TIMEOUT_MS = 30_000       // 30s for general RPC calls
+const AUTH_TIMEOUT_MS = 15_000      // 15s for authentication
+const DB_LIST_TIMEOUT_MS = 10_000   // 10s for database listing
+
 const sessions = new Map<string, OdooSession>()
+
+/**
+ * Clean up expired sessions.
+ * Removes sessions that:
+ * - Have been inactive for longer than SESSION_TTL_MS
+ * - Are older than SESSION_MAX_AGE_MS
+ */
+function cleanupExpiredSessions(): void {
+  const now = Date.now()
+  const expiredKeys: string[] = []
+
+  for (const [key, session] of sessions) {
+    const inactiveTime = now - session.lastActivity
+    const sessionAge = now - session.createdAt
+
+    if (inactiveTime > SESSION_TTL_MS || sessionAge > SESSION_MAX_AGE_MS) {
+      expiredKeys.push(key)
+    }
+  }
+
+  for (const key of expiredKeys) {
+    sessions.delete(key)
+  }
+
+  if (expiredKeys.length > 0) {
+    console.log(`[session] Cleaned up ${expiredKeys.length} expired session(s)`)
+  }
+}
+
+/**
+ * Update session activity timestamp.
+ */
+function touchSession(session: OdooSession): void {
+  session.lastActivity = Date.now()
+}
+
+/**
+ * Check if session is still valid (not expired).
+ */
+function isSessionValid(session: OdooSession): boolean {
+  const now = Date.now()
+  const inactiveTime = now - session.lastActivity
+  const sessionAge = now - session.createdAt
+
+  return inactiveTime <= SESSION_TTL_MS && sessionAge <= SESSION_MAX_AGE_MS
+}
+
+// Start periodic cleanup
+let cleanupInterval: NodeJS.Timeout | null = null
+
+function startSessionCleanup(): void {
+  if (cleanupInterval) return
+  cleanupInterval = setInterval(cleanupExpiredSessions, CLEANUP_INTERVAL_MS)
+  // Don't prevent app from exiting
+  cleanupInterval.unref()
+}
+
+function stopSessionCleanup(): void {
+  if (cleanupInterval) {
+    clearInterval(cleanupInterval)
+    cleanupInterval = null
+  }
+}
+
+// Start cleanup on module load
+startSessionCleanup()
 
 /**
  * Validate URL is a proper HTTP(S) URL to prevent SSRF and injection attacks.
@@ -68,7 +148,8 @@ ipcMain.handle('odoo:listDatabases', async (_event, baseUrl: string) => {
         method: 'call',
         params: {},
         id: Date.now()
-      })
+      }),
+      signal: AbortSignal.timeout(DB_LIST_TIMEOUT_MS)
     })
 
     const data = await response.json()
@@ -107,7 +188,8 @@ ipcMain.handle('odoo:authenticate', async (_event, params: {
         method: 'call',
         params: { db, login, password },
         id: Date.now()
-      })
+      }),
+      signal: AbortSignal.timeout(AUTH_TIMEOUT_MS)
     })
 
     const data = await response.json()
@@ -125,12 +207,15 @@ ipcMain.handle('odoo:authenticate', async (_event, params: {
     const sessionMatch = cookies?.match(/session_id=([^;]+)/)
     const sessionId = sessionMatch?.[1] || ''
 
+    const now = Date.now()
     const session: OdooSession = {
       baseUrl,
       db,
       uid: result.uid,
       sessionId,
-      serverVersion: result.server_version
+      serverVersion: result.server_version,
+      lastActivity: now,
+      createdAt: now
     }
 
     sessions.set(getSessionKey(baseUrl, db), session)
@@ -170,13 +255,30 @@ ipcMain.handle('odoo:call', async (_event, payload: {
       ? sessions.get(getSessionKey(baseUrl, payload.db))
       : undefined
     if (!session) {
-      session = Array.from(sessions.values())
-        .find(s => s.baseUrl === baseUrl)
+      // Fallback: find any session for this baseUrl
+      const candidates = Array.from(sessions.values()).filter(s => s.baseUrl === baseUrl)
+      if (candidates.length > 1) {
+        console.warn(
+          `[odoo:call] Ambiguous session fallback: ${candidates.length} sessions for ${baseUrl} ` +
+          `(dbs: ${candidates.map(s => s.db).join(', ')}). Pass 'db' parameter to avoid wrong-database auth.`
+        )
+      }
+      session = candidates[0]
     }
 
     if (!session) {
       return { ok: false, error: 'Not authenticated' }
     }
+
+    // Check if session is expired
+    if (!isSessionValid(session)) {
+      const key = getSessionKey(session.baseUrl, session.db)
+      sessions.delete(key)
+      return { ok: false, error: 'Session expired - please login again' }
+    }
+
+    // Update activity timestamp
+    touchSession(session)
 
     const response = await fetch(`${baseUrl}${endpoint}`, {
       method: 'POST',
@@ -189,7 +291,8 @@ ipcMain.handle('odoo:call', async (_event, payload: {
         method: 'call',
         params,
         id: Date.now()
-      })
+      }),
+      signal: AbortSignal.timeout(RPC_TIMEOUT_MS)
     })
 
     const data = await response.json()
@@ -206,12 +309,43 @@ ipcMain.handle('odoo:call', async (_event, payload: {
 })
 
 export function getSession(baseUrl: string, db?: string): OdooSession | undefined {
+  let session: OdooSession | undefined
   if (db) {
-    return sessions.get(getSessionKey(baseUrl, db))
+    session = sessions.get(getSessionKey(baseUrl, db))
+  } else {
+    // Fallback: find any session for this baseUrl, warn if ambiguous
+    const candidates = Array.from(sessions.values()).filter(s => s.baseUrl === baseUrl)
+    if (candidates.length > 1) {
+      console.warn(
+        `[session] Ambiguous session lookup: ${candidates.length} sessions for ${baseUrl} ` +
+        `(dbs: ${candidates.map(s => s.db).join(', ')}). Pass 'db' to avoid wrong-database auth.`
+      )
+    }
+    session = candidates[0]
   }
-  return Array.from(sessions.values()).find(s => s.baseUrl === baseUrl)
+
+  // Return only if session is still valid
+  if (session && isSessionValid(session)) {
+    touchSession(session)
+    return session
+  }
+
+  // Remove expired session
+  if (session) {
+    sessions.delete(getSessionKey(session.baseUrl, session.db))
+  }
+
+  return undefined
 }
 
-export function clearSessions() {
+export function clearSessions(): void {
+  sessions.clear()
+}
+
+/**
+ * Cleanup on app quit - clear all sessions and stop interval.
+ */
+export function shutdownSessions(): void {
+  stopSessionCleanup()
   sessions.clear()
 }

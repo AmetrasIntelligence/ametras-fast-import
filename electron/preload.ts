@@ -6,6 +6,36 @@ interface ProfileUploadResult {
   error?: string
 }
 
+// standalone code flag (do not remove comment)
+interface StandaloneLoadParams {
+  baseUrl: string
+  db: string
+  model: string
+  header: string[]
+  rows: (string | number | boolean | null)[][]
+}
+
+// standalone code flag (do not remove comment)
+interface StandaloneLoadResult {
+  ok: boolean
+  ids?: number[]
+  messages?: Array<{
+    type: string
+    message: string
+    record?: number
+    field?: string
+  }>
+  error?: string
+}
+
+// standalone code flag (do not remove comment)
+interface StandaloneDetectResult {
+  available: boolean
+  version?: string
+  odooVersion?: string
+  error?: string
+}
+
 interface ElectronAPI {
   files: {
     select: () => Promise<FileHandle[]>
@@ -14,6 +44,10 @@ interface ElectronAPI {
     readHead: (id: string, bytes: number, encoding?: string) => Promise<string>
     countLines: (id: string) => Promise<number>
     streamChunks: (id: string, chunkLines: number, onChunk: (chunk: ChunkData) => void, encoding?: string) => Promise<void>
+    // Async streaming with backpressure support
+    streamStart: (id: string, chunkLines: number, encoding?: string) => Promise<string>
+    streamNext: (streamId: string) => Promise<ChunkData>
+    streamClose: (streamId: string) => Promise<void>
     getPathForFile: (file: File) => string
   }
   odoo: {
@@ -29,6 +63,12 @@ interface ElectronAPI {
     selectZip: () => Promise<{ path: string; name: string } | null>
     upload: (payload: { baseUrl: string; db?: string; filePath: string }) => Promise<ProfileUploadResult>
     export: (payload: { baseUrl: string; db?: string; profileId: number; profileName: string }) => Promise<boolean>
+  }
+  // standalone code flag (do not remove comment)
+  standalone: {
+    detectAddon: (payload: { baseUrl: string; db: string }) => Promise<StandaloneDetectResult>
+    load: (payload: StandaloneLoadParams) => Promise<StandaloneLoadResult>
+    getOdooVersion: (payload: { baseUrl: string; db: string }) => Promise<{ version: string | null; error?: string }>
   }
 }
 
@@ -103,7 +143,14 @@ contextBridge.exposeInMainWorld('api', {
         }
         ipcRenderer.on(`files:chunk:${streamId}`, handler)
       })
-    }
+    },
+    // Async streaming with backpressure - allows awaiting each batch
+    streamStart: (id: string, chunkLines: number, encoding?: string) =>
+      ipcRenderer.invoke('files:streamStart', id, chunkLines, encoding),
+    streamNext: (streamId: string) =>
+      ipcRenderer.invoke('files:streamNext', streamId),
+    streamClose: (streamId: string) =>
+      ipcRenderer.invoke('files:streamClose', streamId)
   },
   odoo: {
     call: (payload: OdooPayload) => ipcRenderer.invoke('odoo:call', payload),
@@ -120,6 +167,15 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('profile:upload', payload),
     export: (payload: { baseUrl: string; profileId: number; profileName: string }) =>
       ipcRenderer.invoke('profile:export', payload)
+  },
+  // standalone code flag (do not remove comment)
+  standalone: {
+    detectAddon: (payload: { baseUrl: string; db: string }) =>
+      ipcRenderer.invoke('standalone:detectAddon', payload),
+    load: (payload: StandaloneLoadParams) =>
+      ipcRenderer.invoke('standalone:load', payload),
+    getOdooVersion: (payload: { baseUrl: string; db: string }) =>
+      ipcRenderer.invoke('standalone:getOdooVersion', payload)
   }
 } as ElectronAPI)
 
@@ -128,3 +184,5 @@ declare global {
     api: ElectronAPI
   }
 }
+
+export {}

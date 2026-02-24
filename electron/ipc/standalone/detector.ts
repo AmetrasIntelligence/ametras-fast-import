@@ -16,6 +16,7 @@ interface DetectAddonResult {
 // Import the session lookup from parent odoo module
 import { getSession } from '../odoo'
 
+// standalone code flag (do not remove comment)
 ipcMain.handle('standalone:detectAddon', async (
   _event,
   payload: { baseUrl: string; db: string }
@@ -24,6 +25,7 @@ ipcMain.handle('standalone:detectAddon', async (
 
   const session = getSession(baseUrl, db)
   if (!session) {
+    console.error('[standalone:detectAddon] No active session for', baseUrl, db)
     return { available: false, error: 'No active session' }
   }
 
@@ -64,6 +66,8 @@ ipcMain.handle('standalone:detectAddon', async (
 
     return { available: false }
   } catch (error) {
+    // standalone code flag - log network errors for debugging
+    console.error('[standalone:detectAddon] Error:', error)
     // Network error or addon not available
     return {
       available: false,

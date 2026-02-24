@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test'
+import { mockLogin } from './helpers'
 
 test.describe('Results View', () => {
   test.beforeEach(async ({ page }) => {
+    await mockLogin(page)
     await page.goto('/#/results')
   })
 
@@ -12,12 +14,12 @@ test.describe('Results View', () => {
   test('shows summary statistics', async ({ page }) => {
     await expect(page.getByText(/total rows/i)).toBeVisible()
     await expect(page.getByText(/successful/i)).toBeVisible()
-    await expect(page.getByText(/failed/i)).toBeVisible()
+    await expect(page.getByText(/failed/i).first()).toBeVisible()
     await expect(page.getByText(/duration/i)).toBeVisible()
   })
 
   test('shows export section', async ({ page }) => {
-    await expect(page.getByText(/export/i)).toBeVisible()
+    await expect(page.getByRole('heading', { name: /export/i })).toBeVisible()
   })
 
   test('has download full report button', async ({ page }) => {
@@ -28,14 +30,16 @@ test.describe('Results View', () => {
     await expect(page.getByRole('button', { name: /start new import/i })).toBeVisible()
   })
 
-  test('start new import navigates to files', async ({ page }) => {
+  test('start new import navigates to import view', async ({ page }) => {
     await page.getByRole('button', { name: /start new import/i }).click()
-    await expect(page).toHaveURL(/#\/files/)
+    // ResultsView.startNew() calls router.push('/files') which redirects to /import
+    await expect(page).toHaveURL(/#\/import/)
   })
 })
 
 test.describe('Results - Export Functionality', () => {
-  test('can click download report button', async ({ page }) => {
+  test('download report button is enabled', async ({ page }) => {
+    await mockLogin(page)
     await page.goto('/#/results')
 
     const downloadButton = page.getByRole('button', { name: /download full report/i })
@@ -44,10 +48,12 @@ test.describe('Results - Export Functionality', () => {
 })
 
 test.describe('Results - Error Display', () => {
-  test('shows error table when errors exist', async ({ page }) => {
+  test('errors section hidden when no errors', async ({ page }) => {
+    await mockLogin(page)
     await page.goto('/#/results')
 
-    // If errors exist, should show error table
-    // This would need state to be set up
+    // Errors section only shows when run.errors.length > 0
+    // With no import run, there are no errors
+    await expect(page.getByRole('heading', { name: /^errors/i })).not.toBeVisible()
   })
 })

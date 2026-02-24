@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, onBeforeRouteLeave } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import type { NavigationGuardNext, RouteLocationNormalized } from 'vue-router'
@@ -8,6 +8,7 @@ import { useFilesStore } from '@/stores/files'
 import { ImportState } from '@/importer/stateMachine'
 import { ImportEngine } from '@/importer/engine'
 import { formatNumber } from '@/utils/formatters'
+import { logger } from '@/utils/logger'
 import { Button, Progress, Card, Table } from '@/ui'
 
 const { t } = useI18n()
@@ -51,6 +52,13 @@ const isRunning = computed(() =>
   [ImportState.VALIDATING, ImportState.RUNNING_FILE, ImportState.RUNNING_BATCH, ImportState.RETRYING].includes(run.state)
 )
 
+// Auto-navigate to results when import completes or fails
+watch(() => run.state, (newState) => {
+  if (newState === ImportState.COMPLETED || newState === ImportState.FAILED) {
+    router.push('/results')
+  }
+})
+
 function updateThroughput() {
   if (run.engine && run.isActive) {
     throughputDisplay.value = run.engine.getThroughput().display
@@ -78,7 +86,7 @@ onMounted(async () => {
     run.setEngine(newEngine)
     await newEngine.start(files)
   } catch (e) {
-    console.error('Import engine error:', e)
+    logger.import.error('Import engine error', { error: e instanceof Error ? e.message : String(e) })
   }
 })
 

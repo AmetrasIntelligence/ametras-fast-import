@@ -13,7 +13,7 @@ On login, the client attempts to detect the `csv_import` addon by calling `/csv_
 ### Import Method
 
 - **Addon Mode**: Uses the `csv_import` addon's enhanced API with features like search key upsert, per-row error handling, and server-side profiles.
-- **Standalone Mode**: Calls Odoo's standard `/web/dataset/call_kw` endpoint with `model.load()` method directly.
+- **Standalone Mode**: Calls Odoo's standard `/web/dataset/call_kw` endpoint with `model.load()` method directly. Includes adaptive retry with geometric splitting and adaptive batch sizing.
 
 ## Features Comparison
 
@@ -26,7 +26,9 @@ On login, the client attempts to detect the `csv_import` addon by calling `/csv_
 | Server profiles | ✓ | ✗ |
 | Local profiles | ✓ | ✓ |
 | Search key upsert | ✓ | ✗ |
-| Per-row error handling | ✓ | ✗ (per-batch only) |
+| Per-row error handling | ✓ | ✗ (per-batch, with geometric retry to isolate) |
+| Adaptive retry (geometric splitting) | N/A | ✓ |
+| Adaptive batch sizing | N/A | ✓ |
 | Dry run validation | ✓ | ✗ |
 | Row validation button | ✓ | ✗ |
 
@@ -47,8 +49,8 @@ Some features unavailable: search key upsert, per-row error handling
 All standalone-related log messages are prefixed with `[standalone]` for easy filtering:
 
 ```
-[standalone] Executing batch: 200 rows for product.template
-[standalone] Batch complete for product.template: 198 success, 2 failed
+[standalone] Executing batch: 100 rows for product.template
+[standalone] Batch complete for product.template: 98 success, 2 failed
 [standalone] Row 45: Field 'categ_id' value not found
 ```
 
@@ -81,15 +83,59 @@ profile.zip
 └── run_settings.csv   # Batch size, encoding, etc. (optional)
 ```
 
+## Adaptive Retry (Geometric Splitting)
+
+Since standalone mode uses Odoo's `model.load()` which processes entire batches atomically, a single bad row causes the whole batch to fail. To isolate errors, standalone mode uses **geometric retry splitting** with a fixed depth of 3 levels.
+
+When a batch fails, it is split into progressively smaller chunks until individual rows are reached:
+
+```
+Batch of 100 fails → retry in chunks of 10 → retry failed chunks row-by-row (size 1)
+```
+
+The chunk sizes follow a geometric progression: `chunkSize = initialSize^((depth-remaining)/(totalDepth-1))`. For a batch of 100 with retry depth 3, this produces:
+
+| Level | Chunk Size | Description |
+|-------|-----------|-------------|
+| 0 | 100 | Initial batch |
+| 1 | 10 | First retry level |
+| 2 | 1 | Individual rows (always the bottom line) |
+
+This ensures every failing row is individually identified with its specific Odoo error message, while successful rows from the original batch are retried in smaller groups and succeed.
+
+## Adaptive Batch Sizing (Warmup)
+
+Standalone mode uses a conservative warmup approach to learn data quality before sending large batches. Each file starts at batch size **1** and steps up through fixed levels: **1 → 10 → maxSize** (user-configured, capped at 100).
+
+- **Increase**: After **100 consecutive successful rows**, step up one level
+- **Decrease**: After **3 consecutive failed batches**, step down one level
+- **Per-file reset**: Each new file starts fresh at level 0 (size 1)
+
+Example with maxSize=100:
+
+| Phase | Rows | Batch Size | API Calls | Description |
+|-------|------|-----------|-----------|-------------|
+| Warmup | 1-100 | 1 | 100 | Learning phase — single rows |
+| Ramp-up | 101-200 | 10 | 10 | Data looks clean, larger batches |
+| Full speed | 201+ | 100 | 1 per 100 | Maximum throughput |
+
+If 3 batches fail at size 100, the adapter drops back to 10. After 100 more successful rows at 10, it steps back up to 100.
+
+This approach avoids the problem of aggressive multiplicative scaling where a single bad batch of 100 rows triggers geometric retry (100→10→1), wasting many API calls. By starting small and proving data quality first, the warmup minimizes wasted work.
+
 ## Limitations
+
+### Batch Size Constraints
+
+In standalone mode, the batch size is constrained to the range 10-100 (vs 1-1000 in addon mode). If the global default (200) exceeds the standalone maximum, it is automatically clamped to 100 on login.
 
 ### No Dry Run
 
 Odoo's native `model.load()` does not support dry run mode. The "Validate Random Row" button is disabled in standalone mode with the message: "Row validation not available in standalone mode".
 
-### Per-Batch Errors Only
+### Per-Batch Errors Only (Mitigated by Geometric Retry)
 
-Errors are reported per-batch rather than per-row. If a batch fails, all rows in that batch are marked as failed. The error message from Odoo indicates which row caused the issue.
+Odoo's `model.load()` reports errors per-batch rather than per-row. However, the geometric retry mechanism (see above) automatically splits failed batches down to individual rows, so in practice each failing row is identified with its specific error message. The trade-off is additional API calls when errors occur.
 
 ### No Search Key Upsert
 
@@ -184,6 +230,15 @@ POST /web/dataset/call_kw
 
 ## Version History
 
+- **1.2.0**: Warmup-based adaptive batch sizing
+  - Conservative warmup: start at size 1, step through 1 → 10 → max
+  - Level-up after 100 consecutive successful rows
+  - Level-down after 3 consecutive failed batches
+  - Per-file reset for fresh warmup on each file
+- **1.1.0**: Adaptive retry and batch sizing
+  - Geometric retry splitting (100 → 10 → 1) for per-row error isolation
+  - Batch size range constrained to 10-100
+  - Auto-clamp batch size on standalone mode detection
 - **1.0.0**: Initial standalone mode implementation
   - Basic import via `model.load()`
   - Local profile storage

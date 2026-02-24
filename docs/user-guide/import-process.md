@@ -43,3 +43,4 @@ The UI provides several metrics:
 Failures are handled based on your **Run Settings**:
 *   **Automatic Retries**: If a row fails due to a transient error (e.g., network timeout or a lock wait), the tool will automatically retry it up to the configured limit.
 *   **Fatal Errors**: If Odoo returns a non-retryable error (e.g., a constraint violation), the row is marked as failed. If "Stop on Fatal Error" is enabled, the entire import will halt.
+*   **Standalone Mode**: In standalone mode, failed batches are automatically split using geometric retry (e.g., 100 → 10 → 1) to isolate individual failing rows. The batch size also adapts dynamically — growing after successes and shrinking after failures. See [Standalone Mode](../standalone-mode.md) for details.

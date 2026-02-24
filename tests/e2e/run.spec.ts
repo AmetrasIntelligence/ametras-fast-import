@@ -1,50 +1,54 @@
 import { test, expect } from '@playwright/test'
+import { mockLogin } from './helpers'
 
 test.describe('Run View', () => {
   test.beforeEach(async ({ page }) => {
+    await mockLogin(page)
     await page.goto('/#/run')
   })
 
   test('displays initial state', async ({ page }) => {
-    // Should show the app container
+    // App container should be visible
     await expect(page.locator('#csv-import-app')).toBeVisible()
   })
 
+  test('shows state label', async ({ page }) => {
+    // Default state is "Ready" (IDLE state)
+    await expect(page.getByRole('heading', { name: /ready/i })).toBeVisible()
+  })
+
   test('shows progress bar', async ({ page }) => {
-    // Progress component should be rendered
+    // Progress component renders with csv-progress-track class
     await expect(page.locator('.csv-progress-track')).toBeVisible()
   })
 
   test('shows files section', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /files/i })).toBeVisible()
+    // Files table heading
+    await expect(page.getByRole('heading', { name: /^files$/i })).toBeVisible()
   })
 
-  test('has ETA display', async ({ page }) => {
+  test('shows ETA display', async ({ page }) => {
+    // ETA label is always visible in the run view
     await expect(page.getByText(/eta/i)).toBeVisible()
   })
-})
 
-test.describe('Run - Progress Monitoring', () => {
-  test('shows percentage', async ({ page }) => {
-    await page.goto('/#/run')
-
-    // Should show 0% or some percentage
-    await expect(page.getByText(/%/)).toBeVisible()
+  test('shows percentage display', async ({ page }) => {
+    // Should show 0% in idle state
+    await expect(page.getByText(/0%/)).toBeVisible()
   })
 
   test('shows file count', async ({ page }) => {
-    await page.goto('/#/run')
-
-    // Should show "X / Y files" format
+    // Shows "0 / 0 files" when no import is running
     await expect(page.getByText(/\d+\s*\/\s*\d+\s*files/i)).toBeVisible()
   })
 })
 
 test.describe('Run - Error Display', () => {
   test('errors section hidden when no errors', async ({ page }) => {
+    await mockLogin(page)
     await page.goto('/#/run')
 
-    // Recent errors section should not be visible initially
-    // (or should show 0 errors)
+    // Recent errors section only visible when errors exist (v-if="run.errors.length > 0")
+    await expect(page.getByText(/recent errors/i)).not.toBeVisible()
   })
 })

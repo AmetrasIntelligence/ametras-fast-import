@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { detectImportMode, type ImportMode } from '@/services/importMode'  // standalone code flag (do not remove comment)
+import { useConfigStore } from '@/stores/config'
+import { STANDALONE_MAX_BATCH_SIZE } from '@/importer/standalone/executor'
 
 export type AuthMode = 'standalone' | 'embedded'
 
@@ -83,6 +85,14 @@ export const useSessionStore = defineStore('session', () => {
       const modeInfo = await detectImportMode(baseUrl, db)
       importMode.value = modeInfo.mode
       importModeLimitations.value = modeInfo.limitations
+
+      // Clamp batch size to standalone limits when entering standalone mode
+      if (modeInfo.mode === 'standalone') {
+        const config = useConfigStore()
+        if (config.settings.batchSize > STANDALONE_MAX_BATCH_SIZE) {
+          config.setSettings({ batchSize: STANDALONE_MAX_BATCH_SIZE })
+        }
+      }
 
       if (modeInfo.mode === 'addon' && modeInfo.addonVersion) {
         addonVersion.value = modeInfo.addonVersion

@@ -214,10 +214,10 @@ onBeforeUnmount(() => {
   z-index: 1000;
   width: 360px;
   max-width: calc(100vw - 2rem);
-  border: 1px solid #e5e7eb;
+  border: 1px solid #d1d5db;
   border-radius: var(--radius, 0.375rem);
   background: white;
-  box-shadow: 0 10px 25px -3px rgba(0,0,0,0.15), 0 4px 6px -2px rgba(0,0,0,0.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.06);
   overflow: hidden;
   display: flex;
   flex-direction: column;

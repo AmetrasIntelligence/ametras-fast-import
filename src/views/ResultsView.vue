@@ -4,6 +4,9 @@ import { useRouter } from 'vue-router'
 import { useRunStore } from '@/stores/run'
 import { useFilesStore } from '@/stores/files'
 import { ImportEngine } from '@/importer/engine'
+import { showAlert } from '@/composables/useDialog'
+import { downloadCSV, downloadJSON } from '@/utils/download'
+import { logger } from '@/utils/logger'
 import { Button, Card, Table } from '@/ui'
 
 const router = useRouter()
@@ -55,27 +58,6 @@ function exportFullReport() {
   downloadJSON(report, 'import-report.json')
 }
 
-function downloadCSV(content: string, filename: string) {
-  const blob = new Blob([content], { type: 'text/csv' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
-function downloadJSON(data: unknown, filename: string) {
-  const content = JSON.stringify(data, null, 2)
-  const blob = new Blob([content], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
 function retryFailedRows() {
   if (isRetrying.value) return
 
@@ -83,7 +65,7 @@ function retryFailedRows() {
   const filesStore = useFilesStore()
   const hasFiles = filesStore.files.length > 0
   if (!hasFiles) {
-    alert('Files are no longer available for retry. Please start a new import.')
+    showAlert('Files are no longer available for retry. Please start a new import.')
     return
   }
 
@@ -95,7 +77,7 @@ function retryFailedRows() {
 
   // Start retry in background (don't await - let RunView display progress)
   engine.retryFailedRows().catch(e => {
-    console.error('Retry failed:', e)
+    logger.import.error('Retry failed', { error: e instanceof Error ? e.message : String(e) })
   })
 
   // Navigate to run view immediately to show progress

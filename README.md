@@ -157,7 +157,6 @@ csv-client/
 │   │   └── runConfig.ts         # RunConfig override type
 │   ├── composables/
 │   │   ├── useDialog.ts              # In-app alert/confirm/prompt dialogs
-│   │   ├── useImportValidation.ts    # Reactive validation state
 │   │   ├── useProfileImport.ts       # Profile ZIP upload composable
 │   │   └── useRunConfig.ts           # Override merge composable
 │   ├── utils/
@@ -176,12 +175,10 @@ csv-client/
 │   ├── components/
 │   │   ├── AppDialog.vue        # In-app modal dialog (alert/confirm/prompt)
 │   │   ├── ErrorBoundary.vue
-│   │   ├── FieldMappingTable.vue # Rich field mapping editor
 │   │   ├── FieldSelect.vue      # Searchable field dropdown with type badges
 │   │   ├── FieldSuggestion.vue  # Field suggestion with confidence
 │   │   ├── FileDropZone.vue     # Drag & drop file import
 │   │   ├── FileList.vue         # Sortable file table with preview
-│   │   ├── FileMappingRow.vue   # Expanded file row content
 │   │   ├── ImportSettings.vue   # Collapsible settings panel
 │   │   ├── MappingStatus.vue    # Color-coded status indicator
 │   │   ├── ModelSelect.vue      # Searchable model dropdown
@@ -235,10 +232,10 @@ IDLE → VALIDATING → RUNNING_FILE ↔ RUNNING_BATCH → COMPLETED
 
 | Setting | Default | Range | Description |
 |---------|---------|-------|-------------|
-| `batchSize` | 200 | 1-1000 | Rows per batch sent to Odoo |
+| `batchSize` | 200 | 1-1000 | Rows per batch sent to Odoo (standalone: 10-100) |
 | `workers` | 1 | 1-4 | Parallel workers for batch processing |
 | `retryLimit` | 3 | 0-10 | Max retry attempts per row |
-| `retryDelayMs` | 2000 | 100+ | Delay between retry attempts |
+| `retryDelayMs` | 500 | 100+ | Delay between retry attempts |
 | `encoding` | utf-8 | - | CSV file encoding (utf-8, latin-1, cp1252) |
 | `delimiter` | , | - | CSV delimiter (auto-detect supported) |
 | `dryRun` | false | - | Validate without committing |

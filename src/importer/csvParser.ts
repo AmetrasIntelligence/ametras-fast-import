@@ -1,4 +1,5 @@
 import Papa from 'papaparse'
+import { logger } from '@/utils/logger'
 
 export interface ParsedRow {
   index: number
@@ -13,48 +14,21 @@ export interface ParseOptions {
 }
 
 /**
- * Parse CSV in streaming chunks - memory efficient for large files.
- * Yields batches of rows as they're parsed.
+ * Build a standard Papa.parse config for header-based parsing.
  */
-export async function* parseCSVStream(
-  fileId: string,
-  batchSize: number,
-  options: ParseOptions = {}
-): AsyncGenerator<ParsedRow[], void, unknown> {
-  const hasHeader = options.hasHeader ?? true
-  let rowIndex = 0
-  let batch: ParsedRow[] = []
-
-  await window.api.files.streamChunks(fileId, batchSize + 1, (chunk) => {
-    if (chunk.done || !chunk.data) return
-
-    const parsed = Papa.parse(chunk.data, {
-      delimiter: options.delimiter || '',
-      header: hasHeader,
-      skipEmptyLines: true,
-      transformHeader: (h) => h.trim()
-    })
-
-    for (const data of parsed.data as Record<string, string>[]) {
-      rowIndex++
-      batch.push({
-        index: rowIndex,
-        data,
-        raw: Object.values(data)
-      })
-    }
-  })
-
-  // Yield final batch
-  if (batch.length > 0) {
-    yield batch
+function buildParseConfig(options: ParseOptions = {}): Papa.ParseConfig {
+  return {
+    delimiter: options.delimiter || '',
+    header: options.hasHeader ?? true,
+    skipEmptyLines: true,
+    transformHeader: (h: string) => h.trim()
   }
 }
 
 /**
- * Parse CSV with callback per batch - better for async flow control.
- * Collects all rows synchronously during streaming, then processes
- * batches sequentially to avoid race conditions with concurrent callbacks.
+ * Parse CSV with callback per batch - memory efficient streaming.
+ * Uses async streaming with backpressure: each chunk is processed before
+ * requesting the next, preventing memory buildup for large files.
  */
 export async function parseCSVBatched(
   fileId: string,
@@ -62,31 +36,62 @@ export async function parseCSVBatched(
   onBatch: (rows: ParsedRow[]) => Promise<void>,
   options: ParseOptions = {}
 ): Promise<{ totalRows: number }> {
-  const hasHeader = options.hasHeader ?? true
   let rowIndex = 0
-  const allRows: ParsedRow[] = []
 
-  // Phase 1: Collect all rows synchronously (no async in callback)
-  await window.api.files.streamChunks(fileId, batchSize, (chunk) => {
-    if (chunk.done || !chunk.data) return
+  // Start async stream with backpressure support
+  const streamId = await window.api.files.streamStart(fileId, batchSize, options.encoding)
 
-    const parsed = Papa.parse(chunk.data, {
-      delimiter: options.delimiter || '',
-      header: hasHeader,
-      skipEmptyLines: true,
-      transformHeader: (h) => h.trim()
-    })
+  try {
+    while (true) {
+      // Request next chunk - stream pauses until we're ready
+      const chunk = await window.api.files.streamNext(streamId)
 
-    for (const data of parsed.data as Record<string, string>[]) {
-      rowIndex++
-      allRows.push({ index: rowIndex, data, raw: Object.values(data) })
+      if (chunk.error) {
+        throw new Error(chunk.error)
+      }
+
+      if (chunk.done) {
+        break
+      }
+
+      if (!chunk.data) {
+        continue
+      }
+
+      // Parse this chunk
+      const parsed = Papa.parse(chunk.data, buildParseConfig(options))
+
+      // Check for parse errors
+      if (parsed.errors.length > 0) {
+        for (const err of parsed.errors) {
+          logger.csv.warn(`Parse error at row ${(err.row ?? -1) + rowIndex + 1}: ${err.message}`, {
+            type: err.type,
+            code: err.code,
+            row: err.row
+          })
+        }
+        // Abort on unrecoverable errors (e.g. delimiter detection failure)
+        const critical = parsed.errors.find(e => e.type === 'Delimiter')
+        if (critical) {
+          throw new Error(`CSV parse error: ${critical.message}`)
+        }
+      }
+
+      // Build batch from parsed rows
+      const batch: ParsedRow[] = []
+      for (const data of parsed.data as Record<string, string>[]) {
+        rowIndex++
+        batch.push({ index: rowIndex, data, raw: Object.values(data) })
+      }
+
+      // Process batch - backpressure: we won't request next chunk until done
+      if (batch.length > 0) {
+        await onBatch(batch)
+      }
     }
-  })
-
-  // Phase 2: Process batches sequentially
-  for (let i = 0; i < allRows.length; i += batchSize) {
-    const batch = allRows.slice(i, i + batchSize)
-    await onBatch(batch)
+  } finally {
+    // Ensure stream is closed even if error occurs
+    await window.api.files.streamClose(streamId).catch(() => {})
   }
 
   return { totalRows: rowIndex }
@@ -101,17 +106,21 @@ export async function parseCSV(
   options: ParseOptions = {}
 ): Promise<ParsedRow[]> {
   const content = await window.api.files.read(fileId)
-  const hasHeader = options.hasHeader ?? true
 
-  const parsed = Papa.parse(content, {
-    delimiter: options.delimiter || '',
-    header: hasHeader,
-    skipEmptyLines: true,
-    transformHeader: (h) => h.trim()
-  })
+  const parsed = Papa.parse(content, buildParseConfig(options))
 
   if (parsed.errors.length > 0) {
-    console.warn('CSV parse warnings:', parsed.errors)
+    for (const err of parsed.errors) {
+      logger.csv.warn(`Parse error at row ${err.row ?? '?'}: ${err.message}`, {
+        type: err.type,
+        code: err.code,
+        row: err.row
+      })
+    }
+    const critical = parsed.errors.find(e => e.type === 'Delimiter')
+    if (critical) {
+      throw new Error(`CSV parse error: ${critical.message}`)
+    }
   }
 
   return parsed.data.map((data, index) => ({
@@ -130,7 +139,6 @@ export async function extractRowsByIndex(
   targetIndices: Set<number>,
   options: ParseOptions = {}
 ): Promise<ParsedRow[]> {
-  const hasHeader = options.hasHeader ?? true
   let rowIndex = 0
   const matchedRows: ParsedRow[] = []
 
@@ -138,12 +146,17 @@ export async function extractRowsByIndex(
   await window.api.files.streamChunks(fileId, 1000, (chunk) => {
     if (chunk.done || !chunk.data) return
 
-    const parsed = Papa.parse(chunk.data, {
-      delimiter: options.delimiter || '',
-      header: hasHeader,
-      skipEmptyLines: true,
-      transformHeader: (h) => h.trim()
-    })
+    const parsed = Papa.parse(chunk.data, buildParseConfig(options))
+
+    if (parsed.errors.length > 0) {
+      for (const err of parsed.errors) {
+        logger.csv.warn(`Parse error at row ${(err.row ?? -1) + rowIndex + 1}: ${err.message}`, {
+          type: err.type,
+          code: err.code,
+          row: err.row
+        })
+      }
+    }
 
     for (const data of parsed.data as Record<string, string>[]) {
       rowIndex++

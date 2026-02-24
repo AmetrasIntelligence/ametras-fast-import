@@ -24,7 +24,14 @@ contextBridge.exposeInMainWorld('api', {
         };
         ipcRenderer.on(`files:chunk:${streamId}`, handler);
       });
-    }
+    },
+    // Async streaming with backpressure support
+    streamStart: (id, chunkLines, encoding) =>
+      ipcRenderer.invoke('files:streamStart', id, chunkLines, encoding),
+    streamNext: (streamId) =>
+      ipcRenderer.invoke('files:streamNext', streamId),
+    streamClose: (streamId) =>
+      ipcRenderer.invoke('files:streamClose', streamId)
   },
   odoo: {
     call: (payload) => ipcRenderer.invoke('odoo:call', payload),

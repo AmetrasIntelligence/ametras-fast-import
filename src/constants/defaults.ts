@@ -7,7 +7,7 @@ import type { RunSettings } from '@/stores/config'
 export const DEFAULT_RUN_SETTINGS: RunSettings = {
   batchSize: 200,
   retryLimit: 3,
-  retryDelayMs: 2000,
+  retryDelayMs: 500,
   stopOnFatalError: false,
   encoding: 'utf-8-sig',
   delimiter: ',',
@@ -15,6 +15,5 @@ export const DEFAULT_RUN_SETTINGS: RunSettings = {
   dryRun: false,
   lang: 'de_DE',
   workers: 1,
-  strict: true,
-  legacyImport: false
+  strict: true
 }

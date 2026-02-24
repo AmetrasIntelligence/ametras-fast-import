@@ -17,8 +17,6 @@ export interface RunSettings {
   workers: number
   /** Strict mode: fail on unresolved references instead of skipping. Default: true */
   strict: boolean
-  /** Use legacy threaded import (Odoo standard load via import_threaded) */
-  legacyImport: boolean
 }
 
 export interface FileMapping {
@@ -116,7 +114,6 @@ export const useConfigStore = defineStore('config', () => {
       if (key === 'dryRun') newSettings.dryRun = value === 'true'
       if (key === 'lang') newSettings.lang = value
       if (key === 'strict') newSettings.strict = value === 'true'
-      if (key === 'legacyImport') newSettings.legacyImport = value === 'true'
       // Note: 'workers' is intentionally NOT loaded from CSV - it's a runtime-only setting
     }
 

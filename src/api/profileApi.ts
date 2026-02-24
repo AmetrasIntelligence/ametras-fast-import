@@ -1,6 +1,7 @@
 import { useSessionStore } from '@/stores/session'
 import type { ImportProfile, ProfileMapping, ProfileSequenceItem } from '@/types/importProfile'
 import type { RunSettings } from '@/stores/config'
+import { DEFAULT_RUN_SETTINGS } from '@/constants/defaults'
 import { parseTransform, serializeTransform } from '@/types/fieldMapping'
 import type { FieldMapping } from '@/types/fieldMapping'
 
@@ -59,18 +60,17 @@ function toImportProfile(data: ProfileFullData): ImportProfile {
     mappings: data.mappings || [],
     sequence: data.sequence || [],
     runSettings: {
-      batchSize: parseInt(runSettings.batchSize as string, 10) || 200,
-      retryLimit: parseInt(runSettings.retryLimit as string, 10) || 3,
-      retryDelayMs: parseInt(runSettings.retryDelayMs as string, 10) || 2000,
+      batchSize: parseInt(runSettings.batchSize as string, 10) || DEFAULT_RUN_SETTINGS.batchSize,
+      retryLimit: parseInt(runSettings.retryLimit as string, 10) || DEFAULT_RUN_SETTINGS.retryLimit,
+      retryDelayMs: parseInt(runSettings.retryDelayMs as string, 10) || DEFAULT_RUN_SETTINGS.retryDelayMs,
       stopOnFatalError: runSettings.stopOnFatalError === 'true',
-      encoding: (runSettings.encoding as 'utf-8' | 'utf-8-sig' | 'latin-1' | 'cp1252') || 'utf-8-sig',
-      delimiter: (runSettings.delimiter as ',' | ';' | '\t' | '') || ',',
+      encoding: (runSettings.encoding as RunSettings['encoding']) || DEFAULT_RUN_SETTINGS.encoding,
+      delimiter: (runSettings.delimiter as RunSettings['delimiter']) || DEFAULT_RUN_SETTINGS.delimiter,
       skipHeader: runSettings.skipHeader !== 'false',
       dryRun: runSettings.dryRun === 'true',
-      lang: (runSettings.lang as string) || 'de_DE',
-      workers: 1,  // Runtime-only setting, not stored in profile
-      strict: runSettings.strict !== 'false',
-      legacyImport: runSettings.legacyImport === 'true'
+      lang: (runSettings.lang as string) || DEFAULT_RUN_SETTINGS.lang,
+      workers: DEFAULT_RUN_SETTINGS.workers,
+      strict: runSettings.strict !== 'false'
     },
     fieldMappings: data.field_mappings?.filter(
       (fm): fm is { filename: string; csvColumn: string; odooField: string } =>
@@ -102,20 +102,7 @@ function toProfileSummary(data: ProfileListItem): Omit<ImportProfile, 'mappings'
     odooMinVersion: data.odoo_min_version || undefined,
     mappings: [],
     sequence: [],
-    runSettings: {
-      batchSize: 200,
-      retryLimit: 3,
-      retryDelayMs: 2000,
-      stopOnFatalError: false,
-      encoding: 'utf-8-sig',
-      delimiter: ',',
-      skipHeader: true,
-      dryRun: false,
-      lang: 'de_DE',
-      workers: 1,  // Runtime-only setting, not stored in profile
-      strict: true,
-      legacyImport: false
-    },
+    runSettings: { ...DEFAULT_RUN_SETTINGS },
     createdAt: data.created_at ? new Date(data.created_at).getTime() : Date.now(),
     updatedAt: data.updated_at ? new Date(data.updated_at).getTime() : Date.now()
   }
@@ -240,7 +227,6 @@ function toBackendRunSettings(runSettings: Partial<RunSettings>): Record<string,
   if (runSettings.dryRun !== undefined) result.dryRun = String(runSettings.dryRun)
   if (runSettings.lang !== undefined) result.lang = runSettings.lang
   if (runSettings.strict !== undefined) result.strict = String(runSettings.strict)
-  if (runSettings.legacyImport !== undefined) result.legacyImport = String(runSettings.legacyImport)
   // Note: 'workers' is intentionally omitted - runtime-only, not stored in profiles
   return result
 }

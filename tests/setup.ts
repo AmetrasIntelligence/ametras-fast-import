@@ -7,6 +7,10 @@ beforeEach(() => {
   setActivePinia(createPinia())
 })
 
+// Track active mock streams for async streaming API
+const mockStreams = new Map<string, { chunks: string[]; currentIndex: number }>()
+let mockStreamIdCounter = 0
+
 // Mock window.api for Electron IPC
 const mockApi = {
   files: {
@@ -14,7 +18,25 @@ const mockApi = {
     read: vi.fn().mockResolvedValue(''),
     readHead: vi.fn().mockResolvedValue(''),
     countLines: vi.fn().mockResolvedValue(0),
-    streamChunks: vi.fn().mockResolvedValue(undefined)
+    streamChunks: vi.fn().mockResolvedValue(undefined),
+    // Async streaming API with backpressure
+    streamStart: vi.fn().mockImplementation(async () => {
+      const streamId = `mock-stream-${++mockStreamIdCounter}`
+      mockStreams.set(streamId, { chunks: [], currentIndex: 0 })
+      return streamId
+    }),
+    streamNext: vi.fn().mockImplementation(async (streamId: string) => {
+      const stream = mockStreams.get(streamId)
+      if (!stream) return { data: '', done: true }
+      if (stream.currentIndex >= stream.chunks.length) {
+        return { data: '', done: true }
+      }
+      const data = stream.chunks[stream.currentIndex++]
+      return { data, done: false }
+    }),
+    streamClose: vi.fn().mockImplementation(async (streamId: string) => {
+      mockStreams.delete(streamId)
+    })
   },
   odoo: {
     call: vi.fn().mockResolvedValue({}),
@@ -52,6 +74,28 @@ globalThis.window = {
 
 // Export for tests to modify mocks
 export { mockApi }
+
+/**
+ * Helper to set up mock stream with CSV data.
+ * Call this before running tests that use parseCSVBatched.
+ * @param csvData - Single CSV string or array of CSV chunk strings
+ */
+export function setupMockStream(csvData: string | string[]): void {
+  const chunks = Array.isArray(csvData) ? csvData : [csvData]
+  mockApi.files.streamStart.mockImplementation(async () => {
+    const streamId = `mock-stream-${++mockStreamIdCounter}`
+    mockStreams.set(streamId, { chunks, currentIndex: 0 })
+    return streamId
+  })
+}
+
+/**
+ * Reset mock streams state.
+ */
+export function resetMockStreams(): void {
+  mockStreams.clear()
+  mockStreamIdCounter = 0
+}
 
 // Configure Vue Test Utils
 config.global.stubs = {

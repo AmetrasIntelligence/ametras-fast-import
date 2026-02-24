@@ -15,7 +15,7 @@ describe('ConfigStore', () => {
 
       expect(store.settings.batchSize).toBe(200)
       expect(store.settings.retryLimit).toBe(3)
-      expect(store.settings.retryDelayMs).toBe(2000)
+      expect(store.settings.retryDelayMs).toBe(500)
       expect(store.settings.stopOnFatalError).toBe(false)
       expect(store.settings.encoding).toBe('utf-8-sig')
       expect(store.settings.delimiter).toBe(',')

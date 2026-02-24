@@ -83,22 +83,3 @@ export async function fetchModelFields(modelName: string): Promise<OdooField[]> 
   }))
 }
 
-export async function checkImportAccess(modelName: string): Promise<boolean> {
-  const session = useSessionStore()
-  if (!session.baseUrl) throw new Error('Not connected')
-  const db = session.currentServer?.db
-
-  const response = await window.api.odoo.call<boolean>({
-    baseUrl: session.baseUrl,
-    db,
-    endpoint: '/web/dataset/call_kw',
-    params: {
-      model: modelName,
-      method: 'check_access_rights',
-      args: ['create'],
-      kwargs: { raise_exception: false }
-    }
-  })
-
-  return response.ok && response.result === true
-}

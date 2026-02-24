@@ -43,6 +43,8 @@
     "port": "Port",
     "ssl": "SSL (https)",
     "showAdvanced": "Port- & SSL-Optionen anzeigen",
+    "advancedOptions": "Port & SSL",
+    "orConnectManually": "oder manuell eingeben",
     "database": "Datenbank",
     "databasePlaceholder": "Datenbankname",
     "username": "Benutzername",
@@ -69,6 +71,10 @@
     "saveAsProfile": "Als neues Profil speichern",
     "updateProfile": "Profil aktualisieren",
     "serverProfile": "Import-Profil",
+    "tabs": {
+      "profile": "Profil",
+      "settings": "Einstellungen"
+    },
     "loadingProfiles": "Profile werden geladen...",
     "noProfiles": "Keine Profile verfügbar. Laden Sie eines auf der Profilseite hoch.",
     "noProfileSelected": "(kein Profil)",
@@ -93,14 +99,16 @@
     "unmappedFieldsWarning": "{count} Datei(en) haben nicht zugeordnete Felder: {files}. Trotzdem fortfahren?",
     "unsavedChangesWarning": "Sie haben ungespeicherte Änderungen. Ohne Speichern verlassen?",
     "edited": "bearbeitet",
-    "profileSaved": "Profil \"{name}\" auf Server gespeichert.",
+    "profileSavedServer": "Profil \"{name}\" auf Server gespeichert.",
+    "profileSavedLocal": "Profil \"{name}\" lokal gespeichert.",
+    "profileUpdated": "Profil \"{name}\" auf v{version} aktualisiert.",
     "failedToLoadProfile": "Profil konnte nicht geladen werden: {error}",
     "failedToSaveProfile": "Profil konnte nicht gespeichert werden: {error}"
   },
   "settings": {
     "title": "Importeinstellungen",
     "batchSize": "Stapelgröße",
-    "workers": "Arbeiter",
+    "workers": "Parallele Prozesse",
     "workersRange": "(1-4)",
     "retryLimit": "Wiederholungslimit",
     "retryDelayMs": "Wiederholungsverzögerung (ms)",
@@ -110,10 +118,9 @@
     "skipHeader": "Kopfzeile überspringen",
     "dryRun": "Probelauf (nur validieren)",
     "language": "Sprache",
-    "legacyImport": "Veralteten Threaded-Import verwenden",
     "summary": {
       "batch": "Stapel",
-      "workers": "Arbeiter",
+      "workers": "Prozesse",
       "retries": "Wiederholungen",
       "encoding": "Kodierung",
       "stopOnError": "Bei Fehler stoppen",
@@ -136,8 +143,14 @@
       "batchSizeMax": "Stapelgröße darf 1000 nicht überschreiten",
       "retryLimitMin": "Wiederholungslimit muss mindestens 0 sein",
       "retryLimitMax": "Wiederholungslimit darf 10 nicht überschreiten",
-      "workersMin": "Arbeiter muss mindestens 1 sein",
-      "workersMax": "Arbeiter darf 4 nicht überschreiten"
+      "workersMin": "Prozesse muss mindestens 1 sein",
+      "workersMax": "Prozesse darf 4 nicht überschreiten",
+      "batchSizeStandaloneRange": "Standalone-Modus: 10-100"
+    },
+    "standalone": {
+      "workersFixed": "Im Standalone-Modus auf 1 Prozess festgelegt",
+      "dryRunUnavailable": "Im Standalone-Modus nicht verfügbar",
+      "langUnavailable": "Im Standalone-Modus nicht verfügbar"
     }
   },
   "run": {
@@ -281,7 +294,7 @@
     "title": "Standalone-Modus",
     "description": "csv_import Addon nicht installiert - verwende direkte Odoo API",
     "limitations": "Einige Funktionen nicht verfügbar: Suchschlüssel-Upsert, Fehlerbehandlung pro Zeile",
-    "batchSizeNote": "Stapelgröße auf 10-200 im Standalone-Modus begrenzt",
+    "batchSizeNote": "Stapelgröße auf 10-100 im Standalone-Modus begrenzt",
     "workersNote": "Einzelner Worker-Modus für Stabilität"
   }
 }

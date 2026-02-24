@@ -43,6 +43,8 @@
     "port": "Port",
     "ssl": "SSL (https)",
     "showAdvanced": "Show port & SSL options",
+    "advancedOptions": "Port & SSL",
+    "orConnectManually": "or enter manually",
     "database": "Database",
     "databasePlaceholder": "database name",
     "username": "Username",
@@ -69,6 +71,10 @@
     "saveAsProfile": "Save as New Profile",
     "updateProfile": "Update Profile",
     "serverProfile": "Import Profile",
+    "tabs": {
+      "profile": "Profile",
+      "settings": "Settings"
+    },
     "loadingProfiles": "Loading profiles...",
     "noProfiles": "No profiles available. Upload one on the Profiles page.",
     "noProfileSelected": "(no profile)",
@@ -93,7 +99,9 @@
     "unmappedFieldsWarning": "{count} file(s) have unmapped fields: {files}. Continue anyway?",
     "unsavedChangesWarning": "You have unsaved changes. Leave without saving?",
     "edited": "edited",
-    "profileSaved": "Profile \"{name}\" saved to server.",
+    "profileSavedServer": "Profile \"{name}\" saved to server.",
+    "profileSavedLocal": "Profile \"{name}\" saved locally.",
+    "profileUpdated": "Profile \"{name}\" updated to v{version}.",
     "failedToLoadProfile": "Failed to load profile: {error}",
     "failedToSaveProfile": "Failed to save profile: {error}"
   },
@@ -110,7 +118,6 @@
     "skipHeader": "Skip header row",
     "dryRun": "Dry run (validate only)",
     "language": "Language",
-    "legacyImport": "Use legacy threaded import",
     "summary": {
       "batch": "Batch",
       "workers": "Workers",
@@ -137,7 +144,13 @@
       "retryLimitMin": "Retry limit must be at least 0",
       "retryLimitMax": "Retry limit must not exceed 10",
       "workersMin": "Workers must be at least 1",
-      "workersMax": "Workers must not exceed 4"
+      "workersMax": "Workers must not exceed 4",
+      "batchSizeStandaloneRange": "Standalone mode: 10-100"
+    },
+    "standalone": {
+      "workersFixed": "Fixed to 1 in standalone mode",
+      "dryRunUnavailable": "Not available in standalone mode",
+      "langUnavailable": "Not available in standalone mode"
     }
   },
   "run": {
@@ -274,14 +287,14 @@
   },
   "dialogs": {
     "confirm": "Confirm",
-    "alert": "Alert",
+    "alert": "Notice",
     "prompt": "Input"
   },
   "standalone": {
     "title": "Standalone Mode",
     "description": "csv_import addon not installed - using direct Odoo API",
     "limitations": "Some features unavailable: search key upsert, per-row error handling",
-    "batchSizeNote": "Batch size limited to 10-200 in standalone mode",
+    "batchSizeNote": "Batch size limited to 10-100 in standalone mode",
     "workersNote": "Single worker mode for stability"
   }
 }

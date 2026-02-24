@@ -90,6 +90,10 @@ interface ElectronAPI {
     readHead: (id: string, bytes: number) => Promise<string>
     countLines: (id: string) => Promise<number>
     streamChunks: (id: string, chunkLines: number, onChunk: (chunk: ChunkData) => void) => Promise<void>
+    // Async streaming with backpressure support
+    streamStart: (id: string, chunkLines: number, encoding?: string) => Promise<string>
+    streamNext: (streamId: string) => Promise<ChunkData>
+    streamClose: (streamId: string) => Promise<void>
     getPathForFile: (file: File) => string
   }
   odoo: {

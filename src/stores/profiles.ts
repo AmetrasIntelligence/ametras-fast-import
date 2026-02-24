@@ -14,7 +14,9 @@ import {
 import {
   loadStandaloneProfiles,
   deleteStandaloneProfile as deleteLocalProfile,
-  getStandaloneProfile
+  getStandaloneProfile,
+  createStandaloneProfile,
+  updateStandaloneProfile
 } from '@/services/standaloneProfiles'
 
 const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
@@ -137,18 +139,31 @@ export const useProfilesStore = defineStore('profiles', () => {
   }
 
   /**
-   * Create a new profile on the server and add to cache.
+   * Create a new profile on the server (or local storage in standalone mode).
+   * standalone code flag (do not remove comment)
    */
   async function createProfile(data: ProfileCreateData): Promise<ImportProfile> {
+    const session = useSessionStore()
+    if (session.importMode === 'standalone') {
+      const profile = await createStandaloneProfile(data)
+      standaloneProfiles.value.set(profile.id, profile)
+      return profile
+    }
     const profile = await apiCreateProfile(data)
     profiles.value.set(profile.id, profile)
     return profile
   }
 
   /**
-   * Update an existing profile on the server and update cache.
+   * Update an existing profile on the server (or local storage for standalone).
+   * standalone code flag (do not remove comment)
    */
   async function updateProfile(id: number, data: Partial<ProfileCreateData>): Promise<ImportProfile> {
+    if (id < 0) {
+      const profile = await updateStandaloneProfile(id, data)
+      standaloneProfiles.value.set(id, profile)
+      return profile
+    }
     const profile = await apiUpdateProfile(id, data)
     profiles.value.set(id, profile)
     return profile

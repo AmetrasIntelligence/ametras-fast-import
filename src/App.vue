@@ -44,10 +44,10 @@ function logout() {
           </router-link>
           <router-link
             v-if="run.isActive || run.isCompleted"
-            to="/run"
+            :to="run.isCompleted ? '/results' : '/run'"
             class="csv-nav__link"
             :class="{
-              'csv-nav__link--active': route.path === '/run',
+              'csv-nav__link--active': route.path === '/run' || route.path === '/results',
               'csv-nav__link--running': run.isActive
             }"
           >

@@ -13,8 +13,8 @@ Field transforms are used to modify data before it's sent to Odoo.
       // ...
       | { type: 'my_new_transform'; parameter: string }
     ```
-2.  **Add Frontend Logic**: Update `src/importer/batchExecutor.ts` to handle the transform in the `applyTransform` function.
-3.  **Update the UI**: Modify `src/components/FieldMappingTable.vue` to allow users to select the new transform and provide any necessary parameters.
+2.  **Add Frontend Logic**: Update `src/importer/batchExecutor.ts` to handle the transform in the `transformRow` function.
+3.  **Update the UI**: Modify the field mapping UI in `src/views/ImportView.vue` to allow users to select the new transform and provide any necessary parameters.
 
 ## Adding Smart Model Suggestions
 

@@ -13,6 +13,10 @@ import './ipc/store'
 import './ipc/profile'
 import './ipc/standalone'  // standalone code flag (do not remove comment)
 
+// Import cleanup functions
+import { clearFileRegistry } from './ipc/files'
+import { shutdownSessions } from './ipc/odoo'
+
 let mainWindow: BrowserWindow | null = null
 
 function createWindow() {
@@ -39,6 +43,12 @@ app.whenReady().then(createWindow)
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+// Cleanup on app quit
+app.on('will-quit', () => {
+  shutdownSessions()
+  clearFileRegistry()
 })
 
 app.on('activate', () => {

@@ -4,6 +4,7 @@ import { executeBatch, type BatchResult } from './batchExecutor'
 // standalone code flag (do not remove comment)
 import {
   executeStandaloneBatch,
+  BatchSizeAdapter,
   STANDALONE_MIN_BATCH_SIZE,
   STANDALONE_MAX_BATCH_SIZE
 } from './standalone/executor'
@@ -16,6 +17,7 @@ import { useSessionStore } from '@/stores/session'  // standalone code flag (do 
 import type { FileMapping } from '@/stores/config'
 import { logger } from '@/utils/logger'
 import { parseOdooError } from '@/utils/errors'
+import { runStateLock } from '@/utils/stateLock'
 
 /**
  * Get effective batch size, applying standalone constraints if needed.
@@ -47,6 +49,7 @@ export class ImportEngine {
   private workerPool: WorkerPool | null = null
   private abortController: AbortController | null = null
   private skipFileController: AbortController | null = null
+  private batchSizeAdapter: BatchSizeAdapter | null = null
 
   // Throughput tracking
   private fileStartTime = 0
@@ -132,15 +135,17 @@ export class ImportEngine {
 
     // Always try to complete, even if there were errors
     if (!this.abortController.signal.aborted) {
-      // Force state to COMPLETED - try from multiple possible states
-      const completed = this.stateMachine.tryTransition(ImportState.COMPLETED)
-      if (completed) {
+      if (this.stateMachine.tryTransition(ImportState.COMPLETED)) {
         logger.import.info('Import completed successfully')
         run.setState(ImportState.COMPLETED)
       } else {
-        // If transition failed, force the state in the store anyway
-        logger.import.warn(`Could not transition to COMPLETED from ${this.stateMachine.state}, forcing state`)
-        run.setState(ImportState.COMPLETED)
+        // State machine is in an unexpected state - don't silently force COMPLETED
+        // as that desynchronizes the state machine from the store.
+        logger.import.error(
+          `Cannot transition to COMPLETED from ${this.stateMachine.state}. Marking as FAILED.`
+        )
+        this.stateMachine.reset()
+        run.setState(ImportState.FAILED)
       }
     }
   }
@@ -154,6 +159,10 @@ export class ImportEngine {
       throw new Error(`No mapping for file: ${file.name}`)
     }
 
+    // Snapshot config settings for this file so they remain consistent
+    // even if the store is mutated during processing (e.g. navigation).
+    const settings = { ...config.settings }
+
     run.startFile(file.name)
     this.retryQueue.clear()
 
@@ -164,20 +173,26 @@ export class ImportEngine {
     // standalone code flag (do not remove comment)
     // Get effective batch size (applies standalone constraints if needed)
     const session = useSessionStore()
+    const importMode = session.importMode ?? 'addon'
     const effectiveBatchSize = getEffectiveBatchSize(
-      config.settings.batchSize,
-      session.importMode === 'standalone'
+      settings.batchSize,
+      importMode === 'standalone'
     )
+
+    // Create adaptive batch size adapter for standalone mode
+    this.batchSizeAdapter = importMode === 'standalone'
+      ? new BatchSizeAdapter(effectiveBatchSize)
+      : null
 
     // Create worker pool for this file
     // In standalone mode, limit to 1 worker for stability
-    const maxWorkers = session.importMode === 'standalone' ? 1 : 4
-    const workers = Math.max(1, Math.min(maxWorkers, config.settings.workers || 1))
+    const maxWorkers = importMode === 'standalone' ? 1 : 4
+    const workers = Math.max(1, Math.min(maxWorkers, settings.workers || 1))
     this.workerPool = new WorkerPool(workers)
 
     // Start worker pool with batch processor
     this.workerPool.start(
-      (batch) => this.executeBatchWithMapping(batch, mapping, config.settings.dryRun),
+      (batch) => this.executeBatchWithMapping(batch, mapping, settings.dryRun, importMode),
       (result) => this.handleBatchResult(file.name, result)
     )
 
@@ -189,8 +204,24 @@ export class ImportEngine {
         if (this.abortController?.signal.aborted) return
         if (this.skipFileController?.signal.aborted) return
 
+        // Honor pause state: stop streaming CSV until resumed.
+        // Without this, streaming would fill the queue unboundedly while paused.
+        await this.workerPool!.waitWhilePaused()
+        if (this.abortController?.signal.aborted) return
+        if (this.skipFileController?.signal.aborted) return
+
         // Enqueue batch for worker pool (non-blocking)
-        this.workerPool!.enqueueBatch(batch, file.name)
+        // The queue may have been closed by a concurrent skip/abort between
+        // our signal check above and the actual push. Catch and ignore in
+        // that case — the skip/abort will be handled after streaming ends.
+        try {
+          this.workerPool!.enqueueBatch(batch, file.name)
+        } catch (err) {
+          if (this.abortController?.signal.aborted || this.skipFileController?.signal.aborted) {
+            return
+          }
+          throw err
+        }
       },
       parseOptions
     )
@@ -215,7 +246,7 @@ export class ImportEngine {
 
     // Final retry pass for any remaining failures (ALWAYS serialized with workers=1)
     if (!this.abortController?.signal.aborted && !this.skipFileController?.signal.aborted) {
-      await this.processRetries(file.name, mapping)
+      await this.processRetries(file.name, mapping, settings, importMode)
     }
 
     if (!this.abortController?.signal.aborted && !this.skipFileController?.signal.aborted) {
@@ -223,40 +254,42 @@ export class ImportEngine {
     }
 
     this.workerPool = null
+    this.batchSizeAdapter = null
   }
 
   /**
    * Execute a batch using the file mapping.
    * Uses standalone executor when csv_import addon is not available.
+   * Accepts snapshotted values to avoid re-reading stores mid-file.
    */
   private async executeBatchWithMapping(
     batch: Batch,
     mapping: FileMapping,
-    dryRun?: boolean
+    dryRun: boolean | undefined,
+    importMode: string
   ): Promise<BatchResult[]> {
     // standalone code flag (do not remove comment)
-    const session = useSessionStore()
-
-    if (session.importMode === 'standalone') {
+    if (importMode === 'standalone') {
       // Use standalone executor (direct Odoo API)
       return executeStandaloneBatch(mapping.model, batch.rows, {
         fieldMappings: mapping.fieldMappings
-        // Note: searchKeys, strict, legacyImport not supported in standalone mode
-      }, dryRun)
+        // Note: searchKeys, strict not supported in standalone mode
+      }, dryRun, this.abortController?.signal, this.batchSizeAdapter ?? undefined)
     }
 
     // Use addon executor (default)
     return executeBatch(mapping.model, batch.rows, {
       fieldMappings: mapping.fieldMappings,
       searchKeys: mapping.searchKeys,
-      strict: mapping.strict,
-      legacyImport: useConfigStore().settings.legacyImport
+      strict: mapping.strict
     }, dryRun)
   }
 
   /**
    * Handle batch result from worker pool.
    * Centralized result collection - updates progress and queues retries.
+   * Uses state lock to prevent concurrent mutations from multiple workers.
+   * standalone code flag (do not remove comment)
    */
   private handleBatchResult(
     filename: string,
@@ -264,50 +297,62 @@ export class ImportEngine {
   ): void {
     if (this.abortController?.signal.aborted) return
 
-    const run = useRunStore()
-    const batch = result.results
+    // Use lock to serialize state updates from concurrent workers
+    runStateLock.withLock(() => {
+      const run = useRunStore()
+      const batch = result.results
 
-    let successCount = 0
-    let failedCount = 0
+      let successCount = 0
+      let failedCount = 0
 
-    // Collect results and queue failures for retry
-    batch.forEach((rowResult) => {
-      if (rowResult.ok) {
-        successCount++
-      } else {
-        failedCount++
-        run.addError({
-          filename,
-          rowNumber: rowResult.rowIndex,
-          rawData: {},
-          error: rowResult.error || 'Unknown error',
-          timestamp: Date.now()
+      // Collect results and queue failures for retry
+      batch.forEach((rowResult) => {
+        if (rowResult.ok) {
+          successCount++
+        } else {
+          failedCount++
+          run.addError({
+            filename,
+            rowNumber: rowResult.rowIndex,
+            rawData: {},
+            error: rowResult.error || 'Unknown error',
+            timestamp: Date.now()
+          })
+        }
+      })
+
+      // standalone code flag - add failed rows to retry queue for later retry pass
+      if (failedCount > 0 && result.rows) {
+        this.retryQueue.addFailedRows(result.rows, batch)
+      }
+
+      // Track processed rows for throughput
+      this.fileProcessedRows += batch.length
+
+      // Update progress atomically
+      const currentFile = run.currentFile
+      if (currentFile) {
+        run.updateFileProgress(filename, {
+          processedRows: currentFile.processedRows + batch.length,
+          successCount: currentFile.successCount + successCount,
+          failedCount: currentFile.failedCount + failedCount
         })
       }
     })
-
-    // Track processed rows for throughput
-    this.fileProcessedRows += batch.length
-
-    // Update progress
-    const currentFile = run.currentFile
-    if (currentFile) {
-      run.updateFileProgress(filename, {
-        processedRows: currentFile.processedRows + batch.length,
-        successCount: currentFile.successCount + successCount,
-        failedCount: currentFile.failedCount + failedCount
-      })
-    }
   }
 
   /**
    * Process retries - ALWAYS serialized with single worker.
    * This is critical for avoiding race conditions and DDOS-ing the server.
    */
-  private async processRetries(filename: string, mapping: FileMapping): Promise<void> {
+  private async processRetries(
+    filename: string,
+    mapping: FileMapping,
+    settings: { dryRun?: boolean; retryDelayMs: number },
+    importMode: string
+  ): Promise<void> {
     if (this.abortController?.signal.aborted) return
 
-    const config = useConfigStore()
     const run = useRunStore()
 
     const retryable = this.retryQueue.getRetryableRows()
@@ -319,49 +364,58 @@ export class ImportEngine {
     }
     run.setState(ImportState.RETRYING)
 
-    await this.delay(config.settings.retryDelayMs)
+    await this.delay(settings.retryDelayMs)
 
     if (this.abortController?.signal.aborted) return
 
     // Process retries in single batches (serialized, workers=1)
     const rows = retryable.map(r => r.row)
     // standalone code flag (do not remove comment)
-    const session = useSessionStore()
     let results: BatchResult[]
-    if (session.importMode === 'standalone') {
+    if (importMode === 'standalone') {
       results = await executeStandaloneBatch(
         mapping.model,
         rows,
         { fieldMappings: mapping.fieldMappings },
-        config.settings.dryRun
+        settings.dryRun,
+        this.abortController?.signal,
+        this.batchSizeAdapter ?? undefined
       )
     } else {
       results = await executeBatch(
         mapping.model,
         rows,
-        { ...mapping, legacyImport: config.settings.legacyImport },
-        config.settings.dryRun
+        mapping,
+        settings.dryRun
       )
     }
 
     if (this.abortController?.signal.aborted) return
 
     let successCount = 0
+    const succeededRowIndices = new Set<number>()
 
     results.forEach((result, idx) => {
       if (result.ok) {
         this.retryQueue.markSuccess(rows[idx].index)
+        succeededRowIndices.add(rows[idx].index)
         successCount++
       }
     })
 
-    // Update success count from retries
+    // Update success count from retries and remove resolved errors
     const currentFile = run.currentFile
     if (currentFile && successCount > 0) {
       run.updateFileProgress(filename, {
         successCount: currentFile.successCount + successCount,
         failedCount: currentFile.failedCount - successCount
       })
+      // Remove errors for rows that succeeded on retry so the error table
+      // stays consistent with the progress counts
+      run.errors.splice(
+        0, run.errors.length,
+        ...run.errors.filter(e => e.filename !== filename || !succeededRowIndices.has(e.rowNumber))
+      )
     }
 
     // Restore to RUNNING_FILE state after retries
@@ -516,13 +570,19 @@ export class ImportEngine {
         // Execute as single batch - no workers, no auto-retry
         // standalone code flag (do not remove comment)
         const session = useSessionStore()
+        // Fresh adapter per file — different operation, unknown data quality
+        const retryAdapter = session.importMode === 'standalone'
+          ? new BatchSizeAdapter(getEffectiveBatchSize(config.settings.batchSize, true))
+          : undefined
         let results: BatchResult[]
         if (session.importMode === 'standalone') {
           results = await executeStandaloneBatch(
             mapping.model,
             rows,
             { fieldMappings: mapping.fieldMappings },
-            config.settings.dryRun
+            config.settings.dryRun,
+            this.abortController?.signal,
+            retryAdapter
           )
         } else {
           results = await executeBatch(
@@ -590,9 +650,16 @@ export class ImportEngine {
 
     // Complete
     if (!this.abortController.signal.aborted) {
-      this.stateMachine.tryTransition(ImportState.COMPLETED)
-      run.setState(ImportState.COMPLETED)
-      logger.import.info('Retry completed')
+      if (this.stateMachine.tryTransition(ImportState.COMPLETED)) {
+        run.setState(ImportState.COMPLETED)
+        logger.import.info('Retry completed')
+      } else {
+        logger.import.error(
+          `Cannot transition to COMPLETED from ${this.stateMachine.state} after retry. Marking as FAILED.`
+        )
+        this.stateMachine.reset()
+        run.setState(ImportState.FAILED)
+      }
     }
   }
 

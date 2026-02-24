@@ -8,10 +8,10 @@ These settings apply to the entire import project.
 
 | Setting | Default | Range | Description |
 |---------|---------|-------|-------------|
-| `batchSize` | 200 | 1-1000 | The number of rows processed in a single Odoo transaction. Larger batches are faster but can fail entirely if one row has a fatal error. |
+| `batchSize` | 200 | 1-1000 | The number of rows processed in a single Odoo transaction. Larger batches are faster but can fail entirely if one row has a fatal error. In standalone mode, capped to 10-100. |
 | `workers` | 1 | 1-4 | Number of parallel threads. Increasing this can drastically improve speed but may cause database locks in Odoo. |
 | `retryLimit` | 3 | 0-10 | How many times the tool will attempt to re-process a row that failed due to a transient error (e.g., network timeout). |
-| `retryDelayMs` | 2000 | 100+ | Milliseconds to wait between retry attempts. |
+| `retryDelayMs` | 500 | 100+ | Milliseconds to wait between retry attempts. |
 | `stopOnFatalError` | `false` | `true`/`false` | If true, the entire import process stops immediately when a non-retryable error occurs. |
 | `dryRun` | `false` | `true`/`false` | If true, the data is sent to Odoo and validated, but the transactions are rolled back. No data is actually created. |
 

@@ -17,6 +17,7 @@ export interface Batch {
 export interface BatchProcessResult {
   batchId: number
   results: BatchResult[]
+  rows: ParsedRow[]  // standalone code flag - original rows for retry queue
   processingTimeMs: number
 }
 
@@ -163,34 +164,33 @@ export class WorkerPool {
 
   /**
    * Signal that no more batches will be added for the current file.
-   * Workers will finish processing and then stop.
-   * Includes a timeout to prevent infinite hanging.
+   * Workers will finish processing remaining queued batches and then stop.
+   *
+   * No timeout — workers are bounded by the engine's AbortController which
+   * is checked in retry loops and API calls. A fixed timeout would race
+   * against legitimate long-running standalone retries.
    */
   async finishFile(): Promise<void> {
     this.batchQueue.close()
 
-    // Wait for workers with a timeout (5 minutes max)
-    const timeout = 5 * 60 * 1000
-    const timeoutPromise = new Promise<void>((_, reject) => {
-      setTimeout(() => reject(new Error('Worker pool timeout')), timeout)
-    })
+    // Wait for all workers to complete their loops
+    await Promise.all(this.workers)
 
-    try {
-      await Promise.race([
-        Promise.all(this.workers),
-        timeoutPromise
-      ])
-
-      // Wait for all pending callbacks to complete
-      // This ensures progress updates are fully applied before marking file complete
-      if (this.pendingCallbacks.length > 0) {
-        await Promise.all(this.pendingCallbacks)
+    // Drain pending callbacks in a loop: workers may have added callbacks
+    // just before finishing, so we keep draining until stable.
+    // Uses Promise.allSettled so individual callback failures are logged
+    // without aborting the entire drain (other callbacks still run).
+    while (this.pendingCallbacks.length > 0) {
+      const batch = [...this.pendingCallbacks]
+      this.pendingCallbacks = []
+      const settled = await Promise.allSettled(batch)
+      for (const result of settled) {
+        if (result.status === 'rejected') {
+          logger.worker.error('Batch callback failed during finishFile drain', {
+            error: result.reason instanceof Error ? result.reason.message : String(result.reason)
+          })
+        }
       }
-    } catch (error) {
-      logger.worker.error('Worker pool error or timeout', {
-        error: error instanceof Error ? error.message : String(error)
-      })
-      this.abort()
     }
 
     this.workers = []
@@ -239,13 +239,16 @@ export class WorkerPool {
 
   /**
    * Wait while paused. Returns immediately if not paused.
+   * Uses a while loop so that if paused again between the resume signal
+   * and the waiter actually running, we re-enter the wait correctly.
+   * Public so the engine can also pause CSV streaming, not just workers.
    */
-  private async waitWhilePaused(): Promise<void> {
-    if (!this.paused) return
-
-    return new Promise((resolve) => {
-      this.pauseResolvers.push(resolve)
-    })
+  async waitWhilePaused(): Promise<void> {
+    while (this.paused) {
+      await new Promise<void>((resolve) => {
+        this.pauseResolvers.push(resolve)
+      })
+    }
   }
 
   /**
@@ -312,20 +315,17 @@ export class WorkerPool {
             rows: batch.rows.length,
             durationMs: duration
           })
-          // Track callback as pending to ensure it completes before finishFile returns
+          // Track callback as pending to ensure it completes before finishFile returns.
+          // Errors are NOT caught here — they propagate to finishFile's drain loop
+          // so progress update failures are visible instead of silently lost.
+          // standalone code flag - pass original rows for retry queue population
           const callbackPromise = Promise.resolve().then(() => {
-            try {
-              this.onBatchComplete?.({
-                batchId: batch.id,
-                results,
-                processingTimeMs: duration
-              })
-            } catch (callbackError) {
-              logger.worker.error(`Worker ${workerId}: Error in batch callback`, {
-                batchId: batch.id,
-                error: callbackError instanceof Error ? callbackError.message : String(callbackError)
-              })
-            }
+            this.onBatchComplete?.({
+              batchId: batch.id,
+              results,
+              rows: batch.rows,
+              processingTimeMs: duration
+            })
           })
           this.pendingCallbacks.push(callbackPromise)
         }
@@ -338,23 +338,18 @@ export class WorkerPool {
         if (!this.aborted) {
           this.processedBatches++
           // Track error callback as pending
+          // standalone code flag - pass original rows for retry queue population
           const errorCallbackPromise = Promise.resolve().then(() => {
-            try {
-              this.onBatchComplete?.({
-                batchId: batch.id,
-                results: batch.rows.map(row => ({
-                  ok: false,
-                  error: error instanceof Error ? error.message : 'Worker error',
-                  rowIndex: row.index
-                })),
-                processingTimeMs: Date.now() - startTime
-              })
-            } catch (callbackError) {
-              logger.worker.error(`Worker ${workerId}: Error in error callback`, {
-                batchId: batch.id,
-                error: callbackError instanceof Error ? callbackError.message : String(callbackError)
-              })
-            }
+            this.onBatchComplete?.({
+              batchId: batch.id,
+              results: batch.rows.map(row => ({
+                ok: false,
+                error: error instanceof Error ? error.message : 'Worker error',
+                rowIndex: row.index
+              })),
+              rows: batch.rows,
+              processingTimeMs: Date.now() - startTime
+            })
           })
           this.pendingCallbacks.push(errorCallbackPromise)
         }

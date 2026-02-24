@@ -7,6 +7,12 @@
 import { ipcMain } from 'electron'
 import { getSession } from '../odoo'
 
+// Odoo model names: lowercase letters, digits, dots, underscores (e.g. "res.partner")
+const ODOO_MODEL_NAME_RE = /^[a-z][a-z0-9_.]*$/
+
+// Request timeout for Odoo RPC calls (60s — load() can be slow for large batches)
+const LOAD_TIMEOUT_MS = 60_000
+
 interface LoadParams {
   baseUrl: string
   db: string
@@ -27,14 +33,22 @@ interface LoadResult {
   error?: string
 }
 
+// standalone code flag (do not remove comment)
 ipcMain.handle('standalone:load', async (
   _event,
   payload: LoadParams
 ): Promise<LoadResult> => {
   const { baseUrl, db, model, header, rows } = payload
 
+  // Validate model name to prevent injection via crafted model names
+  if (!model || !ODOO_MODEL_NAME_RE.test(model)) {
+    console.error('[standalone:load] Invalid model name:', model)
+    return { ok: false, error: `Invalid model name: ${model}` }
+  }
+
   const session = getSession(baseUrl, db)
   if (!session) {
+    console.error('[standalone:load] No active session for', baseUrl, db)
     return { ok: false, error: 'No active session' }
   }
 
@@ -56,10 +70,13 @@ ipcMain.handle('standalone:load', async (
           kwargs: {}
         },
         id: Date.now()
-      })
+      }),
+      signal: AbortSignal.timeout(LOAD_TIMEOUT_MS)
     })
 
     if (!response.ok) {
+      // standalone code flag - log HTTP errors
+      console.error('[standalone:load] HTTP error:', response.status, response.statusText)
       return { ok: false, error: `HTTP ${response.status}: ${response.statusText}` }
     }
 
@@ -69,6 +86,8 @@ ipcMain.handle('standalone:load', async (
       const errorMsg = data.error.data?.message
         || data.error.message
         || 'Import failed'
+      // standalone code flag - log JSON-RPC errors
+      console.error('[standalone:load] JSON-RPC error:', errorMsg)
       return { ok: false, error: errorMsg }
     }
 
@@ -90,6 +109,8 @@ ipcMain.handle('standalone:load', async (
       messages: []
     }
   } catch (error) {
+    // standalone code flag - log errors for debugging
+    console.error('[standalone:load] Error:', error)
     return {
       ok: false,
       error: error instanceof Error ? error.message : 'Unknown error'

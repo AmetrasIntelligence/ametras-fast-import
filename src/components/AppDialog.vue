@@ -17,11 +17,14 @@ const dialogTitle = computed(() => {
   }
 })
 
-const dialogIcon = computed(() => {
+const dialogIconPath = computed(() => {
   switch (state.value.type) {
-    case 'alert': return 'ℹ'
-    case 'confirm': return '?'
-    case 'prompt': return '✏'
+    // Info circle
+    case 'alert': return 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z'
+    // Question/warning triangle
+    case 'confirm': return 'M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z'
+    // Pencil edit
+    case 'prompt': return 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 000-1.41l-2.34-2.34a1 1 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z'
     default: return ''
   }
 })
@@ -54,7 +57,9 @@ function handleKeydown(e: KeyboardEvent) {
       >
         <div class="csv-dialog" :class="`csv-dialog--${state.type}`" role="dialog">
           <div class="csv-dialog__header">
-            <span class="csv-dialog__icon" :class="`csv-dialog__icon--${state.type}`">{{ dialogIcon }}</span>
+            <span class="csv-dialog__icon" :class="`csv-dialog__icon--${state.type}`">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path :d="dialogIconPath" /></svg>
+            </span>
             <span class="csv-dialog__title">{{ dialogTitle }}</span>
           </div>
 
@@ -146,7 +151,7 @@ function handleKeydown(e: KeyboardEvent) {
   width: 2rem;
   height: 2rem;
   border-radius: 50%;
-  font-size: 1rem;
+  flex-shrink: 0;
 }
 
 .csv-dialog__icon--alert {
@@ -173,6 +178,7 @@ function handleKeydown(e: KeyboardEvent) {
 .csv-dialog__message {
   margin: 0 0 1.25rem;
   font-size: 0.875rem;
+  font-family: inherit;
   line-height: 1.6;
   color: #374151;
   white-space: pre-wrap;

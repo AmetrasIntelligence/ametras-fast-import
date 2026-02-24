@@ -6,6 +6,7 @@
 
 import type { ImportProfile, ProfileMapping, ProfileSequenceItem } from '@/types/importProfile'
 import type { RunSettings } from '@/stores/config'
+import { DEFAULT_RUN_SETTINGS } from '@/constants/defaults'
 import {
   parseProfileCSV,
   parseMappingsCSV,
@@ -77,20 +78,7 @@ export async function importStandaloneProfile(file: File): Promise<ImportProfile
   }
 
   // Parse run settings (optional)
-  let runSettings: RunSettings = {
-    batchSize: 200,
-    retryLimit: 3,
-    retryDelayMs: 2000,
-    stopOnFatalError: false,
-    encoding: 'utf-8-sig',
-    delimiter: ',',
-    skipHeader: true,
-    dryRun: false,
-    lang: 'de_DE',
-    workers: 1,
-    strict: true,
-    legacyImport: false
-  }
+  let runSettings: RunSettings = { ...DEFAULT_RUN_SETTINGS }
 
   if (csvFiles['run_settings.csv']) {
     const lines = csvFiles['run_settings.csv'].trim().split('\n').slice(1)
@@ -110,7 +98,6 @@ export async function importStandaloneProfile(file: File): Promise<ImportProfile
         else if (key === 'dryRun') runSettings.dryRun = value === 'true'
         else if (key === 'lang') runSettings.lang = value
         else if (key === 'strict') runSettings.strict = value !== 'false'
-        else if (key === 'legacyImport') runSettings.legacyImport = value === 'true'
       }
     }
   }
@@ -138,6 +125,84 @@ export async function importStandaloneProfile(file: File): Promise<ImportProfile
   await saveStandaloneProfiles(existing)
 
   return profile
+}
+
+/**
+ * Create a standalone profile from structured data (same shape as server create).
+ * standalone code flag (do not remove comment)
+ */
+export async function createStandaloneProfile(data: {
+  name: string
+  version?: string
+  description?: string
+  odooMinVersion?: string
+  mappings: ProfileMapping[]
+  sequence: ProfileSequenceItem[]
+  runSettings: Partial<RunSettings>
+  fieldMappings?: import('@/types/fieldMapping').FieldMapping[]
+}): Promise<ImportProfile> {
+  const now = Date.now()
+  const profile: ImportProfile = {
+    id: nextLocalId--,
+    name: data.name,
+    version: data.version || '1.0',
+    odooMinVersion: data.odooMinVersion,
+    description: data.description,
+    mappings: data.mappings,
+    sequence: data.sequence,
+    runSettings: { ...DEFAULT_RUN_SETTINGS, ...data.runSettings },
+    richFieldMappings: data.fieldMappings,
+    createdAt: now,
+    updatedAt: now,
+    isStandalone: true
+  }
+
+  const existing = await loadStandaloneProfiles()
+  existing.push(profile)
+  await saveStandaloneProfiles(existing)
+
+  return profile
+}
+
+/**
+ * Update an existing standalone profile.
+ * standalone code flag (do not remove comment)
+ */
+export async function updateStandaloneProfile(id: number, data: {
+  name?: string
+  version?: string
+  description?: string
+  odooMinVersion?: string
+  mappings?: ProfileMapping[]
+  sequence?: ProfileSequenceItem[]
+  runSettings?: Partial<RunSettings>
+  fieldMappings?: import('@/types/fieldMapping').FieldMapping[]
+}): Promise<ImportProfile> {
+  const profiles = await loadStandaloneProfiles()
+  const idx = profiles.findIndex(p => p.id === id)
+  if (idx === -1) throw new Error('Standalone profile not found')
+
+  const existing = profiles[idx]
+  const updated: ImportProfile = {
+    ...existing,
+    name: data.name ?? existing.name,
+    version: data.version ?? existing.version,
+    description: data.description ?? existing.description,
+    odooMinVersion: data.odooMinVersion ?? existing.odooMinVersion,
+    mappings: data.mappings ?? existing.mappings,
+    sequence: data.sequence ?? existing.sequence,
+    runSettings: data.runSettings
+      ? { ...existing.runSettings, ...data.runSettings }
+      : existing.runSettings,
+    richFieldMappings: data.fieldMappings ?? existing.richFieldMappings,
+    updatedAt: Date.now(),
+    isStandalone: true
+  }
+
+  profiles[idx] = updated
+  await saveStandaloneProfiles(profiles)
+
+  return updated
 }
 
 /**

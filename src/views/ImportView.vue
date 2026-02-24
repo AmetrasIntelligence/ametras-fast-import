@@ -21,6 +21,7 @@ import { analyzeCSV } from '@/importer/csvParser'
 import { suggestModel } from '@/utils/smartMapping'
 import { autoMapFields } from '@/utils/smartFieldMapping'
 import { showAlert, showConfirm, showPrompt } from '@/composables/useDialog'
+import { transformRowData } from '@/utils/rowTransform'
 import { Button, Card } from '@/ui'
 import FileDropZone from '@/components/FileDropZone.vue'
 import ModelSelect from '@/components/ModelSelect.vue'
@@ -44,6 +45,7 @@ const run = useRunStore()
 const activeProfile = ref<ImportProfile | null>(null)
 const runConfig = ref<RunConfig>(createRunConfig(0))
 const profileLoading = ref(false)
+const configTab = ref<'profile' | 'settings'>('profile')
 
 const models = ref<OdooModel[]>([])
 const fieldsCache = ref<Map<string, OdooField[]>>(new Map())
@@ -224,10 +226,10 @@ async function addAndAnalyze(selected: Array<{ id: string; name: string; size: n
     // Check saved mappings first for suggestions
     const saved = savedMappings.findSuggestion(file.name)
     if (saved) {
-      modelSuggestions.value.set(file.name, {
-        model: models.value.find(m => m.model === saved.model)!,
-        score: 100
-      })
+      const matchedModel = models.value.find(m => m.model === saved.model)
+      if (matchedModel) {
+        modelSuggestions.value.set(file.name, { model: matchedModel, score: 100 })
+      }
     } else {
       // Smart suggestion
       const suggestion = suggestModel(file.name, models.value)
@@ -465,58 +467,10 @@ async function validateRowForFile(filename: string) {
     // Pick a random row from sample rows
     const randomIndex = Math.floor(Math.random() * analysis.sampleRows.length)
     const row = analysis.sampleRows[randomIndex]
-    const mappedData: Record<string, unknown> = {}
+    const mappedData = transformRowData(row, mapping.fieldMappings)
 
-    for (const [csvHeader, odooField] of Object.entries(mapping.fieldMappings)) {
-      const value = row[csvHeader]
-      if (value === undefined || value === '') continue
-
-      // Match batchExecutor.transformRow logic exactly
-
-      // Handle id/.id fields specially for upsert
-      // Any CSV column can be mapped to 'id' (external ID) or '.id' (database ID)
-      if (odooField === 'id') {
-        mappedData['__external_id__'] = value
-        continue
-      }
-      if (odooField === '.id') {
-        mappedData['id'] = parseInt(value, 10)
-        continue
-      }
-
-      // Old implementation (fallback - only works if CSV column is literally named 'id' or '.id'):
-      // if (csvHeader === 'id' && odooField === 'id') {
-      //   mappedData['__external_id__'] = value
-      //   continue
-      // }
-      // if (csvHeader === '.id' && odooField === '.id') {
-      //   mappedData['id'] = parseInt(value, 10)
-      //   continue
-      // }
-
-      // Handle reference suffixes: /.id for database ID, /id for external ID
-      if (odooField.endsWith('/.id')) {
-        const targetField = odooField.slice(0, -4)
-        mappedData[targetField] = parseInt(value, 10)
-        continue
-      }
-      if (odooField.endsWith('/id')) {
-        const targetField = odooField.slice(0, -3)
-        mappedData[targetField] = value
-        continue
-      }
-
-      mappedData[odooField] = value
-    }
-
-    // Detect if using external ID for upsert (matches batchExecutor.detectIdColumn)
-    // Check if ANY field is mapped to 'id' or '.id'
+    // Detect if using external ID for upsert
     const useExternalId = '__external_id__' in mappedData
-
-    // Old implementation (fallback):
-    // const hasExternalId = mapping.fieldMappings['id'] === 'id'
-    // const hasDbId = mapping.fieldMappings['.id'] === '.id'
-    // const useExternalId = hasExternalId || (!hasDbId && '__external_id__' in mappedData)
 
     const result = await window.api.odoo.call<{ results: Array<{ ok: boolean; action?: string; error?: string }> }>({
       baseUrl: session.baseUrl,
@@ -746,6 +700,43 @@ function stripVersionSuffix(name: string): string {
   return name.replace(/\s+v\d+(\.\d+)*$/i, '')
 }
 
+/**
+ * Build profile payload (mappings, richFieldMappings, sequence) from current config.
+ * Shared between saveAsProfile and updateExistingProfile.
+ */
+function buildProfilePayload() {
+  const mappings: ProfileMapping[] = []
+  const richMappingsArr: FieldMapping[] = []
+
+  // Only include files that are currently uploaded
+  const uploadedFilenames = new Set(filesStore.files.map(f => f.name))
+
+  for (const [filename, mapping] of config.fileMappings) {
+    if (!uploadedFilenames.has(filename)) continue
+
+    const profileMapping: ProfileMapping = { filename, model: mapping.model }
+    if (mapping.searchKeys && mapping.searchKeys.length > 0) {
+      profileMapping.searchKeys = mapping.searchKeys
+    }
+    if (mapping.strict !== undefined) {
+      profileMapping.strict = mapping.strict
+    }
+    mappings.push(profileMapping)
+
+    const computedMappings = buildRichFieldMappings(filename, mapping.fieldMappings)
+    richMappingsArr.push(...computedMappings)
+  }
+
+  const sequence: ProfileSequenceItem[] = config.importSequence
+    .filter(filename => uploadedFilenames.has(filename))
+    .map((filename, idx) => ({
+      order: idx + 1,
+      filename
+    }))
+
+  return { mappings, richMappingsArr, sequence }
+}
+
 async function saveAsProfile() {
   let suggestedName = ''
   let suggestedVersion = '1.0'
@@ -764,39 +755,7 @@ async function saveAsProfile() {
   const name = await showPrompt('Profile name:', suggestedName)
   if (!name) return
 
-  const mappings: ProfileMapping[] = []
-  const richMappingsArr: FieldMapping[] = []
-
-  // Only include files that are currently uploaded (not orphan mappings)
-  const uploadedFilenames = new Set(filesStore.files.map(f => f.name))
-
-  for (const [filename, mapping] of config.fileMappings) {
-    // Skip mappings for files that are no longer uploaded
-    if (!uploadedFilenames.has(filename)) continue
-
-    // Include all mapping properties (model, searchKeys, strict)
-    const profileMapping: ProfileMapping = { filename, model: mapping.model }
-    if (mapping.searchKeys && mapping.searchKeys.length > 0) {
-      profileMapping.searchKeys = mapping.searchKeys
-    }
-    if (mapping.strict !== undefined) {
-      profileMapping.strict = mapping.strict
-    }
-    mappings.push(profileMapping)
-
-    // IMPORTANT: Always compute transform and required from field metadata
-    // This ensures proper m2o_ref, m2m_ref, db_id transforms are saved
-    const computedMappings = buildRichFieldMappings(filename, mapping.fieldMappings)
-    richMappingsArr.push(...computedMappings)
-  }
-
-  // Only include files that are currently uploaded in the sequence
-  const sequence: ProfileSequenceItem[] = config.importSequence
-    .filter(filename => uploadedFilenames.has(filename))
-    .map((filename, idx) => ({
-      order: idx + 1,
-      filename
-    }))
+  const { mappings, richMappingsArr, sequence } = buildProfilePayload()
 
   try {
     const newProfile = await profiles.createProfile({
@@ -817,9 +776,11 @@ async function saveAsProfile() {
     profileLoadedAt.value = Date.now()
     lastEditAt.value = 0
 
-    showAlert(`Profile "${name}" saved to server.`)
+    showAlert(session.importMode === 'standalone'
+      ? t('config.profileSavedLocal', { name })
+      : t('config.profileSavedServer', { name }))
   } catch (e) {
-    showAlert(`Failed to save profile: ${(e as Error).message}`)
+    showAlert(t('config.failedToSaveProfile', { error: (e as Error).message }))
   }
 }
 
@@ -846,35 +807,7 @@ async function updateExistingProfile() {
   // Auto-increment minor version on every update
   const newVersion = incrementMinorVersion(activeProfile.value.version)
 
-  const mappings: ProfileMapping[] = []
-  const richMappingsArr: FieldMapping[] = []
-
-  // Only include files that are currently uploaded (not orphan mappings)
-  const uploadedFilenames = new Set(filesStore.files.map(f => f.name))
-
-  for (const [filename, mapping] of config.fileMappings) {
-    if (!uploadedFilenames.has(filename)) continue
-
-    const profileMapping: ProfileMapping = { filename, model: mapping.model }
-    if (mapping.searchKeys && mapping.searchKeys.length > 0) {
-      profileMapping.searchKeys = mapping.searchKeys
-    }
-    if (mapping.strict !== undefined) {
-      profileMapping.strict = mapping.strict
-    }
-    mappings.push(profileMapping)
-
-    // Always compute transform and required from field metadata
-    const computedMappings = buildRichFieldMappings(filename, mapping.fieldMappings)
-    richMappingsArr.push(...computedMappings)
-  }
-
-  const sequence: ProfileSequenceItem[] = config.importSequence
-    .filter(filename => uploadedFilenames.has(filename))
-    .map((filename, idx) => ({
-      order: idx + 1,
-      filename
-    }))
+  const { mappings, richMappingsArr, sequence } = buildProfilePayload()
 
   try {
     const updatedProfile = await profiles.updateProfile(activeProfile.value.id, {
@@ -892,9 +825,9 @@ async function updateExistingProfile() {
     profileLoadedAt.value = Date.now()
     lastEditAt.value = 0
 
-    showAlert(`Profile "${updatedProfile.name}" updated to v${newVersion}.`)
+    showAlert(t('config.profileUpdated', { name: updatedProfile.name, version: newVersion }))
   } catch (e) {
-    showAlert(`Failed to update profile: ${(e as Error).message}`)
+    showAlert(t('config.failedToSaveProfile', { error: (e as Error).message }))
   }
 }
 </script>
@@ -935,25 +868,45 @@ async function updateExistingProfile() {
 
     <!-- Show config sections only when files are selected -->
     <template v-if="hasFiles">
-      <!-- Profile Loader -->
-      <Card class="csv-p-4">
-        <div class="csv-flex csv-justify-between csv-items-center csv-mb-3">
-          <label class="csv-text-sm csv-font-medium">{{ $t('config.serverProfile') }}</label>
-          <Button v-if="activeProfile" variant="ghost" size="sm" @click="clearProfile">
-            {{ $t('common.clear') }}
-          </Button>
+      <!-- Profile & Settings Section -->
+      <div class="csv-section-header">
+        <span class="csv-section-title">{{ $t('config.serverProfile') }}</span>
+        <Button v-if="activeProfile" variant="ghost" size="sm" @click="clearProfile">
+          {{ $t('common.clear') }}
+        </Button>
+      </div>
+      <Card class="csv-import-card">
+        <div class="csv-import-card__tabs">
+          <button
+            type="button"
+            class="csv-import-card__tab"
+            :class="{ 'csv-import-card__tab--active': configTab === 'profile' }"
+            @click="configTab = 'profile'"
+          >
+            {{ $t('config.tabs.profile') }}
+          </button>
+          <button
+            type="button"
+            class="csv-import-card__tab"
+            :class="{ 'csv-import-card__tab--active': configTab === 'settings' }"
+            @click="configTab = 'settings'"
+          >
+            {{ $t('config.tabs.settings') }}
+          </button>
         </div>
-        <ProfileSelect
-          :model-value="activeProfile?.id ?? null"
-          :profiles="profiles.profileList"
-          :loading="profiles.loading"
-          @update:model-value="handleProfileSelect($event ?? 0)"
-        />
-        <div v-if="profileLoading" class="csv-text-sm csv-text-muted csv-mt-2">{{ $t('config.loadingProfileData') }}</div>
+        <div v-show="configTab === 'profile'" class="csv-import-card__content">
+          <ProfileSelect
+            :model-value="activeProfile?.id ?? null"
+            :profiles="profiles.profileList"
+            :loading="profiles.loading"
+            @update:model-value="handleProfileSelect($event ?? 0)"
+          />
+          <div v-if="profileLoading" class="csv-text-sm csv-text-muted csv-mt-2">{{ $t('config.loadingProfileData') }}</div>
+        </div>
+        <div v-show="configTab === 'settings'" class="csv-import-card__content">
+          <ImportSettings />
+        </div>
       </Card>
-
-      <!-- Collapsible Import Settings -->
-      <ImportSettings />
 
       <!-- Draggable File List -->
       <div class="csv-section-header">
@@ -1150,6 +1103,38 @@ async function updateExistingProfile() {
   font-size: 0.875rem;
   font-weight: 600;
   color: #374151;
+}
+
+/* Import card with tabs (profile/settings) */
+.csv-import-card {
+  overflow: hidden;
+}
+.csv-import-card__tabs {
+  display: flex;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
+.csv-import-card__tab {
+  position: relative;
+  padding: 0.5rem 1rem;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+  color: #6b7280;
+  border-bottom: 2px solid transparent;
+}
+.csv-import-card__tab:hover {
+  color: #111827;
+  background: #f3f4f6;
+}
+.csv-import-card__tab--active {
+  color: #2563eb;
+  border-bottom-color: #2563eb;
+}
+.csv-import-card__content {
+  padding: 0.75rem;
 }
 
 /* File config inside expanded area */
