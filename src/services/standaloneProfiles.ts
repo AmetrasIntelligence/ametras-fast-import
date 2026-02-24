@@ -78,7 +78,7 @@ export async function importStandaloneProfile(file: File): Promise<ImportProfile
   }
 
   // Parse run settings (optional)
-  let runSettings: RunSettings = { ...DEFAULT_RUN_SETTINGS }
+  const runSettings: RunSettings = { ...DEFAULT_RUN_SETTINGS }
 
   if (csvFiles['run_settings.csv']) {
     const lines = csvFiles['run_settings.csv'].trim().split('\n').slice(1)

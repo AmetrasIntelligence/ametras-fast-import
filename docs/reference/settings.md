@@ -14,6 +14,11 @@ These settings apply to the entire import project.
 | `retryDelayMs` | 500 | 100+ | Milliseconds to wait between retry attempts. |
 | `stopOnFatalError` | `false` | `true`/`false` | If true, the entire import process stops immediately when a non-retryable error occurs. |
 | `dryRun` | `false` | `true`/`false` | If true, the data is sent to Odoo and validated, but the transactions are rolled back. No data is actually created. |
+| `encoding` | `utf-8-sig` | - | CSV file encoding (`utf-8-sig`, `utf-8`, `latin-1`, `cp1252`). Default includes BOM handling. |
+| `delimiter` | `,` | - | CSV delimiter character (`,`, `;`, `\t`). Auto-detect supported. |
+| `skipHeader` | `true` | `true`/`false` | Whether the first row of the CSV is a header row. |
+| `lang` | `de_DE` | - | Odoo language context for the import (affects translated field values). |
+| `strict` | `true` | `true`/`false` | If true, the import fails on missing required fields or unresolved references. |
 
 ## CSV Parser Settings
 
@@ -21,14 +26,14 @@ Determined per-file during the analysis phase, but can be overridden manually.
 
 | Setting | Description |
 |---------|-------------|
-| `delimiter` | The character used to separate columns (e.g., `,`, `;`, `\t`). |
-| `encoding` | The character encoding of the file (e.g., `UTF-8`, `ISO-8859-1`, `Windows-1252`). |
+| `delimiter` | The character used to separate columns (e.g., `,`, `;`, `\t`). Default: `,`. |
+| `encoding` | The character encoding of the file. Default: `utf-8-sig` (UTF-8 with BOM handling). |
 | `quoteChar` | The character used to wrap fields containing the delimiter (default is `"`). |
 | `escapeChar` | The character used to escape special characters. |
 
 ## Odoo Strategy Settings
 
-Defined per-file in the Configure view.
+Defined per-file in the Import view.
 
 | Setting | Description |
 |---------|-------------|

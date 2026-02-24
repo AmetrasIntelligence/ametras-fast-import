@@ -46,7 +46,7 @@ export function normalizeForComparison(str: string): string {
 export function tokenize(str: string): string[] {
   return str
     .toLowerCase()
-    .replace(/[-_\.]/g, ' ')
+    .replace(/[-_.]/g, ' ')
     .split(/\s+/)
     .filter(t => t.length > 0)
 }

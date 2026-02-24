@@ -1,6 +1,6 @@
 # Configuration & Mapping
 
-The **Configure** view is where you define how each CSV file maps to Odoo models and fields.
+The **Import** view is where you define how each CSV file maps to Odoo models and fields. It features a tabbed interface with **Profile** and **Settings** tabs — the Profile tab lets you select and manage import profiles, while the Settings tab exposes the run settings form.
 
 ## Model Assignment
 

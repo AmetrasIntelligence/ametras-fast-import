@@ -168,6 +168,6 @@ ipcMain.handle('profile:export', async (_event, payload: {
     return true
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Export failed'
-    throw new Error(message)
+    throw new Error(message, { cause: e })
   }
 })

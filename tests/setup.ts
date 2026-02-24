@@ -64,7 +64,7 @@ const mockApi = {
   }
 }
 
-// @ts-ignore
+// @ts-expect-error - mock window for tests
 globalThis.window = {
   api: mockApi,
   crypto: {

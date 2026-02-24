@@ -350,7 +350,7 @@ async function executeWithAdaptiveRetry(
 
   // Determine which rows need retrying
   let rowsToRetry: ParsedRow[]
-  let immediateFailResults: BatchResult[] = []
+  const immediateFailResults: BatchResult[] = []
 
   // Error-guided: if Odoo told us which rows are bad, skip them
   if (result.errorRowIndices && result.errorRowIndices.size > 0 && result.errorRowIndices.size < rows.length) {

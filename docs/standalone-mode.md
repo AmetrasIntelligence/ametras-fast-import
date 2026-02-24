@@ -67,10 +67,19 @@ Since server profiles require the addon, standalone mode supports **local profil
 
 ### Local Profile Storage
 
-- Stored in electron-store under key `standalone-profiles`
+- **Electron mode**: Stored in electron-store under key `standalone-profiles`
+- **Browser mode**: Stored in `localStorage` under key `standalone-profiles`
 - Uses negative IDs to distinguish from server profiles
 - Persists across application restarts
 - Can be exported back to ZIP format
+
+### Profile Save/Update
+
+Local profiles can be saved and updated directly from the Import view:
+
+1. Configure your file mappings and settings
+2. Click **Save as Profile** to create a new local profile
+3. Click **Update Profile** to save changes to the active profile (auto-increments the minor version)
 
 ### Profile ZIP Structure
 
@@ -122,6 +131,10 @@ Example with maxSize=100:
 If 3 batches fail at size 100, the adapter drops back to 10. After 100 more successful rows at 10, it steps back up to 100.
 
 This approach avoids the problem of aggressive multiplicative scaling where a single bad batch of 100 rows triggers geometric retry (100→10→1), wasting many API calls. By starting small and proving data quality first, the warmup minimizes wasted work.
+
+## Auto-Navigation
+
+When a standalone import completes (all files processed) or is aborted, the Run view automatically navigates to the Results view, matching the behavior of addon-mode imports.
 
 ## Limitations
 

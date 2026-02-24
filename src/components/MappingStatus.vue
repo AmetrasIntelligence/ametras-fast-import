@@ -14,6 +14,8 @@ const config = computed(() => {
       return { label: 'Some fields unmapped', dotClass: 'csv-status--partial', badgeClass: 'csv-status-badge--partial' }
     case 'none':
       return { label: 'No model selected', dotClass: 'csv-status--none', badgeClass: 'csv-status-badge--none' }
+    default:
+      return { label: '', dotClass: '', badgeClass: '' }
   }
 })
 </script>

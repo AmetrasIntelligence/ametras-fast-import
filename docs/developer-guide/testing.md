@@ -6,7 +6,7 @@ The project maintains high code quality through a comprehensive test suite cover
 
 Most of the client's logic is covered by Vitest unit tests. These are located in `tests/unit/`.
 
-*   **Coverage**: The suite includes over 450 tests.
+*   **Coverage**: The suite includes 514 tests.
 *   **Key Test Areas**:
     *   `csvParser.test.ts`: Delimiter detection, streaming, and chunking.
     *   `stateMachine.test.ts`: Transitions between import states and error recovery.
@@ -44,10 +44,22 @@ Backend tests are written using Odoo's `TransactionCase` and focus on the `CSVIm
     /path/to/odoo-bin -c your_config.conf -i csv_import --test-enable
     ```
 
-## 4. Continuous Integration
+## 4. Static Analysis
+
+*   **Linting** (ESLint):
+    ```bash
+    npm run lint
+    npm run lint:fix   # auto-fix
+    ```
+*   **Type Checking** (vue-tsc):
+    ```bash
+    npm run typecheck
+    ```
+
+## 5. Continuous Integration
 
 Every pull request is automatically tested against:
-1.  **Linter**: `npm run lint` (ESLint and Prettier).
+1.  **Linter**: `npm run lint`.
 2.  **Type Check**: `npm run typecheck`.
 3.  **Unit Tests**: `npm test`.
 4.  **Build Check**: `npm run build`.

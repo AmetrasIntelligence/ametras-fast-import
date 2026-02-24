@@ -93,7 +93,7 @@ cp -r csv_import /path/to/odoo/addons/
 # Start development server (Vue + Electron)
 npm run dev
 
-# Run unit and integration tests
+# Run unit and integration tests (514 tests)
 npm test
 
 # Run tests in watch mode
@@ -107,6 +107,9 @@ npm run typecheck
 
 # Linting
 npm run lint
+
+# Lint with auto-fix
+npm run lint:fix
 ```
 
 ## Building
@@ -130,7 +133,10 @@ csv-client/
 │       ├── files.ts             # File streaming handlers
 │       ├── odoo.ts              # Odoo RPC proxy + getSession()
 │       ├── store.ts             # Persistent storage
-│       └── profile.ts           # Profile ZIP select/upload/export IPC
+│       ├── profile.ts           # Profile ZIP select/upload/export IPC
+│       └── standalone/          # Standalone mode IPC
+│           ├── detector.ts      # Addon availability check
+│           └── loader.ts        # model.load() proxy
 ├── src/
 │   ├── api/
 │   │   ├── odooClient.ts        # Odoo API functions
@@ -141,9 +147,14 @@ csv-client/
 │   │   ├── stateMachine.ts      # Import states + transitions
 │   │   ├── csvParser.ts         # PapaParse wrapper + streaming
 │   │   ├── batchExecutor.ts     # Batch processing
+│   │   ├── workerPool.ts        # Parallel worker coordination
 │   │   ├── retryQueue.ts        # Failed row handling
 │   │   ├── persistence.ts       # State recovery
-│   │   └── profileValidator.ts  # Profile + ProfileDraft validation
+│   │   ├── profileValidator.ts  # Profile + ProfileDraft validation
+│   │   ├── fieldMappingValidator.ts # Field mapping validation
+│   │   └── standalone/          # Standalone (no addon) import
+│   │       ├── executor.ts      # Batch execution via model.load()
+│   │       └── types.ts         # Standalone-specific types
 │   ├── stores/
 │   │   ├── session.ts           # Auth state
 │   │   ├── config.ts            # Import settings
@@ -156,9 +167,13 @@ csv-client/
 │   │   ├── fieldMapping.ts      # FieldMapping + FieldTransform types
 │   │   └── runConfig.ts         # RunConfig override type
 │   ├── composables/
-│   │   ├── useDialog.ts              # In-app alert/confirm/prompt dialogs
-│   │   ├── useProfileImport.ts       # Profile ZIP upload composable
-│   │   └── useRunConfig.ts           # Override merge composable
+│   │   ├── useDialog.ts         # In-app alert/confirm/prompt dialogs
+│   │   ├── useDropdown.ts       # Shared dropdown positioning logic
+│   │   ├── useProfileImport.ts  # Profile ZIP upload composable
+│   │   └── useRunConfig.ts      # Override merge composable
+│   ├── services/
+│   │   ├── importMode.ts        # Addon detection (standalone vs addon)
+│   │   └── standaloneProfiles.ts # Local profile storage
 │   ├── utils/
 │   │   ├── logger.ts            # Structured logging
 │   │   ├── smartMapping.ts      # Filename → Model scoring
@@ -166,12 +181,27 @@ csv-client/
 │   │   ├── profileTemplates.ts  # Built-in profile templates
 │   │   ├── profileExporter.ts   # ZIP export with overrides
 │   │   ├── profileVersioning.ts # Version parse + compatibility
-│   │   └── profileZip.ts        # ZIP generation helpers
+│   │   ├── profileZip.ts        # ZIP generation helpers
+│   │   ├── rowTransform.ts      # Shared row data transformation
+│   │   ├── download.ts          # Browser file download utilities
+│   │   ├── browserFallback.ts   # Browser-mode window.api stubs
+│   │   ├── stateLock.ts         # Async mutex for state serialization
+│   │   ├── formatters.ts        # Number/time formatting helpers
+│   │   ├── stringSimilarity.ts  # String similarity scoring
+│   │   └── errors.ts            # Error type utilities
+│   ├── constants/
+│   │   └── defaults.ts          # Default settings values
+│   ├── i18n/
+│   │   └── index.ts             # Vue I18n setup
 │   ├── ui/                      # UI component wrappers
 │   │   ├── Button.vue
 │   │   ├── Input.vue
+│   │   ├── Select.vue
+│   │   ├── Checkbox.vue
+│   │   ├── Card.vue
+│   │   ├── Table.vue
 │   │   ├── Progress.vue
-│   │   └── ...
+│   │   └── Divider.vue
 │   ├── components/
 │   │   ├── AppDialog.vue        # In-app modal dialog (alert/confirm/prompt)
 │   │   ├── ErrorBoundary.vue
@@ -179,20 +209,24 @@ csv-client/
 │   │   ├── FieldSuggestion.vue  # Field suggestion with confidence
 │   │   ├── FileDropZone.vue     # Drag & drop file import
 │   │   ├── FileList.vue         # Sortable file table with preview
-│   │   ├── ImportSettings.vue   # Collapsible settings panel
+│   │   ├── ImportSettings.vue   # Import settings form (tabbed)
+│   │   ├── LanguageSelector.vue # UI language selector
 │   │   ├── MappingStatus.vue    # Color-coded status indicator
 │   │   ├── ModelSelect.vue      # Searchable model dropdown
 │   │   ├── ModelSuggestion.vue  # Model suggestion with confidence
-│   │   └── ProfileEditor.vue    # Tabbed profile editor with overrides
+│   │   ├── ProfileEditor.vue    # Tabbed profile editor with overrides
+│   │   ├── ProfileSelect.vue    # Profile dropdown selector
+│   │   ├── StandaloneBanner.vue # Standalone mode warning banner
+│   │   └── TransformSelect.vue  # Field transform selector
 │   ├── views/
 │   │   ├── LoginView.vue
-│   │   ├── FilesView.vue
-│   │   ├── ConfigView.vue
+│   │   ├── ImportView.vue       # Main import view (files, config, mapping)
 │   │   ├── RunView.vue
 │   │   ├── ResultsView.vue
-│   │   └── SavedMappingsView.vue
+│   │   └── SavedProfilesView.vue
 │   ├── App.vue
-│   └── main.ts
+│   ├── main.ts
+│   └── shims-vue.d.ts           # Vue SFC type declarations
 ├── csv_import/                  # Odoo addon
 │   ├── __init__.py
 │   ├── __manifest__.py
@@ -208,14 +242,14 @@ csv-client/
 ├── tests/
 │   ├── setup.ts                 # Test configuration
 │   ├── fixtures/                # Demo CSV data
-│   ├── unit/                    # Vitest unit tests (449 tests)
+│   ├── unit/                    # Vitest unit tests
 │   ├── integration/             # Integration tests
 │   └── e2e/                     # Playwright e2e tests
-└── docs/
-    ├── project-overview.md
-    ├── implementation-tickets.md
-    ├── implementation-summary.md
-    └── import-profiles.md
+│       ├── helpers.ts           # Shared e2e test utilities
+│       └── import.spec.ts       # Import flow e2e test
+└── docs/                        # Project documentation
+    ├── standalone-mode.md
+    └── ...
 ```
 
 ## Import State Machine
@@ -236,7 +270,7 @@ IDLE → VALIDATING → RUNNING_FILE ↔ RUNNING_BATCH → COMPLETED
 | `workers` | 1 | 1-4 | Parallel workers for batch processing |
 | `retryLimit` | 3 | 0-10 | Max retry attempts per row |
 | `retryDelayMs` | 500 | 100+ | Delay between retry attempts |
-| `encoding` | utf-8 | - | CSV file encoding (utf-8, latin-1, cp1252) |
+| `encoding` | utf-8-sig | - | CSV file encoding (utf-8-sig, utf-8, latin-1, cp1252) |
 | `delimiter` | , | - | CSV delimiter (auto-detect supported) |
 | `dryRun` | false | - | Validate without committing |
 
@@ -264,7 +298,7 @@ See [docs/reference/transforms.md](docs/reference/transforms.md) for full docume
 
 ## Test Suite
 
-The project includes a comprehensive test suite with over 500 tests covering both the TypeScript frontend and Python backend.
+The project includes a comprehensive test suite with 514 tests covering both the TypeScript frontend and Python backend.
 
 See **[Testing Strategy](docs/developer-guide/testing.md)** for details on how to run and extend tests.
 

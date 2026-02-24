@@ -222,7 +222,7 @@ ipcMain.handle('files:streamChunks', async (event, id: string, chunkLines: numbe
   let chunk: string[] = []
   let isFirstChunk = true
   let headerLine = ''
-  let lineEnding = '\n' // Default, will be detected from first line
+  const lineEnding = '\n' // Default, will be detected from first line
   let bomStripped = false
 
   rl.on('line', (line) => {

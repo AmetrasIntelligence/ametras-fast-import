@@ -38,6 +38,10 @@ The UI provides several metrics:
 *   **Resume**: Continues the import from where it was paused.
 *   **Abort**: Stops the import completely. Progress is saved, allowing you to resume later if you don't clear the session.
 
+## Auto-Navigation to Results
+
+When the import completes (all files processed) or is aborted, the Run view automatically navigates to the **Results** view, where you can review successes, failures, and export error logs.
+
 ## Handling Failures
 
 Failures are handled based on your **Run Settings**:
