@@ -8,18 +8,18 @@ import {
 } from '../fixtures'
 
 // Import after mocks are set up
-import { parseCSV, analyzeCSV } from '@/importer/csvParser'
+import { parseCSVFull, analyzeCSV } from '@/importer/csvParser'
 
 describe('csvParser', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  describe('parseCSV', () => {
+  describe('parseCSVFull', () => {
     it('parses simple CSV correctly', async () => {
       mockApi.files.read.mockResolvedValue(DEMO_CSV_PARTNER_SIMPLE)
 
-      const rows = await parseCSV('test-file-id')
+      const rows = await parseCSVFull('test-file-id')
 
       expect(rows).toHaveLength(3)
       expect(rows[0].index).toBe(1)
@@ -31,7 +31,7 @@ describe('csvParser', () => {
     it('parses CSV with special characters', async () => {
       mockApi.files.read.mockResolvedValue(DEMO_CSV_SPECIAL_CHARS)
 
-      const rows = await parseCSV('test-file-id')
+      const rows = await parseCSVFull('test-file-id')
 
       expect(rows).toHaveLength(3)
       expect(rows[0].data.name).toBe('Company, Inc.')
@@ -45,7 +45,7 @@ describe('csvParser', () => {
 1,Test,test@test.com`
       mockApi.files.read.mockResolvedValue(csvWithSpaces)
 
-      const rows = await parseCSV('test-file-id')
+      const rows = await parseCSVFull('test-file-id')
 
       expect(rows[0].data).toHaveProperty('id')
       expect(rows[0].data).toHaveProperty('name')
@@ -61,7 +61,7 @@ describe('csvParser', () => {
 3,Third`
       mockApi.files.read.mockResolvedValue(csvWithEmptyLines)
 
-      const rows = await parseCSV('test-file-id')
+      const rows = await parseCSVFull('test-file-id')
 
       expect(rows).toHaveLength(3)
     })
@@ -69,7 +69,7 @@ describe('csvParser', () => {
     it('returns raw values array', async () => {
       mockApi.files.read.mockResolvedValue(DEMO_CSV_PARTNER_SIMPLE)
 
-      const rows = await parseCSV('test-file-id')
+      const rows = await parseCSVFull('test-file-id')
 
       expect(rows[0].raw).toEqual(['partner_1', 'Test Company', 'test@example.com', '+49123456', 'true'])
     })
@@ -79,7 +79,7 @@ describe('csvParser', () => {
 1;Test;test@test.com`
       mockApi.files.read.mockResolvedValue(semicolonCSV)
 
-      const rows = await parseCSV('test-file-id', { delimiter: ';' })
+      const rows = await parseCSVFull('test-file-id', { delimiter: ';' })
 
       expect(rows[0].data.id).toBe('1')
       expect(rows[0].data.name).toBe('Test')
@@ -90,7 +90,7 @@ describe('csvParser', () => {
 2,Another,another@test.com`
       mockApi.files.read.mockResolvedValue(noHeaderCSV)
 
-      const rows = await parseCSV('test-file-id', { hasHeader: false })
+      const rows = await parseCSVFull('test-file-id', { hasHeader: false })
 
       // Without header, data keys are column indices
       expect(rows).toHaveLength(2)

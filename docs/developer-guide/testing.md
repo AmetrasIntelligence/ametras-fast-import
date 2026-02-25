@@ -14,7 +14,9 @@ Most of the client's logic is covered by Vitest unit tests. These are located in
     *   `batchExecutor.test.ts`: Parallel batch processing and worker coordination.
 *   **Running Unit Tests**:
     ```bash
-    npm test
+    npm test                # single run
+    npm run test:watch      # re-run on file changes
+    npm run test:coverage   # single run with coverage report
     ```
 
 ## 2. E2E Tests (Playwright)
@@ -28,7 +30,12 @@ End-to-end tests verify the entire application flow in a real Electron environme
     *   Navigation and persistence of settings.
 *   **Running E2E Tests**:
     ```bash
-    npm run test:e2e
+    npm run test:e2e        # headless
+    npm run test:e2e:ui     # interactive UI
+    ```
+*   **Running All Tests** (unit + e2e):
+    ```bash
+    npm run test:all
     ```
 
 ## 3. Python Tests (Odoo)

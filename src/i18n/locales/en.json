@@ -64,7 +64,9 @@
       "addMore": "Drop more files or",
       "browse": "browse"
     },
-    "removeFile": "Remove file"
+    "removeFile": "Remove file",
+    "removeAll": "Remove All",
+    "removeAllConfirm": "Remove all files and reset mappings?"
   },
   "config": {
     "title": "Configure Import",

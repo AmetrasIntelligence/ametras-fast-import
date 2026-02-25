@@ -45,7 +45,7 @@ const etaDisplay = computed(() => {
 })
 
 const fileProgressList = computed(() =>
-  Array.from(run.progress.files.values())
+  Object.values(run.progress.files)
 )
 
 const isRunning = computed(() =>

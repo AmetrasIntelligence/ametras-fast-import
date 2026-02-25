@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { OdooField } from '@/api/odooClient'
 import { useDropdown } from '@/composables/useDropdown'
+import { useSearchDebounce } from '@/composables/useSearchDebounce'
 
 const { t } = useI18n()
 
@@ -25,11 +26,9 @@ const emit = defineEmits<{
   'update:modelValue': [value: string]
 }>()
 
-const searchQuery = ref('')
-const debouncedQuery = ref('')
 const searchInputEl = ref<HTMLInputElement | null>(null)
 
-let debounceTimer: ReturnType<typeof setTimeout> | null = null
+const { searchQuery, debouncedQuery, reset: resetSearch } = useSearchDebounce(150)
 
 const {
   isOpen,
@@ -43,17 +42,9 @@ const {
   dropdownWidth: 400,
   minSpaceBelow: 180,
   onOpen: () => {
-    searchQuery.value = ''
-    debouncedQuery.value = ''
+    resetSearch()
     setTimeout(() => searchInputEl.value?.focus(), 50)
   }
-})
-
-watch(searchQuery, (val) => {
-  if (debounceTimer) clearTimeout(debounceTimer)
-  debounceTimer = setTimeout(() => {
-    debouncedQuery.value = val
-  }, 150)
 })
 
 const allOptions = computed<FieldOption[]>(() => {
@@ -135,18 +126,14 @@ function toggleOpen() {
 function selectOption(option: FieldOption) {
   emit('update:modelValue', option.value)
   close()
-  searchQuery.value = ''
+  resetSearch()
 }
 
 function selectSkip() {
   emit('update:modelValue', '')
   close()
-  searchQuery.value = ''
+  resetSearch()
 }
-
-onBeforeUnmount(() => {
-  if (debounceTimer) clearTimeout(debounceTimer)
-})
 </script>
 
 <template>
@@ -176,61 +163,61 @@ onBeforeUnmount(() => {
         class="csv-field-sel__dropdown"
         :style="dropdownStyle"
       >
-      <!-- Search -->
-      <div class="csv-field-sel__search">
-        <input
-          ref="searchInputEl"
-          v-model="searchQuery"
-          type="text"
-          :placeholder="$t('fieldSelect.searchPlaceholder')"
-          class="csv-field-sel__search-input"
-        />
-      </div>
-
-      <!-- Results -->
-      <div class="csv-field-sel__results">
-        <!-- Skip option -->
-        <button
-          type="button"
-          class="csv-field-sel__option"
-          :class="{ 'csv-field-sel__option--selected': !modelValue }"
-          @click="selectSkip"
-        >
-          <span class="csv-field-sel__check">{{ !modelValue ? '&#10003;' : '' }}</span>
-          <div class="csv-field-sel__option-text">
-            <div class="csv-text-muted">{{ $t('common.skip') }}</div>
-          </div>
-        </button>
-
-        <div
-          v-if="filteredOptions.length === 0"
-          class="csv-field-sel__empty"
-        >
-          {{ $t('fieldSelect.noResults') }}
+        <!-- Search -->
+        <div class="csv-field-sel__search">
+          <input
+            ref="searchInputEl"
+            v-model="searchQuery"
+            type="text"
+            :placeholder="$t('fieldSelect.searchPlaceholder')"
+            class="csv-field-sel__search-input"
+          />
         </div>
 
-        <button
-          v-for="option in filteredOptions"
-          :key="option.value"
-          type="button"
-          class="csv-field-sel__option"
-          :class="{ 'csv-field-sel__option--selected': option.value === modelValue }"
-          @click="selectOption(option)"
-        >
-          <span class="csv-field-sel__check">{{ option.value === modelValue ? '&#10003;' : '' }}</span>
-          <div class="csv-field-sel__option-text">
-            <div>
-              {{ option.label }}
-              <span v-if="option.suffix" class="csv-field-sel__suffix">
-                [{{ option.suffix }}]
-              </span>
+        <!-- Results -->
+        <div class="csv-field-sel__results">
+          <!-- Skip option -->
+          <button
+            type="button"
+            class="csv-field-sel__option"
+            :class="{ 'csv-field-sel__option--selected': !modelValue }"
+            @click="selectSkip"
+          >
+            <span class="csv-field-sel__check">{{ !modelValue ? '&#10003;' : '' }}</span>
+            <div class="csv-field-sel__option-text">
+              <div class="csv-text-muted">{{ $t('common.skip') }}</div>
             </div>
-            <div class="csv-field-sel__tech">{{ option.technical }}</div>
+          </button>
+
+          <div
+            v-if="filteredOptions.length === 0"
+            class="csv-field-sel__empty"
+          >
+            {{ $t('fieldSelect.noResults') }}
           </div>
-          <span class="csv-field-sel__type">{{ option.fieldType }}</span>
-        </button>
+
+          <button
+            v-for="option in filteredOptions"
+            :key="option.value"
+            type="button"
+            class="csv-field-sel__option"
+            :class="{ 'csv-field-sel__option--selected': option.value === modelValue }"
+            @click="selectOption(option)"
+          >
+            <span class="csv-field-sel__check">{{ option.value === modelValue ? '&#10003;' : '' }}</span>
+            <div class="csv-field-sel__option-text">
+              <div>
+                {{ option.label }}
+                <span v-if="option.suffix" class="csv-field-sel__suffix">
+                  [{{ option.suffix }}]
+                </span>
+              </div>
+              <div class="csv-field-sel__tech">{{ option.technical }}</div>
+            </div>
+            <span class="csv-field-sel__type">{{ option.fieldType }}</span>
+          </button>
+        </div>
       </div>
-    </div>
     </Teleport>
   </div>
 </template>

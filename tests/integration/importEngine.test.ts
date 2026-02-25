@@ -107,7 +107,7 @@ describe('ImportEngine Integration', () => {
       currentEngine = new ImportEngine()
       await currentEngine!.start([{ id: 'file-1', name: 'partners.csv' }])
 
-      const fileProgress = run.progress.files.get('partners.csv')
+      const fileProgress = run.progress.files['partners.csv']
       expect(fileProgress?.successCount).toBeGreaterThan(0)
     })
   })

@@ -32,13 +32,13 @@ export const useSavedMappingsStore = defineStore('savedMappings', () => {
     )
   }
 
-  function addMapping(filenamePattern: string, model: string): SavedMapping {
+  async function addMapping(filenamePattern: string, model: string): Promise<SavedMapping> {
     // Update existing if same pattern
     const existing = mappings.value.find(m => m.filenamePattern === filenamePattern)
     if (existing) {
       existing.model = model
       existing.lastUsedAt = Date.now()
-      persist()
+      await persist()
       return existing
     }
 
@@ -49,13 +49,13 @@ export const useSavedMappingsStore = defineStore('savedMappings', () => {
       lastUsedAt: Date.now()
     }
     mappings.value.push(newMapping)
-    persist()
+    await persist()
     return newMapping
   }
 
-  function deleteMapping(id: string) {
+  async function deleteMapping(id: string) {
     mappings.value = mappings.value.filter(m => m.id !== id)
-    persist()
+    await persist()
   }
 
   /**
@@ -81,11 +81,11 @@ export const useSavedMappingsStore = defineStore('savedMappings', () => {
     return null
   }
 
-  function markUsed(id: string) {
+  async function markUsed(id: string) {
     const mapping = mappings.value.find(m => m.id === id)
     if (mapping) {
       mapping.lastUsedAt = Date.now()
-      persist()
+      await persist()
     }
   }
 

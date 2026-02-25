@@ -37,8 +37,9 @@ export async function fetchModels(): Promise<OdooModel[]> {
   })
 
   if (!response.ok) throw new Error(response.error || 'Failed to fetch models')
+  if (!response.result) throw new Error('Empty response from server')
 
-  return response.result!.map(r => ({
+  return response.result.map(r => ({
     id: r.id,
     model: r.model,
     name: r.name,
@@ -72,8 +73,9 @@ export async function fetchModelFields(modelName: string): Promise<OdooField[]> 
   })
 
   if (!response.ok) throw new Error(response.error || 'Failed to fetch fields')
+  if (!response.result) throw new Error('Empty response from server')
 
-  return Object.entries(response.result!).map(([name, field]) => ({
+  return Object.entries(response.result).map(([name, field]) => ({
     name,
     type: field.type,
     string: field.string,

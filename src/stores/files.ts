@@ -18,7 +18,7 @@ export interface FileAnalysis {
 
 export const useFilesStore = defineStore('files', () => {
   const files = ref<FileHandle[]>([])
-  const analyses = ref<Map<string, FileAnalysis>>(new Map())
+  const analyses = ref<Record<string, FileAnalysis>>({})
 
   const fileCount = computed(() => files.value.length)
 
@@ -32,26 +32,21 @@ export const useFilesStore = defineStore('files', () => {
 
   function removeFile(id: string) {
     files.value = files.value.filter(f => f.id !== id)
-    // Create new Map to ensure Vue reactivity triggers
-    const newMap = new Map(analyses.value)
-    newMap.delete(id)
-    analyses.value = newMap
+    const { [id]: _, ...rest } = analyses.value
+    analyses.value = rest
   }
 
   function setAnalysis(fileId: string, analysis: FileAnalysis) {
-    // Create new Map to ensure Vue reactivity triggers
-    const newMap = new Map(analyses.value)
-    newMap.set(fileId, analysis)
-    analyses.value = newMap
+    analyses.value = { ...analyses.value, [fileId]: analysis }
   }
 
   function getAnalysis(fileId: string): FileAnalysis | undefined {
-    return analyses.value.get(fileId)
+    return analyses.value[fileId]
   }
 
   function clearAll() {
     files.value = []
-    analyses.value.clear()
+    analyses.value = {}
   }
 
   return {

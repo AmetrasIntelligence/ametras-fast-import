@@ -135,7 +135,7 @@ function removeSelectedProfile() {
         </label>
         <div class="csv-flex csv-gap-2">
           <select
-            class="csv-saved-select csv-flex-1"
+            class="csv-login__saved-select csv-flex-1"
             @change="onProfileSelect($event)"
           >
             <option value="">{{ $t('login.selectConnection') }}</option>
@@ -150,7 +150,7 @@ function removeSelectedProfile() {
           <button
             v-if="selectedProfileId"
             type="button"
-            class="csv-remove-btn"
+            class="csv-login__remove-btn"
             :title="$t('common.remove')"
             @click="removeSelectedProfile"
           >
@@ -276,7 +276,7 @@ function removeSelectedProfile() {
 </template>
 
 <style scoped>
-.csv-saved-select {
+.csv-login__saved-select {
   padding: 0.5rem 0.75rem;
   font-size: 0.875rem;
   border: 1px solid #d1d5db;
@@ -288,12 +288,12 @@ function removeSelectedProfile() {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.csv-saved-select:focus {
+.csv-login__saved-select:focus {
   outline: none;
   border-color: #2563eb;
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
 }
-.csv-remove-btn {
+.csv-login__remove-btn {
   padding: 0.5rem 0.75rem;
   font-size: 1rem;
   color: #6b7280;
@@ -303,7 +303,7 @@ function removeSelectedProfile() {
   cursor: pointer;
   transition: color 0.15s, border-color 0.15s;
 }
-.csv-remove-btn:hover {
+.csv-login__remove-btn:hover {
   color: #dc2626;
   border-color: #dc2626;
 }

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useConfigStore } from '@/stores/config'
+import { exportSettingsCSV, exportSequenceCSV, importSettingsCSV } from '@/services/csvSettingsIO'
 import { mockRunSettings } from '../../fixtures'
 import Papa from 'papaparse'
 
@@ -26,7 +27,7 @@ describe('ConfigStore', () => {
 
     it('has empty file mappings', () => {
       const store = useConfigStore()
-      expect(store.fileMappings.size).toBe(0)
+      expect(Object.keys(store.fileMappings).length).toBe(0)
     })
 
     it('has empty import sequence', () => {
@@ -112,7 +113,7 @@ describe('ConfigStore', () => {
         fieldMappings: { name: 'name', email: 'email' }
       })
 
-      expect(store.fileMappings.has('partners.csv')).toBe(true)
+      expect('partners.csv' in store.fileMappings).toBe(true)
     })
 
     it('gets file mapping', () => {
@@ -216,7 +217,7 @@ describe('ConfigStore', () => {
       const store = useConfigStore()
       store.setSettings({ batchSize: 50, retryLimit: 2 })
 
-      const csv = store.exportSettingsCSV()
+      const csv = exportSettingsCSV()
       const parsed = Papa.parse<{ key?: string; value?: string }>(csv, {
         header: true,
         skipEmptyLines: true
@@ -240,7 +241,7 @@ describe('ConfigStore', () => {
       const store = useConfigStore()
       store.setSequence(['first.csv', 'second.csv', 'third.csv'])
 
-      const csv = store.exportSequenceCSV()
+      const csv = exportSequenceCSV()
 
       expect(csv).toContain('order,filename')
       expect(csv).toContain('1,first.csv')
@@ -264,7 +265,7 @@ skipHeader,false
 dryRun,true
 lang,en_US`
 
-      store.importSettingsCSV(csv)
+      importSettingsCSV(csv)
 
       expect(store.settings.batchSize).toBe(300)
       expect(store.settings.retryLimit).toBe(5)
@@ -283,7 +284,7 @@ lang,en_US`
       const csv = `key,value
 batchSize,50`
 
-      store.importSettingsCSV(csv)
+      importSettingsCSV(csv)
 
       expect(store.settings.batchSize).toBe(50)
       expect(store.settings.retryLimit).toBe(3) // unchanged default
@@ -342,9 +343,9 @@ batchSize,50`
         lang: 'fr_FR'
       })
 
-      const csv = store.exportSettingsCSV()
+      const csv = exportSettingsCSV()
       store.setSettings(mockRunSettings.default) // reset
-      store.importSettingsCSV(csv)
+      importSettingsCSV(csv)
 
       expect(store.settings.batchSize).toBe(150)
       expect(store.settings.retryLimit).toBe(4)

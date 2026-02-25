@@ -30,6 +30,16 @@ interface ProfileListItem {
   updated_at: string
 }
 
+interface BackendFieldMapping {
+  filename: string
+  csvHeader?: string
+  csvColumn?: string
+  odooField: string
+  required?: boolean
+  transform?: string
+  notes?: string
+}
+
 interface ProfileFullData extends ProfileListItem {
   mappings: Array<{
     filename: string
@@ -39,7 +49,7 @@ interface ProfileFullData extends ProfileListItem {
   }>
   sequence: Array<{ order: number; filename: string; requires?: string[] }>
   run_settings: Record<string, string>
-  field_mappings: Array<Record<string, unknown>>
+  field_mappings: BackendFieldMapping[]
 }
 
 function getSessionInfo(): { baseUrl: string; db?: string } {
@@ -73,18 +83,18 @@ function toImportProfile(data: ProfileFullData): ImportProfile {
       strict: runSettings.strict !== 'false'
     },
     fieldMappings: data.field_mappings?.filter(
-      (fm): fm is { filename: string; csvColumn: string; odooField: string } =>
-        'csvColumn' in fm
+      (fm): fm is BackendFieldMapping & { csvColumn: string } =>
+        fm.csvColumn !== undefined
     ),
     richFieldMappings: data.field_mappings
-      ?.filter((fm): fm is Record<string, unknown> & { csvHeader: string } => 'csvHeader' in fm)
+      ?.filter((fm): fm is BackendFieldMapping & { csvHeader: string } => fm.csvHeader !== undefined)
       .map(fm => ({
-        filename: fm.filename as string,
-        csvHeader: fm.csvHeader as string,
-        odooField: fm.odooField as string,
+        filename: fm.filename,
+        csvHeader: fm.csvHeader,
+        odooField: fm.odooField,
         required: fm.required === true,
-        transform: parseTransform(fm.transform as string || ''),
-        notes: (fm.notes as string) || undefined
+        transform: parseTransform(fm.transform || ''),
+        notes: fm.notes || undefined
       })),
     createdAt: data.created_at ? new Date(data.created_at).getTime() : Date.now(),
     updatedAt: data.updated_at ? new Date(data.updated_at).getTime() : Date.now()
@@ -156,10 +166,11 @@ export async function fetchProfile(id: number): Promise<ImportProfile> {
   if (!response.ok) {
     throw new Error(response.error || 'Failed to fetch profile')
   }
+  if (!response.result) throw new Error('Empty response from server')
 
-  const data = response.result!
-  if ('error' in data && (data as Record<string, unknown>).error) {
-    throw new Error((data as Record<string, unknown>).error as string)
+  const data = response.result
+  if ('error' in data && (data as { error?: string }).error) {
+    throw new Error((data as { error: string }).error)
   }
 
   return toImportProfile(data)
@@ -198,7 +209,7 @@ export async function exportProfileClean(profileId: number, name: string): Promi
 /**
  * Convert frontend field mappings to backend format.
  */
-function toBackendFieldMappings(fieldMappings?: FieldMapping[]): Array<Record<string, unknown>> {
+function toBackendFieldMappings(fieldMappings?: FieldMapping[]): BackendFieldMapping[] {
   if (!fieldMappings) return []
   return fieldMappings.map(fm => ({
     filename: fm.filename,
@@ -258,8 +269,9 @@ export async function createProfile(data: ProfileCreateData): Promise<ImportProf
   if (!response.ok) {
     throw new Error(response.error || 'Failed to create profile')
   }
+  if (!response.result) throw new Error('Empty response from server')
 
-  const result = response.result!
+  const result = response.result
   if ('error' in result && result.error) {
     throw new Error(result.error)
   }
@@ -273,7 +285,16 @@ export async function createProfile(data: ProfileCreateData): Promise<ImportProf
 export async function updateProfile(id: number, data: Partial<ProfileCreateData>): Promise<ImportProfile> {
   const { baseUrl, db } = getSessionInfo()
 
-  const payload: Record<string, unknown> = {}
+  const payload: Partial<{
+    name: string
+    version: string
+    description: string
+    odoo_min_version: string
+    mappings: ProfileMapping[]
+    sequence: ProfileSequenceItem[]
+    run_settings: Record<string, string>
+    field_mappings: BackendFieldMapping[]
+  }> = {}
   if (data.name !== undefined) payload.name = data.name
   if (data.version !== undefined) payload.version = data.version
   if (data.description !== undefined) payload.description = data.description
@@ -293,8 +314,9 @@ export async function updateProfile(id: number, data: Partial<ProfileCreateData>
   if (!response.ok) {
     throw new Error(response.error || 'Failed to update profile')
   }
+  if (!response.result) throw new Error('Empty response from server')
 
-  const result = response.result!
+  const result = response.result
   if ('error' in result && result.error) {
     throw new Error(result.error)
   }

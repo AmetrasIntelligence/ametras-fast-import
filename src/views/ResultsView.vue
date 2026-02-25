@@ -14,7 +14,7 @@ const run = useRunStore()
 const isRetrying = ref(false)
 
 const summary = computed(() => {
-  const files = Array.from(run.progress.files.values())
+  const files = Object.values(run.progress.files)
   return {
     totalRows: files.reduce((sum, f) => sum + f.totalRows, 0),
     successRows: files.reduce((sum, f) => sum + f.successCount, 0),
@@ -25,7 +25,7 @@ const summary = computed(() => {
 
 function calculateDuration(): string {
   if (!run.runStartTime) return '--'
-  const files = Array.from(run.progress.files.values())
+  const files = Object.values(run.progress.files)
   const lastEndTime = Math.max(...files.map(f => f.endTime || 0))
   if (lastEndTime === 0) return '--'
   const duration = lastEndTime - run.runStartTime
@@ -51,7 +51,7 @@ function exportErrorsCSV() {
 function exportFullReport() {
   const report = {
     summary: summary.value,
-    files: Array.from(run.progress.files.values()),
+    files: Object.values(run.progress.files),
     errors: run.errors
   }
 

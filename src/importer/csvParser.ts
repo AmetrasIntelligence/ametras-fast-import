@@ -98,10 +98,10 @@ export async function parseCSVBatched(
 }
 
 /**
- * Full file parse (for small files < 10MB).
- * Falls back to this for compatibility.
+ * Full file parse (loads entire file into memory).
+ * Only suitable for small files (< 10MB). Use parseCSVBatched for large files.
  */
-export async function parseCSV(
+export async function parseCSVFull(
   fileId: string,
   options: ParseOptions = {}
 ): Promise<ParsedRow[]> {

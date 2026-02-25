@@ -64,7 +64,9 @@
       "addMore": "Weitere Dateien ablegen oder",
       "browse": "durchsuchen"
     },
-    "removeFile": "Datei entfernen"
+    "removeFile": "Datei entfernen",
+    "removeAll": "Alle entfernen",
+    "removeAllConfirm": "Alle Dateien entfernen und Zuordnungen zurücksetzen?"
   },
   "config": {
     "title": "Import konfigurieren",

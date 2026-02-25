@@ -32,7 +32,7 @@ describe('FilesStore', () => {
 
     it('has no analyses', () => {
       const store = useFilesStore()
-      expect(store.analyses.size).toBe(0)
+      expect(Object.keys(store.analyses).length).toBe(0)
     })
   })
 
@@ -167,7 +167,7 @@ describe('FilesStore', () => {
 
       expect(store.files).toHaveLength(0)
       expect(store.fileCount).toBe(0)
-      expect(store.analyses.size).toBe(0)
+      expect(Object.keys(store.analyses).length).toBe(0)
     })
 
     it('is safe to call on empty store', () => {

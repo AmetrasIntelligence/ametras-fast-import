@@ -1,0 +1,238 @@
+<script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import type { OdooField } from '@/api/odooClient'
+import type { FieldTransform } from '@/types/fieldMapping'
+import { STANDARD_DB_ID_MODELS } from '@/types/fieldMapping'
+import FieldSelect from './FieldSelect.vue'
+import TransformSelect from './TransformSelect.vue'
+
+const { t } = useI18n()
+
+const props = defineProps<{
+  headers: string[]
+  fieldMappings: Record<string, string>
+  fields: OdooField[]
+  strict: boolean
+  /** Returns field lookup map for computing transforms */
+  getFieldLookup: () => Map<string, OdooField>
+}>()
+
+const emit = defineEmits<{
+  'update:fieldMapping': [csvHeader: string, odooField: string]
+  'update:transform': [csvHeader: string, transform: FieldTransform]
+  'update:strict': [strict: boolean]
+}>()
+
+function computeFieldMetadata(csvHeader: string, odooField: string): { transform: FieldTransform; required: boolean } {
+  const baseName = odooField.endsWith('/.id')
+    ? odooField.slice(0, -4)
+    : odooField.endsWith('/id')
+      ? odooField.slice(0, -3)
+      : odooField
+
+  const fieldLookup = props.getFieldLookup()
+  const field = fieldLookup.get(baseName)
+  const isRelational = field?.type === 'many2one' || field?.type === 'many2many'
+
+  let transform: FieldTransform = { type: 'passthrough' }
+  let required = field?.required ?? false
+
+  if (odooField.endsWith('/id') && isRelational && field?.relation) {
+    transform = field.type === 'many2many'
+      ? { type: 'm2m_ref', model: field.relation }
+      : { type: 'm2o_ref', model: field.relation }
+  } else if (odooField.endsWith('/.id') && isRelational && field?.relation) {
+    transform = { type: 'db_id', model: field.relation }
+  }
+
+  if (csvHeader === 'id' || odooField === 'id') {
+    required = true
+  }
+
+  return { transform, required }
+}
+
+function getMappingInfo(csvHeader: string): { transform: FieldTransform; required: boolean; isStandardDbId: boolean } | null {
+  if (!props.fieldMappings[csvHeader]) return null
+
+  const odooField = props.fieldMappings[csvHeader]
+  const { transform, required } = computeFieldMetadata(csvHeader, odooField)
+  const isStandardDbId = transform.type === 'db_id' && STANDARD_DB_ID_MODELS.has(transform.model)
+
+  return { transform, required, isStandardDbId }
+}
+
+function getFieldInfo(csvHeader: string): { fieldType?: string; relationModel?: string } {
+  if (!props.fieldMappings[csvHeader]) return {}
+
+  const odooField = props.fieldMappings[csvHeader]
+  const baseName = odooField.endsWith('/.id')
+    ? odooField.slice(0, -4)
+    : odooField.endsWith('/id')
+      ? odooField.slice(0, -3)
+      : odooField
+
+  const fieldLookup = props.getFieldLookup()
+  const field = fieldLookup.get(baseName)
+
+  return {
+    fieldType: field?.type,
+    relationModel: field?.relation
+  }
+}
+
+const mappedCount = computed(() => Object.keys(props.fieldMappings).length)
+</script>
+
+<script lang="ts">
+import { computed } from 'vue'
+</script>
+
+<template>
+  <div class="csv-config-section">
+    <div class="csv-config-section__header">
+      <span>{{ t('config.fieldMappings') }}</span>
+      <div class="csv-flex csv-items-center csv-gap-4">
+        <span class="csv-text-xs csv-text-muted">
+          {{ mappedCount }} {{ t('common.of') }} {{ headers.length }} {{ t('config.mapped') }}
+        </span>
+        <label class="csv-field-mapping__strict-toggle" :title="t('config.strictTooltip')">
+          <input
+            type="checkbox"
+            :checked="strict"
+            @change="emit('update:strict', ($event.target as HTMLInputElement).checked)"
+          />
+          <span class="csv-text-xs">{{ t('config.strict') }}</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="csv-field-mapping__table">
+      <div class="csv-field-mapping__row csv-field-mapping__row--header">
+        <div class="csv-field-mapping__col csv-field-mapping__col--csv">{{ t('config.csvColumn') }}</div>
+        <div class="csv-field-mapping__col csv-field-mapping__col--arrow"></div>
+        <div class="csv-field-mapping__col csv-field-mapping__col--field">{{ t('config.odooField') }}</div>
+        <div class="csv-field-mapping__col csv-field-mapping__col--transform">{{ t('config.transform') }}</div>
+        <div class="csv-field-mapping__col csv-field-mapping__col--req">{{ t('config.req') }}</div>
+      </div>
+
+      <div
+        v-for="header in headers"
+        :key="header"
+        class="csv-field-mapping__row"
+        :class="{ 'csv-field-mapping__row--mapped': fieldMappings[header] }"
+      >
+        <div class="csv-field-mapping__col csv-field-mapping__col--csv" :title="header">{{ header }}</div>
+        <div class="csv-field-mapping__col csv-field-mapping__col--arrow">&rarr;</div>
+        <div class="csv-field-mapping__col csv-field-mapping__col--field">
+          <FieldSelect
+            :model-value="fieldMappings[header] || ''"
+            :fields="fields"
+            @update:model-value="emit('update:fieldMapping', header, $event)"
+          />
+        </div>
+        <div class="csv-field-mapping__col csv-field-mapping__col--transform">
+          <TransformSelect
+            v-if="getMappingInfo(header)"
+            :model-value="getMappingInfo(header)!.transform"
+            :field-type="getFieldInfo(header).fieldType"
+            :relation-model="getFieldInfo(header).relationModel"
+            @update:model-value="emit('update:transform', header, $event)"
+          />
+          <span v-else class="csv-text-muted">-</span>
+        </div>
+        <div class="csv-field-mapping__col csv-field-mapping__col--req">
+          <span v-if="getMappingInfo(header)" class="csv-field-mapping__req" :class="{ 'csv-field-mapping__req--active': getMappingInfo(header)?.required }">
+            {{ getMappingInfo(header)?.required ? '&#10003;' : '-' }}
+          </span>
+          <span v-else>-</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.csv-config-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.csv-config-section__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--csv-color-text-secondary, #374151);
+}
+
+.csv-field-mapping__table {
+  border: 1px solid var(--csv-color-border-light, #e5e7eb);
+  border-radius: var(--radius, 0.375rem);
+  overflow: hidden;
+}
+.csv-field-mapping__row {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) 24px 1fr minmax(100px, 150px) 70px;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.375rem 0.75rem;
+  border-bottom: 1px solid var(--csv-color-border-faint, #f3f4f6);
+}
+.csv-field-mapping__row:last-child {
+  border-bottom: none;
+}
+.csv-field-mapping__row--header {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--csv-color-text-muted, #6b7280);
+  background: var(--csv-color-bg-subtle, #f9fafb);
+  border-bottom: 1px solid var(--csv-color-border-light, #e5e7eb);
+}
+.csv-field-mapping__row--mapped {
+  background: var(--csv-color-success-light, #f0fdf4);
+}
+.csv-field-mapping__col--csv {
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--csv-color-text-secondary, #374151);
+}
+.csv-field-mapping__col--arrow {
+  text-align: center;
+  color: var(--csv-color-text-faint, #9ca3af);
+  font-size: 0.75rem;
+}
+.csv-field-mapping__col--transform {
+  font-size: 0.7rem;
+}
+.csv-field-mapping__col--req {
+  text-align: center;
+  font-size: 0.75rem;
+}
+.csv-field-mapping__req {
+  color: var(--csv-color-text-faint, #9ca3af);
+}
+.csv-field-mapping__req--active {
+  color: var(--csv-color-success, #16a34a);
+  font-weight: 600;
+}
+.csv-field-mapping__strict-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  cursor: pointer;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  background: var(--csv-color-bg-muted, #f3f4f6);
+}
+.csv-field-mapping__strict-toggle:hover {
+  background: var(--csv-color-border-light, #e5e7eb);
+}
+.csv-field-mapping__strict-toggle input {
+  margin: 0;
+}
+</style>

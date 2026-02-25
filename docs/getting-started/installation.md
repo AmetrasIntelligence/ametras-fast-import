@@ -39,7 +39,8 @@ The client is an Electron application that can be run in development mode or pac
     ```
 3.  Start the application:
     ```bash
-    npm run dev
+    npm run dev              # web + Electron hybrid
+    npm run dev:electron     # Electron-specific dev mode
     ```
 
 ### Building for Production
@@ -50,11 +51,15 @@ To create a standalone executable for your operating system:
     ```bash
     npm run build
     ```
-2.  Package the application:
+2.  Preview the production build locally (optional):
     ```bash
-    npm run package
+    npm run preview
     ```
-3.  The resulting executable will be in the `release/` directory.
+3.  Package the application:
+    ```bash
+    npm run electron:build
+    ```
+4.  The resulting executable will be in the `release/` directory.
 
 ## 3. Network Requirements
 

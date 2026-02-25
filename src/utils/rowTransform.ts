@@ -10,8 +10,8 @@
 export function transformRowData(
   rowData: Record<string, string>,
   fieldMappings: Record<string, string>
-): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
+): Record<string, string | number> {
+  const result: Record<string, string | number> = {}
 
   for (const [csvCol, odooField] of Object.entries(fieldMappings)) {
     const value = rowData[csvCol]

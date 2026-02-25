@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { fetchModels, type OdooModel } from '@/api/odooClient'
 import { useDropdown } from '@/composables/useDropdown'
+import { useSearchDebounce } from '@/composables/useSearchDebounce'
 
 // Session-level cache
 let cachedModels: OdooModel[] | null = null
@@ -17,11 +18,9 @@ const emit = defineEmits<{
 
 const models = ref<OdooModel[]>([])
 const loading = ref(false)
-const searchQuery = ref('')
 const searchInputEl = ref<HTMLInputElement | null>(null)
 
-let debounceTimer: ReturnType<typeof setTimeout> | null = null
-const debouncedQuery = ref('')
+const { searchQuery, debouncedQuery, reset: resetSearch } = useSearchDebounce(200)
 
 const {
   isOpen,
@@ -35,17 +34,9 @@ const {
   dropdownWidth: 360,
   minSpaceBelow: 180,
   onOpen: () => {
-    searchQuery.value = ''
-    debouncedQuery.value = ''
+    resetSearch()
     setTimeout(() => searchInputEl.value?.focus(), 50)
   }
-})
-
-watch(searchQuery, (val) => {
-  if (debounceTimer) clearTimeout(debounceTimer)
-  debounceTimer = setTimeout(() => {
-    debouncedQuery.value = val
-  }, 200)
 })
 
 const filteredModels = computed(() => {
@@ -64,20 +55,28 @@ const selectedModel = computed(() =>
   models.value.find(m => m.model === props.modelValue)
 )
 
+let abortController: AbortController | null = null
+
 onMounted(async () => {
   if (cachedModels) {
     models.value = cachedModels
     return
   }
 
+  abortController = new AbortController()
   loading.value = true
   try {
-    models.value = await fetchModels()
-    cachedModels = models.value
+    const result = await fetchModels()
+    if (!abortController.signal.aborted) {
+      models.value = result
+      cachedModels = result
+    }
   } catch {
     // Models will be empty
   } finally {
-    loading.value = false
+    if (!abortController.signal.aborted) {
+      loading.value = false
+    }
   }
 })
 
@@ -89,11 +88,11 @@ function toggleOpen() {
 function selectModel(model: OdooModel) {
   emit('update:modelValue', model.model)
   close()
-  searchQuery.value = ''
+  resetSearch()
 }
 
 onBeforeUnmount(() => {
-  if (debounceTimer) clearTimeout(debounceTimer)
+  abortController?.abort()
 })
 </script>
 

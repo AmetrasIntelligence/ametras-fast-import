@@ -47,7 +47,7 @@ describe('RunStore', () => {
 
       expect(store.progress.totalFiles).toBe(3)
       expect(store.progress.completedFiles).toBe(0)
-      expect(store.progress.files.size).toBe(3)
+      expect(Object.keys(store.progress.files).length).toBe(3)
     })
 
     it('sets row counts correctly', () => {
@@ -58,8 +58,8 @@ describe('RunStore', () => {
         new Map([['file1.csv', 100], ['file2.csv', 200]])
       )
 
-      const file1 = store.progress.files.get('file1.csv')
-      const file2 = store.progress.files.get('file2.csv')
+      const file1 = store.progress.files['file1.csv']
+      const file2 = store.progress.files['file2.csv']
 
       expect(file1?.totalRows).toBe(100)
       expect(file2?.totalRows).toBe(200)
@@ -127,7 +127,7 @@ describe('RunStore', () => {
         failedCount: 2
       })
 
-      const file = store.progress.files.get('file1.csv')
+      const file = store.progress.files['file1.csv']
       expect(file?.processedRows).toBe(50)
       expect(file?.successCount).toBe(48)
       expect(file?.failedCount).toBe(2)
@@ -317,7 +317,7 @@ describe('RunStore', () => {
 
       expect(store.state).toBe(ImportState.IDLE)
       expect(store.progress.totalFiles).toBe(0)
-      expect(store.progress.files.size).toBe(0)
+      expect(Object.keys(store.progress.files).length).toBe(0)
       expect(store.errors).toEqual([])
       expect(store.runStartTime).toBeNull()
     })

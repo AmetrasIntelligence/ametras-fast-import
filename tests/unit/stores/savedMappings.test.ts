@@ -30,7 +30,7 @@ describe('SavedMappingsStore', () => {
       await loginFirst()
       const store = useSavedMappingsStore()
 
-      const mapping = store.addMapping('partners.csv', 'res.partner')
+      const mapping = await store.addMapping('partners.csv', 'res.partner')
 
       expect(mapping.filenamePattern).toBe('partners.csv')
       expect(mapping.model).toBe('res.partner')
@@ -42,8 +42,8 @@ describe('SavedMappingsStore', () => {
       await loginFirst()
       const store = useSavedMappingsStore()
 
-      store.addMapping('partners.csv', 'res.partner')
-      store.addMapping('partners.csv', 'res.users')
+      await store.addMapping('partners.csv', 'res.partner')
+      await store.addMapping('partners.csv', 'res.users')
 
       expect(store.mappings).toHaveLength(1)
       expect(store.mappings[0].model).toBe('res.users')
@@ -54,7 +54,7 @@ describe('SavedMappingsStore', () => {
       const store = useSavedMappingsStore()
       vi.clearAllMocks()
 
-      store.addMapping('partners.csv', 'res.partner')
+      await store.addMapping('partners.csv', 'res.partner')
 
       expect(mockApi.store.set).toHaveBeenCalled()
     })
@@ -65,8 +65,8 @@ describe('SavedMappingsStore', () => {
       await loginFirst()
       const store = useSavedMappingsStore()
 
-      const mapping = store.addMapping('partners.csv', 'res.partner')
-      store.deleteMapping(mapping.id)
+      const mapping = await store.addMapping('partners.csv', 'res.partner')
+      await store.deleteMapping(mapping.id)
 
       expect(store.mappings).toHaveLength(0)
     })
@@ -77,7 +77,7 @@ describe('SavedMappingsStore', () => {
       await loginFirst()
       const store = useSavedMappingsStore()
 
-      store.addMapping('partners.csv', 'res.partner')
+      await store.addMapping('partners.csv', 'res.partner')
 
       const suggestion = store.findSuggestion('partners.csv')
       expect(suggestion).not.toBeNull()
@@ -88,7 +88,7 @@ describe('SavedMappingsStore', () => {
       await loginFirst()
       const store = useSavedMappingsStore()
 
-      store.addMapping('*_partners.csv', 'res.partner')
+      await store.addMapping('*_partners.csv', 'res.partner')
 
       const suggestion = store.findSuggestion('2024_partners.csv')
       expect(suggestion).not.toBeNull()
@@ -99,7 +99,7 @@ describe('SavedMappingsStore', () => {
       await loginFirst()
       const store = useSavedMappingsStore()
 
-      store.addMapping('partners.csv', 'res.partner')
+      await store.addMapping('partners.csv', 'res.partner')
 
       const suggestion = store.findSuggestion('products.csv')
       expect(suggestion).toBeNull()
@@ -109,8 +109,8 @@ describe('SavedMappingsStore', () => {
       await loginFirst()
       const store = useSavedMappingsStore()
 
-      store.addMapping('*.csv', 'product.template')
-      store.addMapping('partners.csv', 'res.partner')
+      await store.addMapping('*.csv', 'product.template')
+      await store.addMapping('partners.csv', 'res.partner')
 
       const suggestion = store.findSuggestion('partners.csv')
       expect(suggestion!.model).toBe('res.partner')
@@ -122,13 +122,13 @@ describe('SavedMappingsStore', () => {
       await loginFirst()
       const store = useSavedMappingsStore()
 
-      const mapping = store.addMapping('partners.csv', 'res.partner')
+      const mapping = await store.addMapping('partners.csv', 'res.partner')
       const originalTimestamp = mapping.lastUsedAt
 
       // Wait a tick
       await new Promise(r => setTimeout(r, 10))
 
-      store.markUsed(mapping.id)
+      await store.markUsed(mapping.id)
 
       expect(store.mappings[0].lastUsedAt).toBeGreaterThanOrEqual(originalTimestamp)
     })

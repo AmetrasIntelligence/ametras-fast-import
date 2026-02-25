@@ -48,7 +48,17 @@ interface OdooCallResult<T> {
 
 interface ProfileUploadResult {
   ok: boolean
-  result?: Record<string, unknown>
+  result?: {
+    id: number
+    name: string
+    version: string
+    description: string
+    mappings: Array<{ filename: string; model: string; searchKeys?: string[]; strict?: boolean }>
+    sequence: Array<{ order: number; filename: string; requires?: string[] }>
+    run_settings: Record<string, string>
+    field_mappings: Array<{ filename: string; csvHeader?: string; csvColumn?: string; odooField: string; required?: boolean; transform?: string; notes?: string }>
+    [key: string]: unknown
+  }
   error?: string
 }
 

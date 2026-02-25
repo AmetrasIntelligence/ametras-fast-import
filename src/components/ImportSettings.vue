@@ -178,15 +178,6 @@ const encodingOptions = computed(() => [
       </div>
       <div class="csv-flex csv-items-center csv-gap-2 csv-pt-4">
         <input
-          :checked="config.settings.skipHeader"
-          type="checkbox"
-          id="skipHeader"
-          @change="config.setSettings({ skipHeader: ($event.target as HTMLInputElement).checked })"
-        />
-        <label for="skipHeader" class="csv-text-sm">{{ $t('settings.skipHeader') }}</label>
-      </div>
-      <div class="csv-flex csv-items-center csv-gap-2 csv-pt-4">
-        <input
           :checked="isStandalone ? false : config.settings.dryRun"
           type="checkbox"
           id="dryRun"

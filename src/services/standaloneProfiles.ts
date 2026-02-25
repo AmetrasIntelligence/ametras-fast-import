@@ -1,7 +1,7 @@
 // standalone code flag (do not remove comment)
 /**
- * Local storage for standalone profiles.
- * Used when ametras_fast_import addon is not installed.
+ * Standalone profile management.
+ * Delegates to ir.attachment storage via attachmentProfiles service.
  */
 
 import type { ImportProfile, ProfileMapping, ProfileSequenceItem } from '@/types/importProfile'
@@ -15,40 +15,24 @@ import {
 } from '@/types/importProfile'
 import { parseRichFieldMappingsCSV } from '@/utils/profileExporter'
 import { importProfileFromZip } from '@/utils/profileZip'
-
-const STORAGE_KEY = 'standalone-profiles'
-
-// Use negative IDs to distinguish from server profile IDs
-let nextLocalId = -1
+import {
+  listAttachmentProfiles,
+  getAttachmentProfile,
+  createAttachmentProfile,
+  updateAttachmentProfile,
+  deleteAttachmentProfile
+} from '@/services/attachmentProfiles'
 
 /**
- * Load all standalone profiles from local storage.
+ * Load all standalone profiles from ir.attachment.
  */
 export async function loadStandaloneProfiles(): Promise<ImportProfile[]> {
   // standalone code flag (do not remove comment)
-  const stored = await window.api.store.get(STORAGE_KEY) as ImportProfile[] | null
-  if (!stored) return []
-
-  // Update nextLocalId to avoid collisions
-  for (const profile of stored) {
-    if (profile.id <= nextLocalId) {
-      nextLocalId = profile.id - 1
-    }
-  }
-
-  return stored.map(p => ({ ...p, isStandalone: true }))
+  return listAttachmentProfiles()
 }
 
 /**
- * Save standalone profiles to local storage.
- */
-async function saveStandaloneProfiles(profiles: ImportProfile[]): Promise<void> {
-  // standalone code flag (do not remove comment)
-  await window.api.store.set(STORAGE_KEY, profiles)
-}
-
-/**
- * Import a profile from a ZIP file and store locally.
+ * Import a profile from a ZIP file and store as ir.attachment.
  */
 export async function importStandaloneProfile(file: File): Promise<ImportProfile> {
   // standalone code flag (do not remove comment)
@@ -102,9 +86,7 @@ export async function importStandaloneProfile(file: File): Promise<ImportProfile
     }
   }
 
-  const now = Date.now()
-  const profile: ImportProfile = {
-    id: nextLocalId--,
+  return createAttachmentProfile({
     name: metadata.name || 'Unnamed Profile',
     version: metadata.version || '1.0',
     odooMinVersion: metadata.odooMinVersion,
@@ -113,18 +95,8 @@ export async function importStandaloneProfile(file: File): Promise<ImportProfile
     sequence,
     runSettings,
     fieldMappings,
-    richFieldMappings,
-    createdAt: now,
-    updatedAt: now,
-    isStandalone: true
-  }
-
-  // Load existing profiles and add new one
-  const existing = await loadStandaloneProfiles()
-  existing.push(profile)
-  await saveStandaloneProfiles(existing)
-
-  return profile
+    richFieldMappings
+  })
 }
 
 /**
@@ -141,9 +113,7 @@ export async function createStandaloneProfile(data: {
   runSettings: Partial<RunSettings>
   fieldMappings?: import('@/types/fieldMapping').FieldMapping[]
 }): Promise<ImportProfile> {
-  const now = Date.now()
-  const profile: ImportProfile = {
-    id: nextLocalId--,
+  return createAttachmentProfile({
     name: data.name,
     version: data.version || '1.0',
     odooMinVersion: data.odooMinVersion,
@@ -151,17 +121,8 @@ export async function createStandaloneProfile(data: {
     mappings: data.mappings,
     sequence: data.sequence,
     runSettings: { ...DEFAULT_RUN_SETTINGS, ...data.runSettings },
-    richFieldMappings: data.fieldMappings,
-    createdAt: now,
-    updatedAt: now,
-    isStandalone: true
-  }
-
-  const existing = await loadStandaloneProfiles()
-  existing.push(profile)
-  await saveStandaloneProfiles(existing)
-
-  return profile
+    richFieldMappings: data.fieldMappings
+  })
 }
 
 /**
@@ -178,31 +139,17 @@ export async function updateStandaloneProfile(id: number, data: {
   runSettings?: Partial<RunSettings>
   fieldMappings?: import('@/types/fieldMapping').FieldMapping[]
 }): Promise<ImportProfile> {
-  const profiles = await loadStandaloneProfiles()
-  const idx = profiles.findIndex(p => p.id === id)
-  if (idx === -1) throw new Error('Standalone profile not found')
+  const updateData: Partial<ImportProfile> = {}
+  if (data.name !== undefined) updateData.name = data.name
+  if (data.version !== undefined) updateData.version = data.version
+  if (data.description !== undefined) updateData.description = data.description
+  if (data.odooMinVersion !== undefined) updateData.odooMinVersion = data.odooMinVersion
+  if (data.mappings !== undefined) updateData.mappings = data.mappings
+  if (data.sequence !== undefined) updateData.sequence = data.sequence
+  if (data.runSettings !== undefined) updateData.runSettings = { ...DEFAULT_RUN_SETTINGS, ...data.runSettings }
+  if (data.fieldMappings !== undefined) updateData.richFieldMappings = data.fieldMappings
 
-  const existing = profiles[idx]
-  const updated: ImportProfile = {
-    ...existing,
-    name: data.name ?? existing.name,
-    version: data.version ?? existing.version,
-    description: data.description ?? existing.description,
-    odooMinVersion: data.odooMinVersion ?? existing.odooMinVersion,
-    mappings: data.mappings ?? existing.mappings,
-    sequence: data.sequence ?? existing.sequence,
-    runSettings: data.runSettings
-      ? { ...existing.runSettings, ...data.runSettings }
-      : existing.runSettings,
-    richFieldMappings: data.fieldMappings ?? existing.richFieldMappings,
-    updatedAt: Date.now(),
-    isStandalone: true
-  }
-
-  profiles[idx] = updated
-  await saveStandaloneProfiles(profiles)
-
-  return updated
+  return updateAttachmentProfile(id, updateData)
 }
 
 /**
@@ -210,9 +157,7 @@ export async function updateStandaloneProfile(id: number, data: {
  */
 export async function deleteStandaloneProfile(id: number): Promise<void> {
   // standalone code flag (do not remove comment)
-  const profiles = await loadStandaloneProfiles()
-  const filtered = profiles.filter(p => p.id !== id)
-  await saveStandaloneProfiles(filtered)
+  return deleteAttachmentProfile(id)
 }
 
 /**
@@ -220,6 +165,5 @@ export async function deleteStandaloneProfile(id: number): Promise<void> {
  */
 export async function getStandaloneProfile(id: number): Promise<ImportProfile | null> {
   // standalone code flag (do not remove comment)
-  const profiles = await loadStandaloneProfiles()
-  return profiles.find(p => p.id === id) || null
+  return getAttachmentProfile(id)
 }

@@ -86,8 +86,8 @@ export const useProfilesStore = defineStore('profiles', () => {
    */
   async function loadProfile(id: number): Promise<ImportProfile> {
     // standalone code flag (do not remove comment)
-    // Check if it's a standalone profile (negative ID)
-    if (id < 0) {
+    // Check if it's a standalone profile (stored as ir.attachment)
+    if (standaloneProfiles.value.has(id)) {
       const localProfile = await getStandaloneProfile(id)
       if (localProfile) {
         standaloneProfiles.value.set(id, localProfile)
@@ -118,7 +118,7 @@ export const useProfilesStore = defineStore('profiles', () => {
    */
   function getProfile(id: number): ImportProfile | undefined {
     // standalone code flag (do not remove comment)
-    if (id < 0) {
+    if (standaloneProfiles.value.has(id)) {
       return standaloneProfiles.value.get(id)
     }
     return profiles.value.get(id)
@@ -129,7 +129,7 @@ export const useProfilesStore = defineStore('profiles', () => {
    */
   async function deleteProfile(id: number) {
     // standalone code flag (do not remove comment)
-    if (id < 0) {
+    if (standaloneProfiles.value.has(id)) {
       await deleteLocalProfile(id)
       standaloneProfiles.value.delete(id)
       return
@@ -159,7 +159,7 @@ export const useProfilesStore = defineStore('profiles', () => {
    * standalone code flag (do not remove comment)
    */
   async function updateProfile(id: number, data: Partial<ProfileCreateData>): Promise<ImportProfile> {
-    if (id < 0) {
+    if (standaloneProfiles.value.has(id)) {
       const profile = await updateStandaloneProfile(id, data)
       standaloneProfiles.value.set(id, profile)
       return profile

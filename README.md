@@ -99,8 +99,17 @@ npm test
 # Run tests in watch mode
 npm run test:watch
 
+# Run tests with coverage report
+npm run test:coverage
+
 # Run e2e tests (requires dev server running)
 npm run test:e2e
+
+# Run e2e tests with interactive UI
+npm run test:e2e:ui
+
+# Run all tests (unit + e2e)
+npm run test:all
 
 # Type checking
 npm run typecheck
@@ -118,8 +127,11 @@ npm run lint:fix
 # Build for production
 npm run build
 
+# Preview production build locally
+npm run preview
+
 # Package as desktop app
-npm run package
+npm run electron:build
 ```
 
 ## Project Structure

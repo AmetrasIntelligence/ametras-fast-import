@@ -19,7 +19,7 @@ export interface RunProgress {
   totalFiles: number
   completedFiles: number
   currentFileIndex: number
-  files: Map<string, FileProgress>
+  files: Record<string, FileProgress>
 }
 
 export interface ImportError {
@@ -38,19 +38,19 @@ export const useRunStore = defineStore('run', () => {
     totalFiles: 0,
     completedFiles: 0,
     currentFileIndex: -1,
-    files: new Map()
+    files: {}
   })
   const errors = ref<ImportError[]>([])
   const runStartTime = ref<number | null>(null)
 
   const currentFile = computed(() => {
     if (progress.value.currentFileIndex < 0) return null
-    const files = Array.from(progress.value.files.values())
+    const files = Object.values(progress.value.files)
     return files[progress.value.currentFileIndex] || null
   })
 
   const globalProgress = computed(() => {
-    const files = Array.from(progress.value.files.values())
+    const files = Object.values(progress.value.files)
     const total = files.reduce((sum, f) => sum + f.totalRows, 0)
     const processed = files.reduce((sum, f) => sum + f.processedRows, 0)
     return total > 0 ? processed / total : 0
@@ -92,30 +92,32 @@ export const useRunStore = defineStore('run', () => {
 
   function initRun(filenames: string[], rowCounts: Map<string, number>, dryRun = false) {
     isDryRun.value = dryRun
+    const files: Record<string, FileProgress> = {}
+    for (const f of filenames) {
+      files[f] = {
+        filename: f,
+        totalRows: rowCounts.get(f) || 0,
+        processedRows: 0,
+        successCount: 0,
+        failedCount: 0,
+        retryingCount: 0
+      }
+    }
     progress.value = {
       totalFiles: filenames.length,
       completedFiles: 0,
       currentFileIndex: -1,
-      files: new Map(
-        filenames.map(f => [f, {
-          filename: f,
-          totalRows: rowCounts.get(f) || 0,
-          processedRows: 0,
-          successCount: 0,
-          failedCount: 0,
-          retryingCount: 0
-        }])
-      )
+      files
     }
     errors.value = []
     runStartTime.value = Date.now()
   }
 
   function startFile(filename: string) {
-    const files = Array.from(progress.value.files.keys())
+    const files = Object.keys(progress.value.files)
     progress.value.currentFileIndex = files.indexOf(filename)
 
-    const fileProgress = progress.value.files.get(filename)
+    const fileProgress = progress.value.files[filename]
     if (fileProgress) {
       fileProgress.startTime = Date.now()
     }
@@ -125,14 +127,14 @@ export const useRunStore = defineStore('run', () => {
     filename: string,
     update: Partial<Pick<FileProgress, 'processedRows' | 'successCount' | 'failedCount' | 'retryingCount'>>
   ) {
-    const fileProgress = progress.value.files.get(filename)
+    const fileProgress = progress.value.files[filename]
     if (fileProgress) {
       Object.assign(fileProgress, update)
     }
   }
 
   function completeFile(filename: string) {
-    const fileProgress = progress.value.files.get(filename)
+    const fileProgress = progress.value.files[filename]
     if (fileProgress) {
       fileProgress.endTime = Date.now()
     }
@@ -140,7 +142,7 @@ export const useRunStore = defineStore('run', () => {
   }
 
   function skipFile(filename: string) {
-    const fileProgress = progress.value.files.get(filename)
+    const fileProgress = progress.value.files[filename]
     if (fileProgress) {
       fileProgress.skipped = true
       fileProgress.endTime = Date.now()
@@ -164,7 +166,7 @@ export const useRunStore = defineStore('run', () => {
       totalFiles: 0,
       completedFiles: 0,
       currentFileIndex: -1,
-      files: new Map()
+      files: {}
     }
     errors.value = []
     runStartTime.value = null

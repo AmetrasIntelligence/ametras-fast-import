@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { DEFAULT_RUN_SETTINGS } from '@/constants/defaults'
-import Papa from 'papaparse'
 
 export interface RunSettings {
   batchSize: number
@@ -32,34 +31,37 @@ export interface FileMapping {
 export const useConfigStore = defineStore('config', () => {
   const settings = ref<RunSettings>({ ...DEFAULT_RUN_SETTINGS })
 
-  const fileMappings = ref<Map<string, FileMapping>>(new Map())
+  const fileMappings = ref<Record<string, FileMapping>>({})
   const importSequence = ref<string[]>([])
+
+  /** Persists the active profile ID across view navigation */
+  const activeProfileId = ref<number | null>(null)
+
+  function setActiveProfileId(id: number | null) {
+    activeProfileId.value = id
+  }
 
   function setSettings(newSettings: Partial<RunSettings>) {
     settings.value = { ...settings.value, ...newSettings }
   }
 
   function setFileMapping(filename: string, mapping: FileMapping) {
-    // Create new Map to ensure Vue reactivity triggers
-    const newMap = new Map(fileMappings.value)
-    newMap.set(filename, mapping)
-    fileMappings.value = newMap
+    fileMappings.value = { ...fileMappings.value, [filename]: mapping }
   }
 
   function getFileMapping(filename: string): FileMapping | undefined {
-    return fileMappings.value.get(filename)
+    return fileMappings.value[filename]
   }
 
   function removeFileMapping(filename: string) {
-    if (fileMappings.value.has(filename)) {
-      const newMap = new Map(fileMappings.value)
-      newMap.delete(filename)
-      fileMappings.value = newMap
+    if (filename in fileMappings.value) {
+      const { [filename]: _, ...rest } = fileMappings.value
+      fileMappings.value = rest
     }
   }
 
   function clearFileMappings() {
-    fileMappings.value = new Map()
+    fileMappings.value = {}
   }
 
   function setSequence(filenames: string[]) {
@@ -78,61 +80,18 @@ export const useConfigStore = defineStore('config', () => {
     importSequence.value = arr
   }
 
-  function exportSettingsCSV(): string {
-    const rows = Object.entries(settings.value).map(([key, value]) => ({
-      key,
-      value: String(value)
-    }))
-    return Papa.unparse(rows, { columns: ['key', 'value'], header: true })
-  }
-
-  function exportSequenceCSV(): string {
-    const lines = ['order,filename']
-    importSequence.value.forEach((filename, idx) => {
-      lines.push(`${idx + 1},${filename}`)
-    })
-    return lines.join('\n')
-  }
-
-  function importSettingsCSV(csv: string) {
-    const parsed = Papa.parse<{ key?: string; value?: string }>(csv, {
-      header: true,
-      skipEmptyLines: true
-    })
-    const newSettings: Partial<RunSettings> = {}
-
-    for (const row of parsed.data) {
-      const key = row.key || ''
-      const value = row.value || ''
-      if (key === 'batchSize') newSettings.batchSize = parseInt(value, 10)
-      if (key === 'retryLimit') newSettings.retryLimit = parseInt(value, 10)
-      if (key === 'retryDelayMs') newSettings.retryDelayMs = parseInt(value, 10)
-      if (key === 'stopOnFatalError') newSettings.stopOnFatalError = value === 'true'
-      if (key === 'encoding') newSettings.encoding = value as RunSettings['encoding']
-      if (key === 'delimiter') newSettings.delimiter = value as RunSettings['delimiter']
-      if (key === 'skipHeader') newSettings.skipHeader = value === 'true'
-      if (key === 'dryRun') newSettings.dryRun = value === 'true'
-      if (key === 'lang') newSettings.lang = value
-      if (key === 'strict') newSettings.strict = value === 'true'
-      // Note: 'workers' is intentionally NOT loaded from CSV - it's a runtime-only setting
-    }
-
-    setSettings(newSettings)
-  }
-
   return {
     settings,
     fileMappings,
     importSequence,
+    activeProfileId,
+    setActiveProfileId,
     setSettings,
     setFileMapping,
     getFileMapping,
     removeFileMapping,
     clearFileMappings,
     setSequence,
-    moveInSequence,
-    exportSettingsCSV,
-    exportSequenceCSV,
-    importSettingsCSV
+    moveInSequence
   }
 })

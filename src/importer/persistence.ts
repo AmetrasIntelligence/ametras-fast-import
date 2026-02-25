@@ -150,7 +150,7 @@ export async function persistRunState(
       totalFiles: progress.totalFiles,
       completedFiles: progress.completedFiles,
       currentFileIndex: progress.currentFileIndex,
-      files: Array.from(progress.files.values())
+      files: Object.values(progress.files)
     },
     errors,
     runStartTime,

@@ -156,9 +156,15 @@ describe('ProfilesStore', () => {
 
       await store.loadProfiles()
       vi.clearAllMocks()
+      mockApi.odoo.call.mockResolvedValue({ ok: true, result: [] })
 
-      await store.loadProfiles() // Should use cache
-      expect(mockApi.odoo.call).not.toHaveBeenCalled()
+      await store.loadProfiles() // Should use cache for server profiles
+      // odoo.call may still be called for standalone profiles (ir.attachment),
+      // but the server profile endpoint should NOT be called again
+      const serverProfileCalls = mockApi.odoo.call.mock.calls.filter(
+        (args: unknown[]) => (args[0] as { endpoint: string }).endpoint === '/ametras_fast_import/profile/list'
+      )
+      expect(serverProfileCalls).toHaveLength(0)
     })
 
     it('refetches when forced', async () => {

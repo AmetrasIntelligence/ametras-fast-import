@@ -14,7 +14,6 @@ import {
 } from '@/types/importProfile'
 import { createRunConfig, type RunConfig } from '@/types/runConfig'
 import type { FieldMapping, FieldTransform } from '@/types/fieldMapping'
-import { STANDARD_DB_ID_MODELS } from '@/types/fieldMapping'
 import { useSavedMappingsStore } from '@/stores/savedMappings'
 import { fetchModels, fetchModelFields, type OdooModel, type OdooField } from '@/api/odooClient'
 import { analyzeCSV } from '@/importer/csvParser'
@@ -27,10 +26,9 @@ import FileDropZone from '@/components/FileDropZone.vue'
 import ModelSelect from '@/components/ModelSelect.vue'
 import ModelSuggestion from '@/components/ModelSuggestion.vue'
 import ImportSettings from '@/components/ImportSettings.vue'
-import FieldSelect from '@/components/FieldSelect.vue'
+import FieldMappingTable from '@/components/FieldMappingTable.vue'
 import FileList, { type FileListItem } from '@/components/FileList.vue'
 import ProfileSelect from '@/components/ProfileSelect.vue'
-import TransformSelect from '@/components/TransformSelect.vue'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -100,7 +98,7 @@ onBeforeRouteLeave(async (_to, _from) => {
 
 // Per-file validation state
 const validatingFile = ref<string | null>(null)
-const validationResults = ref<Map<string, { ok: boolean; message?: string; data?: Record<string, unknown> }>>(new Map())
+const validationResults = ref<Map<string, { ok: boolean; message?: string; data?: Record<string, string | number> }>>(new Map())
 // Trigger for reactivity - increment when validation results change
 const validationTrigger = ref(0)
 
@@ -170,7 +168,17 @@ onMounted(async () => {
 
     // Load saved mappings and server profiles
     await savedMappings.load()
-    profiles.loadProfiles()
+    await profiles.loadProfiles()
+
+    // Restore active profile from config store (persists across navigation)
+    if (config.activeProfileId && !activeProfile.value) {
+      try {
+        await handleProfileSelect(config.activeProfileId)
+      } catch {
+        // Profile no longer available, clear the reference
+        config.setActiveProfileId(null)
+      }
+    }
 
     // Generate model suggestions and restore fields cache for all files
     for (const file of filesStore.files) {
@@ -190,10 +198,10 @@ onMounted(async () => {
       // Check saved mappings first for suggestions
       const saved = savedMappings.findSuggestion(file.name)
       if (saved) {
-        modelSuggestions.value.set(file.name, {
-          model: models.value.find(m => m.model === saved.model)!,
-          score: 100
-        })
+        const matchedModel = models.value.find(m => m.model === saved.model)
+        if (matchedModel) {
+          modelSuggestions.value.set(file.name, { model: matchedModel, score: 100 })
+        }
       } else {
         // Smart suggestion
         const suggestion = suggestModel(file.name, models.value)
@@ -399,42 +407,6 @@ function computeFieldMetadataForFile(filename: string, csvHeader: string, odooFi
   return { transform, required }
 }
 
-function getMappingInfoForFile(filename: string, csvHeader: string): { transform: FieldTransform; required: boolean; isStandardDbId: boolean } | null {
-  const mapping = config.getFileMapping(filename)
-  if (!mapping?.fieldMappings[csvHeader]) return null
-
-  const odooField = mapping.fieldMappings[csvHeader]
-  const { transform: autoTransform, required } = computeFieldMetadataForFile(filename, csvHeader, odooField)
-
-  // Check for manual override
-  const overrideKey = `${filename}:${csvHeader}`
-  const transform = transformOverrides.value.get(overrideKey) ?? autoTransform
-
-  const isStandardDbId = transform.type === 'db_id' && STANDARD_DB_ID_MODELS.has(transform.model)
-
-  return { transform, required, isStandardDbId }
-}
-
-function getFieldInfoForMapping(filename: string, csvHeader: string): { fieldType?: string; relationModel?: string } {
-  const mapping = config.getFileMapping(filename)
-  if (!mapping?.fieldMappings[csvHeader]) return {}
-
-  const odooField = mapping.fieldMappings[csvHeader]
-  const baseName = odooField.endsWith('/.id')
-    ? odooField.slice(0, -4)
-    : odooField.endsWith('/id')
-      ? odooField.slice(0, -3)
-      : odooField
-
-  const fieldLookup = getFieldLookup(filename)
-  const field = fieldLookup.get(baseName)
-
-  return {
-    fieldType: field?.type,
-    relationModel: field?.relation
-  }
-}
-
 function updateTransformForFile(filename: string, csvHeader: string, transform: FieldTransform) {
   const overrideKey = `${filename}:${csvHeader}`
   transformOverrides.value.set(overrideKey, transform)
@@ -521,6 +493,21 @@ function toggleStrictForFile(filename: string, strict: boolean) {
   }
 }
 
+async function removeAllFiles() {
+  const confirmed = await showConfirm(t('files.removeAllConfirm'))
+  if (!confirmed) return
+
+  filesStore.clearAll()
+  config.clearFileMappings()
+  config.setSequence([])
+  richFieldMappings.value = new Map()
+  transformOverrides.value = new Map()
+  modelSuggestions.value = new Map()
+  fieldSuggestionsApplied.value = new Set()
+  validationResults.value = new Map()
+  validationTrigger.value++
+}
+
 function removeFile(fileId: string) {
   // Find the filename before removing from store
   const file = filesStore.files.find(f => f.id === fileId)
@@ -570,6 +557,7 @@ async function handleProfileSelect(id: number) {
   try {
     const profile = await profiles.loadProfile(id)
     activeProfile.value = profile
+    config.setActiveProfileId(profile.id)
     runConfig.value = createRunConfig(profile.id)
     config.setSettings({ ...profile.runSettings })
 
@@ -649,6 +637,7 @@ async function handleProfileSelect(id: number) {
 
 function clearProfile() {
   activeProfile.value = null
+  config.setActiveProfileId(null)
   runConfig.value = createRunConfig(0)
   transformOverrides.value = new Map()
   profileLoadedAt.value = 0
@@ -711,7 +700,7 @@ function buildProfilePayload() {
   // Only include files that are currently uploaded
   const uploadedFilenames = new Set(filesStore.files.map(f => f.name))
 
-  for (const [filename, mapping] of config.fileMappings) {
+  for (const [filename, mapping] of Object.entries(config.fileMappings)) {
     if (!uploadedFilenames.has(filename)) continue
 
     const profileMapping: ProfileMapping = { filename, model: mapping.model }
@@ -770,6 +759,7 @@ async function saveAsProfile() {
     })
 
     activeProfile.value = newProfile
+    config.setActiveProfileId(newProfile.id)
     runConfig.value = createRunConfig(newProfile.id)
 
     // Reset dirty state after save
@@ -819,13 +809,14 @@ async function updateExistingProfile() {
     })
 
     activeProfile.value = updatedProfile
+    config.setActiveProfileId(updatedProfile.id)
     runConfig.value = createRunConfig(updatedProfile.id)
 
     // Reset dirty state after save
     profileLoadedAt.value = Date.now()
     lastEditAt.value = 0
 
-    showAlert(t('config.profileUpdated', { name: updatedProfile.name, version: newVersion }))
+    showAlert(t('config.profileUpdated', { name: updatedProfile.name, version: updatedProfile.version }))
   } catch (e) {
     showAlert(t('config.failedToSaveProfile', { error: (e as Error).message }))
   }
@@ -871,9 +862,6 @@ async function updateExistingProfile() {
       <!-- Profile & Settings Section -->
       <div class="csv-section-header">
         <span class="csv-section-title">{{ $t('config.serverProfile') }}</span>
-        <Button v-if="activeProfile" variant="ghost" size="sm" @click="clearProfile">
-          {{ $t('common.clear') }}
-        </Button>
       </div>
       <Card class="csv-import-card">
         <div class="csv-import-card__tabs">
@@ -911,7 +899,12 @@ async function updateExistingProfile() {
       <!-- Draggable File List -->
       <div class="csv-section-header">
         <span class="csv-section-title">{{ $t('config.fileListTitle') }}</span>
-        <span class="csv-text-xs csv-text-muted">{{ fileListItems.length }} {{ $t('common.files', fileListItems.length) }}</span>
+        <div class="csv-flex csv-items-center csv-gap-2">
+          <span class="csv-text-xs csv-text-muted">{{ fileListItems.length }} {{ $t('common.files', fileListItems.length) }}</span>
+          <Button variant="ghost" size="sm" @click="removeAllFiles">
+            {{ $t('files.removeAll') }}
+          </Button>
+        </div>
       </div>
 
       <FileList
@@ -965,67 +958,17 @@ async function updateExistingProfile() {
             </div>
 
             <!-- 3. Field Mappings -->
-            <div v-if="config.getFileMapping(file.name)?.model && file.headers?.length" class="csv-config-section">
-              <div class="csv-config-section__header">
-                <span>{{ $t('config.fieldMappings') }}</span>
-                <div class="csv-flex csv-items-center csv-gap-4">
-                  <span class="csv-text-xs csv-text-muted">
-                    {{ Object.keys(config.getFileMapping(file.name)?.fieldMappings || {}).length }} {{ $t('common.of') }} {{ file.headers.length }} {{ $t('config.mapped') }}
-                  </span>
-                  <label class="csv-strict-toggle" :title="$t('config.strictTooltip')">
-                    <input
-                      type="checkbox"
-                      :checked="config.getFileMapping(file.name)?.strict ?? true"
-                      @change="toggleStrictForFile(file.name, ($event.target as HTMLInputElement).checked)"
-                    />
-                    <span class="csv-text-xs">{{ $t('config.strict') }}</span>
-                  </label>
-                </div>
-              </div>
-
-              <div class="csv-mapping-table">
-                <div class="csv-mapping-row csv-mapping-row--header">
-                  <div class="csv-mapping-col csv-mapping-col--csv">{{ $t('config.csvColumn') }}</div>
-                  <div class="csv-mapping-col csv-mapping-col--arrow"></div>
-                  <div class="csv-mapping-col csv-mapping-col--field">{{ $t('config.odooField') }}</div>
-                  <div class="csv-mapping-col csv-mapping-col--transform">{{ $t('config.transform') }}</div>
-                  <div class="csv-mapping-col csv-mapping-col--req">{{ $t('config.req') }}</div>
-                </div>
-
-                <div
-                  v-for="header in file.headers"
-                  :key="header"
-                  class="csv-mapping-row"
-                  :class="{ 'csv-mapping-row--mapped': config.getFileMapping(file.name)?.fieldMappings[header] }"
-                >
-                  <div class="csv-mapping-col csv-mapping-col--csv" :title="header">{{ header }}</div>
-                  <div class="csv-mapping-col csv-mapping-col--arrow">→</div>
-                  <div class="csv-mapping-col csv-mapping-col--field">
-                    <FieldSelect
-                      :model-value="config.getFileMapping(file.name)?.fieldMappings[header] || ''"
-                      :fields="getFieldsForFile(file.name)"
-                      @update:model-value="updateFieldMappingForFile(file.name, header, $event)"
-                    />
-                  </div>
-                  <div class="csv-mapping-col csv-mapping-col--transform">
-                    <TransformSelect
-                      v-if="getMappingInfoForFile(file.name, header)"
-                      :model-value="getMappingInfoForFile(file.name, header)!.transform"
-                      :field-type="getFieldInfoForMapping(file.name, header).fieldType"
-                      :relation-model="getFieldInfoForMapping(file.name, header).relationModel"
-                      @update:model-value="updateTransformForFile(file.name, header, $event)"
-                    />
-                    <span v-else class="csv-text-muted">-</span>
-                  </div>
-                  <div class="csv-mapping-col csv-mapping-col--req">
-                    <span v-if="getMappingInfoForFile(file.name, header)" class="csv-req-indicator" :class="{ 'csv-req-indicator--active': getMappingInfoForFile(file.name, header)?.required }">
-                      {{ getMappingInfoForFile(file.name, header)?.required ? '✓' : '-' }}
-                    </span>
-                    <span v-else>-</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <FieldMappingTable
+              v-if="config.getFileMapping(file.name)?.model && file.headers?.length"
+              :headers="file.headers"
+              :field-mappings="config.getFileMapping(file.name)?.fieldMappings || {}"
+              :fields="getFieldsForFile(file.name)"
+              :strict="config.getFileMapping(file.name)?.strict ?? true"
+              :get-field-lookup="() => getFieldLookup(file.name)"
+              @update:field-mapping="(header: string, field: string) => updateFieldMappingForFile(file.name, header, field)"
+              @update:transform="(header: string, transform: any) => updateTransformForFile(file.name, header, transform)"
+              @update:strict="toggleStrictForFile(file.name, $event)"
+            />
 
             <!-- 4. Validate Button -->
             <div v-if="config.getFileMapping(file.name)?.model && Object.keys(config.getFileMapping(file.name)?.fieldMappings || {}).length > 0" class="csv-config-section">
@@ -1191,80 +1134,6 @@ async function updateExistingProfile() {
   text-overflow: ellipsis;
 }
 
-/* Mapping table */
-.csv-mapping-table {
-  border: 1px solid #e5e7eb;
-  border-radius: var(--radius, 0.375rem);
-  overflow: hidden;
-}
-.csv-mapping-row {
-  display: grid;
-  grid-template-columns: minmax(120px, 180px) 24px 1fr minmax(100px, 150px) 70px;
-  gap: 0.5rem;
-  align-items: center;
-  padding: 0.375rem 0.75rem;
-  border-bottom: 1px solid #f3f4f6;
-}
-.csv-mapping-row:last-child {
-  border-bottom: none;
-}
-.csv-mapping-row--header {
-  font-size: 0.7rem;
-  font-weight: 500;
-  color: #6b7280;
-  background: #f9fafb;
-  border-bottom: 1px solid #e5e7eb;
-}
-.csv-mapping-row--mapped {
-  background: #f0fdf4;
-}
-.csv-mapping-col--csv {
-  font-family: ui-monospace, monospace;
-  font-size: 0.75rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #374151;
-}
-.csv-mapping-col--arrow {
-  text-align: center;
-  color: #9ca3af;
-  font-size: 0.75rem;
-}
-.csv-mapping-col--transform {
-  font-size: 0.7rem;
-}
-.csv-mapping-col--req {
-  text-align: center;
-  font-size: 0.75rem;
-}
-
-
-/* Required indicator */
-.csv-req-indicator {
-  color: #9ca3af;
-}
-.csv-req-indicator--active {
-  color: #16a34a;
-  font-weight: 600;
-}
-
-/* Strict mode toggle */
-.csv-strict-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  cursor: pointer;
-  padding: 0.125rem 0.375rem;
-  border-radius: 0.25rem;
-  background: #f3f4f6;
-}
-.csv-strict-toggle:hover {
-  background: #e5e7eb;
-}
-.csv-strict-toggle input {
-  margin: 0;
-}
 
 /* Validation result */
 .csv-validation-result {

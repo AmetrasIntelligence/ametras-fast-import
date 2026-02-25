@@ -35,7 +35,7 @@ export function detectIdColumn(fieldMappings: Record<string, string>): 'id' | '.
 function transformRow(
   row: ParsedRow,
   mapping: { fieldMappings: Record<string, string> }
-): Record<string, unknown> {
+): Record<string, string | number> {
   return transformRowData(row.data, mapping.fieldMappings)
 }
 
@@ -89,7 +89,7 @@ export async function executeBatch(
     }
   })
 
-  if (!response.ok) {
+  if (!response.ok || !response.result) {
     // Return all rows as failed if the entire request failed
     return rows.map((_row, idx) => ({
       ok: false,
@@ -98,7 +98,7 @@ export async function executeBatch(
     }))
   }
 
-  return response.result!.results.map((r, idx) => ({
+  return response.result.results.map((r, idx) => ({
     ok: r.ok,
     error: r.error,
     rowIndex: rows[idx].index,
