@@ -103,6 +103,7 @@
     "edited": "bearbeitet",
     "profileSavedServer": "Profil \"{name}\" auf Server gespeichert.",
     "profileSavedLocal": "Profil \"{name}\" lokal gespeichert.",
+    "saveLocationPrompt": "Profil auf Server speichern? (Abbrechen = lokal speichern)",
     "profileUpdated": "Profil \"{name}\" auf v{version} aktualisiert.",
     "failedToLoadProfile": "Profil konnte nicht geladen werden: {error}",
     "failedToSaveProfile": "Profil konnte nicht gespeichert werden: {error}"
@@ -216,6 +217,10 @@
     "deleteConfirm": "Profil \"{name}\" löschen? Dies entfernt es vom Server.",
     "incompatible": "inkompatibel",
     "local": "lokal",
+    "server": "Server",
+    "pushToServer": "Auf Server übertragen",
+    "pushedToServer": "Profil \"{name}\" auf Server übertragen.",
+    "failedToPush": "Profil konnte nicht übertragen werden: {error}",
     "updated": "Aktualisiert",
     "failedToExport": "Profil konnte nicht exportiert werden: {error}",
     "failedToDelete": "Profil konnte nicht gelöscht werden: {error}",

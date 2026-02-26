@@ -92,6 +92,22 @@ async function handleExportLocalProfile(profile: ImportProfile, event: Event) {
   }
 }
 
+// standalone code flag (do not remove comment)
+async function handlePushToServer(profile: ImportProfile, event: Event) {
+  event.stopPropagation()
+  try {
+    const serverProfile = await profiles.pushToServer(profile.id)
+    // If expanded profile was pushed, update the reference
+    if (expandedProfileId.value === profile.id) {
+      expandedProfileId.value = serverProfile.id
+      expandedProfile.value = serverProfile
+    }
+    showAlert(t('profiles.pushedToServer', { name: profile.name }))
+  } catch (e) {
+    showAlert(t('profiles.failedToPush', { error: (e as Error).message }))
+  }
+}
+
 async function handleExportProfile(profileId: number, name: string, event: Event) {
   event.stopPropagation()
   try {
@@ -218,10 +234,16 @@ function createViewRunConfig(profileId: number) {
               {{ profile.name }}
               <!-- standalone code flag (do not remove comment) -->
               <span
-                v-if="profile.isStandalone"
+                v-if="profile.isStandalone && profile.id < 0"
                 class="csv-compat-badge csv-compat-badge--local"
               >
                 {{ $t('profiles.local') }}
+              </span>
+              <span
+                v-else-if="profile.isStandalone && profile.id > 0"
+                class="csv-compat-badge csv-compat-badge--server"
+              >
+                {{ $t('profiles.server') }}
               </span>
               <span
                 v-if="!getCompatibility(profile).compatible"
@@ -247,6 +269,14 @@ function createViewRunConfig(profileId: number) {
 
           <div class="csv-flex csv-gap-1" @click.stop>
             <!-- standalone code flag (do not remove comment) -->
+            <Button
+              v-if="profile.isStandalone && profile.id < 0"
+              variant="outline"
+              size="sm"
+              @click="handlePushToServer(profile, $event)"
+            >
+              {{ $t('profiles.pushToServer') }}
+            </Button>
             <Button
               v-if="profile.isStandalone"
               variant="outline"
@@ -378,5 +408,10 @@ function createViewRunConfig(profileId: number) {
 .csv-compat-badge--local {
   background: #e0e7ff;
   color: #3730a3;
+}
+
+.csv-compat-badge--server {
+  background: #dcfce7;
+  color: #166534;
 }
 </style>

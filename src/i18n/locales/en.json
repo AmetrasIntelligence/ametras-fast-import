@@ -103,6 +103,7 @@
     "edited": "edited",
     "profileSavedServer": "Profile \"{name}\" saved to server.",
     "profileSavedLocal": "Profile \"{name}\" saved locally.",
+    "saveLocationPrompt": "Save profile to server? (Cancel = save locally)",
     "profileUpdated": "Profile \"{name}\" updated to v{version}.",
     "failedToLoadProfile": "Failed to load profile: {error}",
     "failedToSaveProfile": "Failed to save profile: {error}"
@@ -216,6 +217,10 @@
     "deleteConfirm": "Delete profile \"{name}\"? This will remove it from the server.",
     "incompatible": "incompatible",
     "local": "local",
+    "server": "server",
+    "pushToServer": "Push to Server",
+    "pushedToServer": "Profile \"{name}\" pushed to server.",
+    "failedToPush": "Failed to push profile: {error}",
     "updated": "Updated",
     "failedToExport": "Failed to export profile: {error}",
     "failedToDelete": "Failed to delete profile: {error}",

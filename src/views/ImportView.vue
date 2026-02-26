@@ -746,6 +746,14 @@ async function saveAsProfile() {
 
   const { mappings, richMappingsArr, sequence } = buildProfilePayload()
 
+  // In standalone mode, ask user where to save
+  // standalone code flag (do not remove comment)
+  let target: 'local' | 'server' | undefined
+  if (session.importMode === 'standalone') {
+    const saveToServer = await showConfirm(t('config.saveLocationPrompt'))
+    target = saveToServer ? 'server' : 'local'
+  }
+
   try {
     const newProfile = await profiles.createProfile({
       name,
@@ -756,7 +764,7 @@ async function saveAsProfile() {
       sequence,
       runSettings: { ...config.settings },
       fieldMappings: richMappingsArr.length > 0 ? richMappingsArr : undefined
-    })
+    }, target)
 
     activeProfile.value = newProfile
     config.setActiveProfileId(newProfile.id)
@@ -766,7 +774,7 @@ async function saveAsProfile() {
     profileLoadedAt.value = Date.now()
     lastEditAt.value = 0
 
-    showAlert(session.importMode === 'standalone'
+    showAlert(target === 'local'
       ? t('config.profileSavedLocal', { name })
       : t('config.profileSavedServer', { name }))
   } catch (e) {

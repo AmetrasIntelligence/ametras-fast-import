@@ -1,15 +1,18 @@
 // standalone code flag (do not remove comment)
 /**
  * CRUD wrapper for storing standalone profiles as ir.attachment records.
- * Uses res_model = 'csv.import.profile' as a namespace.
  * Profile data is stored as base64-encoded JSON in the `datas` field.
+ *
+ * Namespace: attachments are identified by a name prefix 'csv_import_profile/'.
+ * We do NOT set res_model to a non-existent model — Odoo validates that
+ * res_model references a real model and raises AccessError otherwise.
  */
 
 import { useSessionStore } from '@/stores/session'
 import type { ImportProfile } from '@/types/importProfile'
 import { DEFAULT_RUN_SETTINGS } from '@/constants/defaults'
 
-const RES_MODEL = 'csv.import.profile'
+const NAME_PREFIX = 'csv_import_profile/'
 
 interface AttachmentRecord {
   id: number
@@ -54,9 +57,13 @@ function decodeProfileData(base64: string): Record<string, unknown> {
  */
 export function attachmentToProfile(rec: AttachmentRecord): ImportProfile {
   const data = rec.datas ? decodeProfileData(rec.datas) : {}
+  // Strip the name prefix for display
+  const displayName = rec.name.startsWith(NAME_PREFIX)
+    ? rec.name.slice(NAME_PREFIX.length)
+    : rec.name
   return {
     id: rec.id,
-    name: (data.name as string) || rec.name,
+    name: (data.name as string) || displayName,
     version: (data.version as string) || '1.0',
     odooMinVersion: data.odooMinVersion as string | undefined,
     description: data.description as string | undefined,
@@ -86,7 +93,7 @@ export async function listAttachmentProfiles(): Promise<ImportProfile[]> {
   const records = await callKw<AttachmentRecord[]>(
     'ir.attachment',
     'search_read',
-    [[['res_model', '=', RES_MODEL]]],
+    [[['name', '=like', NAME_PREFIX + '%']]],
     { fields: ['id', 'name', 'datas', 'create_date', 'write_date'] }
   )
   return records.map(attachmentToProfile)
@@ -114,7 +121,7 @@ export async function createAttachmentProfile(data: Omit<ImportProfile, 'id' | '
   const ids = await callKw<number[]>(
     'ir.attachment',
     'create',
-    [{ name: data.name, datas, res_model: RES_MODEL }],
+    [{ name: NAME_PREFIX + data.name, datas }],
     {}
   )
   const newId = Array.isArray(ids) ? ids[0] : ids as unknown as number
@@ -134,7 +141,7 @@ export async function updateAttachmentProfile(id: number, data: Partial<ImportPr
   const profileData = profileToAttachmentData(merged as unknown as Record<string, unknown>)
   const datas = encodeProfileData(profileData as Omit<ImportProfile, 'id' | 'createdAt' | 'updatedAt' | 'isStandalone'>)
   const vals: Record<string, unknown> = { datas }
-  if (data.name !== undefined) vals.name = data.name
+  if (data.name !== undefined) vals.name = NAME_PREFIX + data.name
   await callKw<boolean>(
     'ir.attachment',
     'write',

@@ -1,7 +1,13 @@
 // standalone code flag (do not remove comment)
 /**
  * Standalone profile management.
- * Delegates to ir.attachment storage via attachmentProfiles service.
+ *
+ * Supports two storage backends:
+ * - Local profiles: stored in Electron store with negative IDs (always available, offline-capable)
+ * - Server profiles: stored as ir.attachment with positive IDs (available when connected)
+ *
+ * ZIP imports always create local profiles (no server round-trip needed).
+ * UI-created profiles go to ir.attachment for cross-device availability.
  */
 
 import type { ImportProfile, ProfileMapping, ProfileSequenceItem } from '@/types/importProfile'
@@ -23,16 +29,53 @@ import {
   deleteAttachmentProfile
 } from '@/services/attachmentProfiles'
 
+const STORAGE_KEY = 'standalone-profiles'
+
+// Use negative IDs to distinguish local profiles from server/attachment profile IDs
+let nextLocalId = -1
+
+// --- Local (Electron store) helpers ---
+
+async function loadLocalProfiles(): Promise<ImportProfile[]> {
+  const stored = await window.api.store.get(STORAGE_KEY) as ImportProfile[] | null
+  if (!stored) return []
+
+  // Update nextLocalId to avoid collisions
+  for (const profile of stored) {
+    if (profile.id <= nextLocalId) {
+      nextLocalId = profile.id - 1
+    }
+  }
+
+  return stored.map(p => ({ ...p, isStandalone: true }))
+}
+
+async function saveLocalProfiles(profiles: ImportProfile[]): Promise<void> {
+  await window.api.store.set(STORAGE_KEY, profiles)
+}
+
+// --- Public API ---
+
 /**
- * Load all standalone profiles from ir.attachment.
+ * Load all standalone profiles from both local storage and ir.attachment.
  */
 export async function loadStandaloneProfiles(): Promise<ImportProfile[]> {
   // standalone code flag (do not remove comment)
-  return listAttachmentProfiles()
+  const local = await loadLocalProfiles()
+
+  // Try loading server-stored profiles; if it fails (offline, etc.) just use local
+  let server: ImportProfile[] = []
+  try {
+    server = await listAttachmentProfiles()
+  } catch {
+    // Silently ignore — server profiles unavailable (offline, auth issue, etc.)
+  }
+
+  return [...local, ...server]
 }
 
 /**
- * Import a profile from a ZIP file and store as ir.attachment.
+ * Import a profile from a ZIP file and store locally (no server round-trip).
  */
 export async function importStandaloneProfile(file: File): Promise<ImportProfile> {
   // standalone code flag (do not remove comment)
@@ -86,7 +129,9 @@ export async function importStandaloneProfile(file: File): Promise<ImportProfile
     }
   }
 
-  return createAttachmentProfile({
+  const now = Date.now()
+  const profile: ImportProfile = {
+    id: nextLocalId--,
     name: metadata.name || 'Unnamed Profile',
     version: metadata.version || '1.0',
     odooMinVersion: metadata.odooMinVersion,
@@ -95,15 +140,23 @@ export async function importStandaloneProfile(file: File): Promise<ImportProfile
     sequence,
     runSettings,
     fieldMappings,
-    richFieldMappings
-  })
+    richFieldMappings,
+    createdAt: now,
+    updatedAt: now,
+    isStandalone: true
+  }
+
+  // Store locally (no server call needed for ZIP imports)
+  const existing = await loadLocalProfiles()
+  existing.push(profile)
+  await saveLocalProfiles(existing)
+
+  return profile
 }
 
-/**
- * Create a standalone profile from structured data (same shape as server create).
- * standalone code flag (do not remove comment)
- */
-export async function createStandaloneProfile(data: {
+export type StandaloneTarget = 'local' | 'server'
+
+interface StandaloneCreateData {
   name: string
   version?: string
   description?: string
@@ -112,7 +165,18 @@ export async function createStandaloneProfile(data: {
   sequence: ProfileSequenceItem[]
   runSettings: Partial<RunSettings>
   fieldMappings?: import('@/types/fieldMapping').FieldMapping[]
-}): Promise<ImportProfile> {
+}
+
+/**
+ * Create a standalone profile.
+ * target='local' → Electron store (negative ID, offline-capable)
+ * target='server' → ir.attachment (positive ID, cross-device)
+ * standalone code flag (do not remove comment)
+ */
+export async function createStandaloneProfile(data: StandaloneCreateData, target: StandaloneTarget = 'server'): Promise<ImportProfile> {
+  if (target === 'local') {
+    return createLocalProfile(data)
+  }
   return createAttachmentProfile({
     name: data.name,
     version: data.version || '1.0',
@@ -126,7 +190,66 @@ export async function createStandaloneProfile(data: {
 }
 
 /**
+ * Create a profile in local Electron store only.
+ */
+async function createLocalProfile(data: StandaloneCreateData): Promise<ImportProfile> {
+  const now = Date.now()
+  const profile: ImportProfile = {
+    id: nextLocalId--,
+    name: data.name,
+    version: data.version || '1.0',
+    odooMinVersion: data.odooMinVersion,
+    description: data.description,
+    mappings: data.mappings,
+    sequence: data.sequence,
+    runSettings: { ...DEFAULT_RUN_SETTINGS, ...data.runSettings },
+    richFieldMappings: data.fieldMappings,
+    createdAt: now,
+    updatedAt: now,
+    isStandalone: true
+  }
+
+  const existing = await loadLocalProfiles()
+  existing.push(profile)
+  await saveLocalProfiles(existing)
+  return profile
+}
+
+/**
+ * Push a local profile to server (ir.attachment).
+ * Creates a new server copy and removes the local one.
+ * Returns the new server-stored profile.
+ */
+export async function pushProfileToServer(localId: number): Promise<ImportProfile> {
+  if (localId >= 0) throw new Error('Only local profiles (negative ID) can be pushed')
+
+  const profiles = await loadLocalProfiles()
+  const local = profiles.find(p => p.id === localId)
+  if (!local) throw new Error('Local profile not found')
+
+  // Create as ir.attachment
+  const serverProfile = await createAttachmentProfile({
+    name: local.name,
+    version: local.version,
+    odooMinVersion: local.odooMinVersion,
+    description: local.description,
+    mappings: local.mappings,
+    sequence: local.sequence,
+    runSettings: local.runSettings,
+    fieldMappings: local.fieldMappings,
+    richFieldMappings: local.richFieldMappings
+  })
+
+  // Remove local copy on success
+  const filtered = profiles.filter(p => p.id !== localId)
+  await saveLocalProfiles(filtered)
+
+  return serverProfile
+}
+
+/**
  * Update an existing standalone profile.
+ * Routes to local or attachment backend based on ID sign.
  * standalone code flag (do not remove comment)
  */
 export async function updateStandaloneProfile(id: number, data: {
@@ -139,6 +262,35 @@ export async function updateStandaloneProfile(id: number, data: {
   runSettings?: Partial<RunSettings>
   fieldMappings?: import('@/types/fieldMapping').FieldMapping[]
 }): Promise<ImportProfile> {
+  // Negative IDs → local Electron store
+  if (id < 0) {
+    const profiles = await loadLocalProfiles()
+    const idx = profiles.findIndex(p => p.id === id)
+    if (idx === -1) throw new Error('Standalone profile not found')
+
+    const existing = profiles[idx]
+    const updated: ImportProfile = {
+      ...existing,
+      name: data.name ?? existing.name,
+      version: data.version ?? existing.version,
+      description: data.description ?? existing.description,
+      odooMinVersion: data.odooMinVersion ?? existing.odooMinVersion,
+      mappings: data.mappings ?? existing.mappings,
+      sequence: data.sequence ?? existing.sequence,
+      runSettings: data.runSettings
+        ? { ...existing.runSettings, ...data.runSettings }
+        : existing.runSettings,
+      richFieldMappings: data.fieldMappings ?? existing.richFieldMappings,
+      updatedAt: Date.now(),
+      isStandalone: true
+    }
+
+    profiles[idx] = updated
+    await saveLocalProfiles(profiles)
+    return updated
+  }
+
+  // Positive IDs → ir.attachment
   const updateData: Partial<ImportProfile> = {}
   if (data.name !== undefined) updateData.name = data.name
   if (data.version !== undefined) updateData.version = data.version
@@ -154,16 +306,30 @@ export async function updateStandaloneProfile(id: number, data: {
 
 /**
  * Delete a standalone profile.
+ * Routes to local or attachment backend based on ID sign.
  */
 export async function deleteStandaloneProfile(id: number): Promise<void> {
   // standalone code flag (do not remove comment)
+  if (id < 0) {
+    const profiles = await loadLocalProfiles()
+    const filtered = profiles.filter(p => p.id !== id)
+    await saveLocalProfiles(filtered)
+    return
+  }
+
   return deleteAttachmentProfile(id)
 }
 
 /**
  * Get a single standalone profile by ID.
+ * Routes to local or attachment backend based on ID sign.
  */
 export async function getStandaloneProfile(id: number): Promise<ImportProfile | null> {
   // standalone code flag (do not remove comment)
+  if (id < 0) {
+    const profiles = await loadLocalProfiles()
+    return profiles.find(p => p.id === id) || null
+  }
+
   return getAttachmentProfile(id)
 }

@@ -16,7 +16,9 @@ import {
   deleteStandaloneProfile as deleteLocalProfile,
   getStandaloneProfile,
   createStandaloneProfile,
-  updateStandaloneProfile
+  updateStandaloneProfile,
+  pushProfileToServer,
+  type StandaloneTarget
 } from '@/services/standaloneProfiles'
 
 const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
@@ -142,16 +144,28 @@ export const useProfilesStore = defineStore('profiles', () => {
    * Create a new profile on the server (or local storage in standalone mode).
    * standalone code flag (do not remove comment)
    */
-  async function createProfile(data: ProfileCreateData): Promise<ImportProfile> {
+  async function createProfile(data: ProfileCreateData, target?: StandaloneTarget): Promise<ImportProfile> {
     const session = useSessionStore()
     if (session.importMode === 'standalone') {
-      const profile = await createStandaloneProfile(data)
+      const profile = await createStandaloneProfile(data, target || 'server')
       standaloneProfiles.value.set(profile.id, profile)
       return profile
     }
     const profile = await apiCreateProfile(data)
     profiles.value.set(profile.id, profile)
     return profile
+  }
+
+  /**
+   * Push a local standalone profile to the server (ir.attachment).
+   * Removes the local copy and returns the new server-stored profile.
+   * standalone code flag (do not remove comment)
+   */
+  async function pushToServer(localId: number): Promise<ImportProfile> {
+    const serverProfile = await pushProfileToServer(localId)
+    standaloneProfiles.value.delete(localId)
+    standaloneProfiles.value.set(serverProfile.id, serverProfile)
+    return serverProfile
   }
 
   /**
@@ -219,6 +233,7 @@ export const useProfilesStore = defineStore('profiles', () => {
     deleteProfile,
     createProfile,
     updateProfile,
+    pushToServer,  // standalone code flag (do not remove comment)
     invalidateCache,
     profileList,
     standaloneProfileList,  // standalone code flag (do not remove comment)
