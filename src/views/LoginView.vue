@@ -31,40 +31,65 @@ onMounted(async () => {
   await session.loadProfiles()
 })
 
-// Build URL from components
+// Build URL from components.
+// Supports hosts with paths (e.g. "mycompany.com/odoo") and inline ports.
 function buildUrl(): string {
-  let url = host.value.trim()
+  let raw = host.value.trim()
 
-  // Remove any existing protocol
-  url = url.replace(/^https?:\/\//i, '')
+  // Strip protocol if user pasted a full URL
+  raw = raw.replace(/^https?:\/\//i, '')
 
-  // Remove trailing slash
-  url = url.replace(/\/+$/, '')
+  // Strip trailing slashes
+  raw = raw.replace(/\/+$/, '')
 
-  // Remove port if present in host (we'll add it from port field)
-  url = url.replace(/:\d+$/, '')
-
-  // Add protocol
   const protocol = useSSL.value ? 'https://' : 'http://'
-  url = protocol + url
 
-  // Add port if specified
-  if (port.value) {
-    url += ':' + port.value
+  try {
+    const parsed = new URL(protocol + raw)
+    // Port field overrides any inline port in the host input
+    if (port.value) {
+      parsed.port = port.value
+    }
+    const path = parsed.pathname !== '/' ? parsed.pathname.replace(/\/+$/, '') : ''
+    return parsed.origin + path
+  } catch {
+    // Fallback: manual string construction
+    const slashIdx = raw.indexOf('/')
+    let hostPart = slashIdx >= 0 ? raw.substring(0, slashIdx) : raw
+    const pathPart = slashIdx >= 0 ? raw.substring(slashIdx) : ''
+    // Strip inline port from host if port field overrides it
+    if (port.value) {
+      hostPart = hostPart.replace(/:\d+$/, '')
+    }
+    let url = protocol + hostPart
+    if (port.value) {
+      url += ':' + port.value
+    }
+    url += pathPart
+    return url
   }
-
-  return url
 }
 
-// Parse URL into components (for loading saved profiles)
+// Parse a full URL into form components (protocol, host+path, port).
+// Used when loading saved connection profiles.
 function parseUrl(url: string) {
-  const match = url.match(/^(https?):\/\/([^:/]+)(?::(\d+))?/)
-  if (match) {
-    useSSL.value = match[1] === 'https'
-    host.value = match[2]
-    port.value = match[3] || ''
-  } else {
-    host.value = url
+  try {
+    const parsed = new URL(url)
+    useSSL.value = parsed.protocol === 'https:'
+    const path = parsed.pathname !== '/' ? parsed.pathname.replace(/\/+$/, '') : ''
+    host.value = parsed.hostname + path
+    port.value = parsed.port
+  } catch {
+    // Fallback regex: handles protocol://host(:port)?(/path)?
+    const match = url.match(/^(https?):\/\/([^:/]+)(?::(\d+))?(\/\S*)?/)
+    if (match) {
+      useSSL.value = match[1] === 'https'
+      const path = match[4] ? match[4].replace(/\/+$/, '') : ''
+      host.value = match[2] + path
+      port.value = match[3] || ''
+    } else {
+      host.value = url
+    }
   }
 }
 

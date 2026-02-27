@@ -39,7 +39,7 @@
     "savedConnections": "Gespeicherte Verbindungen",
     "selectConnection": "Verbindung auswählen...",
     "serverHost": "Server-Host",
-    "serverHostPlaceholder": "firma.odoo.com oder localhost",
+    "serverHostPlaceholder": "firma.odoo.com oder 192.168.1.100/odoo",
     "port": "Port",
     "ssl": "SSL (https)",
     "showAdvanced": "Port- & SSL-Optionen anzeigen",
