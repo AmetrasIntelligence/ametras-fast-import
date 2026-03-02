@@ -6,7 +6,8 @@ import type { NavigationGuardNext, RouteLocationNormalized } from 'vue-router'
 import { useRunStore } from '@/stores/run'
 import { useFilesStore } from '@/stores/files'
 import { ImportState } from '@/importer/stateMachine'
-import { ImportEngine } from '@/importer/engine'
+import { ImportEngine, type ResumeState } from '@/importer/engine'
+import { getImportLog } from '@/api/odooClient'
 import { formatNumber } from '@/utils/formatters'
 import { logger } from '@/utils/logger'
 import { Button, Progress, Card, Table } from '@/ui'
@@ -20,6 +21,33 @@ const filesStore = useFilesStore()
 // Throughput display - updated periodically
 const throughputDisplay = ref('-- rows/sec')
 let throughputInterval: ReturnType<typeof setInterval> | null = null
+
+// Offline elapsed time tracking
+const offlineElapsed = ref('')
+let offlineSince: number | null = null
+let offlineInterval: ReturnType<typeof setInterval> | null = null
+
+watch(() => run.connectionStatus, (status) => {
+  if (status === 'offline' || status === 'checking') {
+    if (!offlineSince) {
+      offlineSince = Date.now()
+      offlineInterval = setInterval(() => {
+        if (offlineSince) {
+          const secs = Math.floor((Date.now() - offlineSince) / 1000)
+          if (secs < 60) offlineElapsed.value = `${secs}s`
+          else offlineElapsed.value = `${Math.floor(secs / 60)}m ${secs % 60}s`
+        }
+      }, 1000)
+    }
+  } else {
+    offlineSince = null
+    offlineElapsed.value = ''
+    if (offlineInterval) {
+      clearInterval(offlineInterval)
+      offlineInterval = null
+    }
+  }
+})
 
 const stateLabel = computed(() => {
   const labels: Record<ImportState, string> = {
@@ -84,7 +112,23 @@ onMounted(async () => {
   try {
     const newEngine = new ImportEngine()
     run.setEngine(newEngine)
-    await newEngine.start(files)
+
+    // Check for resume context
+    let resumeState: ResumeState | undefined
+    if (run.resumeLogId) {
+      const logData = await getImportLog(run.resumeLogId)
+      if (logData) {
+        resumeState = {
+          logId: logData.id,
+          fileProgress: logData.file_progress,
+          errorLog: logData.error_log,
+        }
+        logger.import.info(`[resume] Resuming import from log #${logData.id}`)
+      }
+      run.resumeLogId = null // Clear after use
+    }
+
+    await newEngine.start(files, resumeState)
   } catch (e) {
     logger.import.error('Import engine error', { error: e instanceof Error ? e.message : String(e) })
   }
@@ -94,6 +138,10 @@ onUnmounted(() => {
   if (throughputInterval) {
     clearInterval(throughputInterval)
     throughputInterval = null
+  }
+  if (offlineInterval) {
+    clearInterval(offlineInterval)
+    offlineInterval = null
   }
 })
 
@@ -137,34 +185,52 @@ function viewResults() {
 </script>
 
 <template>
-  <div class="csv-p-6 csv-space-y-6">
+  <div class="p-4 d-flex flex-column gap-4">
+    <!-- Connection Lost Banner -->
+    <div
+      v-if="run.isWaitingForConnection"
+      class="alert alert-warning d-flex align-items-center gap-3 mb-0"
+      role="alert"
+    >
+      <div class="spinner-border spinner-border-sm text-warning" role="status">
+        <span class="visually-hidden">{{ $t('run.reconnecting') }}</span>
+      </div>
+      <div>
+        <strong>{{ $t('run.connectionLost') }}</strong>
+        <div class="small">{{ $t('run.connectionLostDetail') }}</div>
+        <div v-if="offlineElapsed" class="small text-body-secondary mt-1">
+          {{ offlineElapsed }}
+        </div>
+      </div>
+    </div>
+
     <!-- Global Progress -->
-    <Card class="csv-p-4">
-      <div class="csv-flex csv-justify-between csv-items-center csv-mb-4">
+    <Card class="p-4">
+      <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
-          <div class="csv-flex csv-items-center csv-gap-2">
-            <h2 class="csv-text-lg csv-font-semibold">{{ stateLabel }}</h2>
+          <div class="d-flex align-items-center gap-2">
+            <h2 class="fs-5 fw-semibold mb-0">{{ stateLabel }}</h2>
             <span
               v-if="run.isDryRun"
-              class="csv-dry-run-badge"
+              class="badge rounded-pill text-bg-warning"
             >
               {{ $t('run.dryRun') }}
             </span>
           </div>
-          <p class="csv-text-sm csv-text-muted">
+          <small class="text-body-secondary">
             {{ run.progress.completedFiles }} / {{ run.progress.totalFiles }} files
-          </p>
+          </small>
         </div>
-        <div class="csv-text-right">
-          <div class="csv-text-2xl csv-font-bold">
+        <div class="text-end">
+          <div class="fs-4 fw-bold">
             {{ Math.round(run.globalProgress * 100) }}%
           </div>
-          <div class="csv-text-sm csv-text-muted">
+          <small class="text-body-secondary d-block">
             {{ throughputDisplay }}
-          </div>
-          <div class="csv-text-sm csv-text-muted">
+          </small>
+          <small class="text-body-secondary d-block">
             {{ $t('run.eta') }}: {{ etaDisplay }}
-          </div>
+          </small>
         </div>
       </div>
 
@@ -173,7 +239,7 @@ function viewResults() {
         size="lg"
       />
 
-      <div class="csv-flex csv-gap-4 csv-mt-4">
+      <div class="d-flex gap-3 mt-3">
         <Button
           v-if="run.state === ImportState.PAUSED"
           @click="handleResume"
@@ -211,16 +277,16 @@ function viewResults() {
     </Card>
 
     <!-- Per-File Progress -->
-    <Card class="csv-p-4">
-      <h3 class="csv-font-semibold csv-mb-4">{{ $t('run.filesTable.title') }}</h3>
+    <Card class="p-4">
+      <h3 class="fw-semibold mb-3">{{ $t('run.filesTable.title') }}</h3>
 
       <Table>
         <thead>
           <tr>
-            <th class="csv-text-left">{{ $t('run.filesTable.file') }}</th>
-            <th class="csv-text-right">{{ $t('run.filesTable.progress') }}</th>
-            <th class="csv-text-right">{{ $t('run.filesTable.success') }}</th>
-            <th class="csv-text-right">{{ $t('run.filesTable.failed') }}</th>
+            <th class="text-start">{{ $t('run.filesTable.file') }}</th>
+            <th class="text-end">{{ $t('run.filesTable.progress') }}</th>
+            <th class="text-end">{{ $t('run.filesTable.success') }}</th>
+            <th class="text-end">{{ $t('run.filesTable.failed') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -228,22 +294,22 @@ function viewResults() {
             v-for="file in fileProgressList"
             :key="file.filename"
             :class="{
-              'csv-bg-blue-50': run.currentFile?.filename === file.filename,
-              'csv-bg-gray-100 csv-opacity-60': file.skipped
+              'table-primary': run.currentFile?.filename === file.filename,
+              'table-secondary opacity-50': file.skipped
             }"
           >
             <td>
               {{ file.filename }}
-              <span v-if="file.skipped" class="csv-skipped-badge">{{ $t('run.skipped') }}</span>
+              <span v-if="file.skipped" class="badge bg-secondary ms-2" style="font-size: 0.625rem;">{{ $t('run.skipped') }}</span>
             </td>
-            <td class="csv-text-right">
+            <td class="text-end">
               <span v-if="file.skipped">--</span>
               <span v-else>{{ formatNumber(file.processedRows) }} / {{ formatNumber(file.totalRows) }}</span>
             </td>
-            <td class="csv-text-right csv-text-green-600">
+            <td class="text-end text-success">
               {{ formatNumber(file.successCount) }}
             </td>
-            <td class="csv-text-right csv-text-red-600">
+            <td class="text-end text-danger">
               {{ formatNumber(file.failedCount) }}
             </td>
           </tr>
@@ -252,47 +318,23 @@ function viewResults() {
     </Card>
 
     <!-- Recent Errors -->
-    <Card v-if="run.errors.length > 0" class="csv-p-4">
-      <h3 class="csv-font-semibold csv-mb-4">
+    <Card v-if="run.errors.length > 0" class="p-4">
+      <h3 class="fw-semibold mb-3">
         {{ $t('run.recentErrors') }} ({{ run.errors.length }})
       </h3>
 
-      <div class="csv-max-h-48 csv-overflow-y-auto csv-space-y-2">
+      <div class="overflow-auto d-flex flex-column gap-2" style="max-height: 12rem;">
         <div
           v-for="(error, idx) in run.errors.slice(-10).reverse()"
           :key="idx"
-          class="csv-p-2 csv-bg-red-50 csv-rounded csv-text-sm"
+          class="p-2 rounded small bg-danger-subtle"
         >
-          <div class="csv-font-medium">
+          <div class="fw-medium">
             {{ error.filename }} - {{ $t('run.row') }} {{ error.rowNumber }}
           </div>
-          <div class="csv-text-red-700">{{ error.error }}</div>
+          <div class="text-danger">{{ error.error }}</div>
         </div>
       </div>
     </Card>
   </div>
 </template>
-
-<style scoped>
-.csv-dry-run-badge {
-  display: inline-block;
-  padding: 0.125rem 0.5rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: #92400e;
-  background: #fef3c7;
-  border: 1px solid #fbbf24;
-  border-radius: 9999px;
-}
-.csv-skipped-badge {
-  display: inline-block;
-  margin-left: 0.5rem;
-  padding: 0.125rem 0.375rem;
-  font-size: 0.625rem;
-  font-weight: 600;
-  color: #6b7280;
-  background: #e5e7eb;
-  border-radius: 0.25rem;
-  text-transform: uppercase;
-}
-</style>

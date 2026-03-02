@@ -8,6 +8,15 @@
 export type ErrorSeverity = 'fatal' | 'error' | 'warning' | 'info'
 
 /**
+ * Error categories for distinguishing network/transient errors from data errors.
+ * - network: Transient connectivity issues (retry-safe)
+ * - data: Data validation / constraint errors (row-level)
+ * - config: Configuration / mapping errors
+ * - auth: Authentication / authorization errors
+ */
+export type ErrorCategory = 'network' | 'data' | 'config' | 'auth'
+
+/**
  * Error codes for categorizing import errors.
  */
 export enum ImportErrorCode {
@@ -81,6 +90,41 @@ export const ERROR_SEVERITY: Record<ImportErrorCode, ErrorSeverity> = {
   [ImportErrorCode.TIMEOUT]: 'error',
   [ImportErrorCode.NETWORK_ERROR]: 'error',
   [ImportErrorCode.UNKNOWN]: 'error'
+}
+
+/**
+ * Maps error codes to their category for network vs data error distinction.
+ */
+export const ERROR_CATEGORY: Record<ImportErrorCode, ErrorCategory> = {
+  // Network/transient errors
+  [ImportErrorCode.TIMEOUT]: 'network',
+  [ImportErrorCode.NETWORK_ERROR]: 'network',
+  [ImportErrorCode.CONNECTION_LOST]: 'network',
+
+  // Auth errors
+  [ImportErrorCode.NOT_CONNECTED]: 'auth',
+  [ImportErrorCode.AUTH_FAILED]: 'auth',
+
+  // Config errors
+  [ImportErrorCode.NO_MAPPING]: 'config',
+  [ImportErrorCode.INVALID_MODEL]: 'config',
+  [ImportErrorCode.INVALID_FIELD]: 'config',
+  [ImportErrorCode.INVALID_TRANSFORM]: 'config',
+
+  // Data errors
+  [ImportErrorCode.RECORD_NOT_FOUND]: 'data',
+  [ImportErrorCode.DUPLICATE_RECORD]: 'data',
+  [ImportErrorCode.VALIDATION_FAILED]: 'data',
+  [ImportErrorCode.CONSTRAINT_VIOLATION]: 'data',
+  [ImportErrorCode.REQUIRED_FIELD_MISSING]: 'data',
+  [ImportErrorCode.INVALID_VALUE]: 'data',
+  [ImportErrorCode.REFERENCE_NOT_FOUND]: 'data',
+  [ImportErrorCode.EXTERNAL_ID_NOT_FOUND]: 'data',
+  [ImportErrorCode.SEARCH_KEY_NOT_FOUND]: 'data',
+  [ImportErrorCode.AMBIGUOUS_REFERENCE]: 'data',
+  [ImportErrorCode.MODEL_MISMATCH]: 'data',
+  [ImportErrorCode.FIELD_TYPE_MISMATCH]: 'data',
+  [ImportErrorCode.UNKNOWN]: 'data',
 }
 
 /**
@@ -255,4 +299,55 @@ export function parseOdooError(
     context,
     JSON.stringify(error)
   )
+}
+
+/**
+ * Check if an error code represents a network/transient error.
+ */
+export function isNetworkErrorCode(code: ImportErrorCode): boolean {
+  return ERROR_CATEGORY[code] === 'network'
+}
+
+/**
+ * Check if an ImportError is a network/transient error.
+ */
+export function isNetworkError(error: ImportError): boolean {
+  return isNetworkErrorCode(error.code)
+}
+
+/**
+ * Classify a raw fetch/network Error into an ImportErrorCode.
+ * Inspects the error type, name, and message to determine the cause.
+ */
+export function classifyFetchError(error: unknown): ImportErrorCode {
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    return ImportErrorCode.TIMEOUT
+  }
+
+  if (error instanceof TypeError) {
+    // TypeError from fetch = DNS failure, connection refused, offline, CORS
+    return ImportErrorCode.NETWORK_ERROR
+  }
+
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase()
+
+    if (msg.includes('timeout') || msg.includes('timed out')) {
+      return ImportErrorCode.TIMEOUT
+    }
+
+    if (
+      msg.includes('502') || msg.includes('503') || msg.includes('504') ||
+      msg.includes('bad gateway') || msg.includes('service unavailable') ||
+      msg.includes('gateway timeout')
+    ) {
+      return ImportErrorCode.NETWORK_ERROR
+    }
+
+    if (msg.includes('network') || msg.includes('failed to fetch') || msg.includes('net::')) {
+      return ImportErrorCode.NETWORK_ERROR
+    }
+  }
+
+  return ImportErrorCode.UNKNOWN
 }

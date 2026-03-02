@@ -148,19 +148,19 @@ function removeSelectedProfile() {
 </script>
 
 <template>
-  <div class="csv-min-h-screen csv-flex csv-items-center csv-justify-center csv-p-4">
-    <Card class="csv-w-full csv-max-w-md csv-p-6">
-      <h1 class="csv-text-2xl csv-font-semibold csv-mb-6">
+  <div class="min-vh-100 d-flex align-items-center justify-content-center p-3">
+    <Card class="w-100 p-4" style="max-width: 28rem;">
+      <h1 class="fs-4 fw-semibold mb-4">
         {{ $t('login.title') }}
       </h1>
 
-      <div v-if="savedProfiles.length > 0" class="csv-mb-4">
-        <label class="csv-text-sm csv-text-muted csv-mb-2 csv-block">
+      <div v-if="savedProfiles.length > 0" class="mb-3">
+        <label class="form-label small text-body-secondary">
           {{ $t('login.savedConnections') }}
         </label>
-        <div class="csv-flex csv-gap-2">
+        <div class="d-flex gap-2">
           <select
-            class="csv-login__saved-select csv-flex-1"
+            class="form-select form-select-sm flex-grow-1"
             @change="onProfileSelect($event)"
           >
             <option value="">{{ $t('login.selectConnection') }}</option>
@@ -175,7 +175,7 @@ function removeSelectedProfile() {
           <button
             v-if="selectedProfileId"
             type="button"
-            class="csv-login__remove-btn"
+            class="btn btn-outline-danger btn-sm"
             :title="$t('common.remove')"
             @click="removeSelectedProfile"
           >
@@ -184,11 +184,11 @@ function removeSelectedProfile() {
         </div>
       </div>
 
-      <Divider v-if="savedProfiles.length > 0" :label="$t('login.orConnectManually')" class="csv-mb-4" />
+      <Divider v-if="savedProfiles.length > 0" :label="$t('login.orConnectManually')" class="mb-3" />
 
-      <form @submit.prevent="handleLogin" class="csv-space-y-4">
+      <form @submit.prevent="handleLogin" class="d-flex flex-column gap-3">
         <div>
-          <label class="csv-text-sm csv-font-medium csv-mb-1 csv-block">
+          <label class="form-label small fw-medium mb-1">
             {{ $t('login.serverHost') }}
           </label>
           <Input
@@ -216,14 +216,14 @@ function removeSelectedProfile() {
               <path d="M9 18l6-6-6-6" />
             </svg>
             <span>{{ $t('login.advancedOptions') }}</span>
-            <span v-if="!showAdvanced && (port || !useSSL)" class="csv-advanced-panel__summary">
+            <span v-if="!showAdvanced && (port || !useSSL)" class="text-body-tertiary" style="font-size: 0.75rem;">
               {{ port ? `:${port}` : '' }}{{ !useSSL ? ' HTTP' : '' }}
             </span>
           </button>
           <div v-show="showAdvanced" class="csv-advanced-panel__body">
-            <div class="csv-flex csv-gap-3">
-              <div class="csv-flex-1">
-                <label class="csv-text-sm csv-font-medium csv-mb-1 csv-block">
+            <div class="d-flex gap-3">
+              <div class="flex-grow-1">
+                <label class="form-label small fw-medium mb-1">
                   {{ $t('login.port') }}
                 </label>
                 <Input
@@ -232,14 +232,14 @@ function removeSelectedProfile() {
                   type="number"
                 />
               </div>
-              <div class="csv-flex csv-items-end csv-pb-1">
-                <label class="csv-flex csv-items-center csv-gap-2 csv-cursor-pointer">
+              <div class="d-flex align-items-end pb-1">
+                <label class="d-flex align-items-center gap-2 cursor-pointer">
                   <input
                     v-model="useSSL"
                     type="checkbox"
-                    class="csv-w-4 csv-h-4"
+                    class="form-check-input"
                   />
-                  <span class="csv-text-sm">{{ $t('login.ssl') }}</span>
+                  <span class="small">{{ $t('login.ssl') }}</span>
                 </label>
               </div>
             </div>
@@ -247,7 +247,7 @@ function removeSelectedProfile() {
         </div>
 
         <div>
-          <label class="csv-text-sm csv-font-medium csv-mb-1 csv-block">
+          <label class="form-label small fw-medium mb-1">
             {{ $t('login.database') }}
           </label>
           <Input
@@ -258,7 +258,7 @@ function removeSelectedProfile() {
         </div>
 
         <div>
-          <label class="csv-text-sm csv-font-medium csv-mb-1 csv-block">
+          <label class="form-label small fw-medium mb-1">
             {{ $t('login.username') }}
           </label>
           <Input
@@ -269,7 +269,7 @@ function removeSelectedProfile() {
         </div>
 
         <div>
-          <label for="csv-password" class="csv-text-sm csv-font-medium csv-mb-1 csv-block">
+          <label for="csv-password" class="form-label small fw-medium mb-1">
             {{ $t('login.password') }}
           </label>
           <Input
@@ -282,14 +282,14 @@ function removeSelectedProfile() {
 
         <div
           v-if="error"
-          class="csv-p-3 csv-bg-red-50 csv-text-red-700 csv-rounded csv-text-sm"
+          class="alert alert-danger py-2 small mb-0"
         >
           {{ error }}
         </div>
 
         <Button
           type="submit"
-          class="csv-w-full"
+          class="w-100"
           :loading="loading"
           :disabled="loading"
         >
@@ -301,43 +301,11 @@ function removeSelectedProfile() {
 </template>
 
 <style scoped>
-.csv-login__saved-select {
-  padding: 0.5rem 0.75rem;
-  font-size: 0.875rem;
-  border: 1px solid #d1d5db;
-  border-radius: var(--radius, 0.375rem);
-  background: white;
-  cursor: pointer;
-  font-family: inherit;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.csv-login__saved-select:focus {
-  outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
-}
-.csv-login__remove-btn {
-  padding: 0.5rem 0.75rem;
-  font-size: 1rem;
-  color: #6b7280;
-  background: white;
-  border: 1px solid #d1d5db;
-  border-radius: var(--radius, 0.375rem);
-  cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
-}
-.csv-login__remove-btn:hover {
-  color: #dc2626;
-  border-color: #dc2626;
-}
-
 /* Advanced options collapsible panel */
 .csv-advanced-panel {
-  border: 1px solid #e5e7eb;
-  border-radius: var(--radius, 0.375rem);
-  background: #fafafa;
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius);
+  background: var(--bs-tertiary-bg);
 }
 .csv-advanced-panel__toggle {
   width: 100%;
@@ -350,29 +318,26 @@ function removeSelectedProfile() {
   border: none;
   font: inherit;
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--bs-secondary-color);
   cursor: pointer;
 }
 .csv-advanced-panel__toggle:hover {
-  background: #f3f4f6;
-  border-radius: var(--radius, 0.375rem);
+  background: var(--bs-secondary-bg-subtle);
+  border-radius: var(--bs-border-radius);
 }
 .csv-advanced-panel__chevron {
   width: 0.875rem;
   height: 0.875rem;
   flex-shrink: 0;
-  color: #9ca3af;
+  color: var(--bs-secondary-color);
   transition: transform 0.15s;
 }
 .csv-advanced-panel__chevron--open {
   transform: rotate(90deg);
 }
-.csv-advanced-panel__summary {
-  color: #9ca3af;
-  font-size: 0.75rem;
-}
 .csv-advanced-panel__body {
   padding: 0 0.75rem 0.75rem;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--bs-border-color);
 }
+.cursor-pointer { cursor: pointer; }
 </style>

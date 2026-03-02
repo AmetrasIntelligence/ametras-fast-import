@@ -2,10 +2,14 @@ import { describe, it, expect } from 'vitest'
 import {
   ImportErrorCode,
   ERROR_SEVERITY,
+  ERROR_CATEGORY,
   createImportError,
   isFatalError,
   isRowError,
   isWarning,
+  isNetworkError,
+  isNetworkErrorCode,
+  classifyFetchError,
   formatImportError,
   parseOdooError
 } from '@/utils/errors'
@@ -190,5 +194,175 @@ describe('parseOdooError', () => {
     const error = parseOdooError('Test error', { filename: 'test.csv', rowNumber: 10 })
     expect(error.context?.filename).toBe('test.csv')
     expect(error.context?.rowNumber).toBe(10)
+  })
+})
+
+describe('ERROR_CATEGORY', () => {
+  it('maps network/transient errors to network category', () => {
+    expect(ERROR_CATEGORY[ImportErrorCode.TIMEOUT]).toBe('network')
+    expect(ERROR_CATEGORY[ImportErrorCode.NETWORK_ERROR]).toBe('network')
+    expect(ERROR_CATEGORY[ImportErrorCode.CONNECTION_LOST]).toBe('network')
+  })
+
+  it('maps auth errors to auth category', () => {
+    expect(ERROR_CATEGORY[ImportErrorCode.NOT_CONNECTED]).toBe('auth')
+    expect(ERROR_CATEGORY[ImportErrorCode.AUTH_FAILED]).toBe('auth')
+  })
+
+  it('maps config errors to config category', () => {
+    expect(ERROR_CATEGORY[ImportErrorCode.NO_MAPPING]).toBe('config')
+    expect(ERROR_CATEGORY[ImportErrorCode.INVALID_MODEL]).toBe('config')
+    expect(ERROR_CATEGORY[ImportErrorCode.INVALID_FIELD]).toBe('config')
+    expect(ERROR_CATEGORY[ImportErrorCode.INVALID_TRANSFORM]).toBe('config')
+  })
+
+  it('maps data errors to data category', () => {
+    expect(ERROR_CATEGORY[ImportErrorCode.RECORD_NOT_FOUND]).toBe('data')
+    expect(ERROR_CATEGORY[ImportErrorCode.DUPLICATE_RECORD]).toBe('data')
+    expect(ERROR_CATEGORY[ImportErrorCode.VALIDATION_FAILED]).toBe('data')
+    expect(ERROR_CATEGORY[ImportErrorCode.CONSTRAINT_VIOLATION]).toBe('data')
+    expect(ERROR_CATEGORY[ImportErrorCode.REQUIRED_FIELD_MISSING]).toBe('data')
+    expect(ERROR_CATEGORY[ImportErrorCode.INVALID_VALUE]).toBe('data')
+    expect(ERROR_CATEGORY[ImportErrorCode.UNKNOWN]).toBe('data')
+  })
+
+  it('has a mapping for every ImportErrorCode', () => {
+    for (const code of Object.values(ImportErrorCode)) {
+      expect(ERROR_CATEGORY[code]).toBeDefined()
+    }
+  })
+})
+
+describe('isNetworkErrorCode', () => {
+  it('returns true for TIMEOUT', () => {
+    expect(isNetworkErrorCode(ImportErrorCode.TIMEOUT)).toBe(true)
+  })
+
+  it('returns true for NETWORK_ERROR', () => {
+    expect(isNetworkErrorCode(ImportErrorCode.NETWORK_ERROR)).toBe(true)
+  })
+
+  it('returns true for CONNECTION_LOST', () => {
+    expect(isNetworkErrorCode(ImportErrorCode.CONNECTION_LOST)).toBe(true)
+  })
+
+  it('returns false for data errors', () => {
+    expect(isNetworkErrorCode(ImportErrorCode.VALIDATION_FAILED)).toBe(false)
+    expect(isNetworkErrorCode(ImportErrorCode.RECORD_NOT_FOUND)).toBe(false)
+    expect(isNetworkErrorCode(ImportErrorCode.UNKNOWN)).toBe(false)
+  })
+
+  it('returns false for auth errors', () => {
+    expect(isNetworkErrorCode(ImportErrorCode.AUTH_FAILED)).toBe(false)
+    expect(isNetworkErrorCode(ImportErrorCode.NOT_CONNECTED)).toBe(false)
+  })
+})
+
+describe('isNetworkError', () => {
+  it('returns true for network error codes', () => {
+    const error = createImportError(ImportErrorCode.NETWORK_ERROR, 'Server unavailable')
+    expect(isNetworkError(error)).toBe(true)
+  })
+
+  it('returns true for timeout errors', () => {
+    const error = createImportError(ImportErrorCode.TIMEOUT, 'Request timed out')
+    expect(isNetworkError(error)).toBe(true)
+  })
+
+  it('returns false for data errors', () => {
+    const error = createImportError(ImportErrorCode.VALIDATION_FAILED, 'Invalid data')
+    expect(isNetworkError(error)).toBe(false)
+  })
+
+  it('returns false for fatal auth errors', () => {
+    const error = createImportError(ImportErrorCode.AUTH_FAILED, 'Auth failed')
+    expect(isNetworkError(error)).toBe(false)
+  })
+})
+
+describe('classifyFetchError', () => {
+  it('classifies DOMException AbortError as TIMEOUT', () => {
+    const error = new DOMException('The operation was aborted', 'AbortError')
+    expect(classifyFetchError(error)).toBe(ImportErrorCode.TIMEOUT)
+  })
+
+  it('classifies TypeError as NETWORK_ERROR (fetch DNS/connection failure)', () => {
+    const error = new TypeError('Failed to fetch')
+    expect(classifyFetchError(error)).toBe(ImportErrorCode.NETWORK_ERROR)
+  })
+
+  it('classifies error with "timeout" in message as TIMEOUT', () => {
+    const error = new Error('Request timeout after 30s')
+    expect(classifyFetchError(error)).toBe(ImportErrorCode.TIMEOUT)
+  })
+
+  it('classifies error with "timed out" in message as TIMEOUT', () => {
+    const error = new Error('Connection timed out')
+    expect(classifyFetchError(error)).toBe(ImportErrorCode.TIMEOUT)
+  })
+
+  it('classifies error with "502" in message as NETWORK_ERROR', () => {
+    const error = new Error('HTTP 502 Bad Gateway')
+    expect(classifyFetchError(error)).toBe(ImportErrorCode.NETWORK_ERROR)
+  })
+
+  it('classifies error with "503" in message as NETWORK_ERROR', () => {
+    const error = new Error('503 Service Unavailable')
+    expect(classifyFetchError(error)).toBe(ImportErrorCode.NETWORK_ERROR)
+  })
+
+  it('classifies error with "504" in message as NETWORK_ERROR', () => {
+    const error = new Error('HTTP 504 response from server')
+    expect(classifyFetchError(error)).toBe(ImportErrorCode.NETWORK_ERROR)
+  })
+
+  it('classifies "gateway timeout" text as TIMEOUT (timeout keyword takes priority)', () => {
+    // "504 Gateway Timeout" contains "timeout" which matches the timeout check first
+    const error = new Error('504 Gateway Timeout')
+    expect(classifyFetchError(error)).toBe(ImportErrorCode.TIMEOUT)
+  })
+
+  it('classifies error with "bad gateway" in message as NETWORK_ERROR', () => {
+    const error = new Error('bad gateway from upstream')
+    expect(classifyFetchError(error)).toBe(ImportErrorCode.NETWORK_ERROR)
+  })
+
+  it('classifies error with "service unavailable" in message as NETWORK_ERROR', () => {
+    const error = new Error('service unavailable')
+    expect(classifyFetchError(error)).toBe(ImportErrorCode.NETWORK_ERROR)
+  })
+
+  it('classifies error with "failed to fetch" in message as NETWORK_ERROR', () => {
+    const error = new Error('failed to fetch resource')
+    expect(classifyFetchError(error)).toBe(ImportErrorCode.NETWORK_ERROR)
+  })
+
+  it('classifies error with "net::" in message as NETWORK_ERROR', () => {
+    const error = new Error('net::ERR_CONNECTION_REFUSED')
+    expect(classifyFetchError(error)).toBe(ImportErrorCode.NETWORK_ERROR)
+  })
+
+  it('classifies unknown Error as UNKNOWN', () => {
+    const error = new Error('Something completely different')
+    expect(classifyFetchError(error)).toBe(ImportErrorCode.UNKNOWN)
+  })
+
+  it('classifies non-Error values as UNKNOWN', () => {
+    expect(classifyFetchError('string error')).toBe(ImportErrorCode.UNKNOWN)
+    expect(classifyFetchError(42)).toBe(ImportErrorCode.UNKNOWN)
+    expect(classifyFetchError(null)).toBe(ImportErrorCode.UNKNOWN)
+    expect(classifyFetchError(undefined)).toBe(ImportErrorCode.UNKNOWN)
+  })
+
+  it('prioritizes DOMException AbortError over message content', () => {
+    // AbortError is always TIMEOUT, even if message contains "network"
+    const error = new DOMException('network abort', 'AbortError')
+    expect(classifyFetchError(error)).toBe(ImportErrorCode.TIMEOUT)
+  })
+
+  it('prioritizes TypeError over message content', () => {
+    // TypeError is always NETWORK_ERROR, even if message contains "timeout"
+    const error = new TypeError('timeout while connecting')
+    expect(classifyFetchError(error)).toBe(ImportErrorCode.NETWORK_ERROR)
   })
 })

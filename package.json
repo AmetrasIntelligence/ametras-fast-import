@@ -30,6 +30,7 @@
   "license": "LGPL-3.0",
   "type": "module",
   "dependencies": {
+    "bootstrap": "^5.3.3",
     "jszip": "^3.10.1",
     "papaparse": "^5.5.2",
     "pinia": "^3.0.2",

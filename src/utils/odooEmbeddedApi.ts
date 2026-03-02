@@ -2,6 +2,7 @@
  * Odoo-embedded implementation of window.api (ElectronAPI).
  * Replaces Electron IPC with same-origin fetch calls to Odoo controllers.
  */
+import { classifyFetchError, ImportErrorCode } from '@/utils/errors'
 
 // Temp storage for File objects from drag-and-drop
 const _fileMap = new Map<string, File>()
@@ -185,18 +186,43 @@ export function installOdooEmbeddedApi(): void {
               id: Date.now(),
             }),
           })
+
+          // Check HTTP-level errors before parsing JSON
+          if (!response.ok) {
+            const status = response.status
+            if (status === 502 || status === 503 || status === 504) {
+              return {
+                ok: false as const,
+                error: `HTTP ${status}: Server unavailable`,
+                errorCode: 'NETWORK_ERROR' as const,
+              }
+            }
+            return {
+              ok: false as const,
+              error: `HTTP ${status}: ${response.statusText}`,
+              errorCode: 'UNKNOWN' as const,
+            }
+          }
+
           const data = await response.json()
           if (data.error) {
             return {
               ok: false as const,
               error: data.error.data?.message || data.error.message || 'RPC Error',
+              errorCode: 'DATA_ERROR' as const,
             }
           }
           return { ok: true as const, result: data.result }
         } catch (e) {
+          const code = classifyFetchError(e)
+          const errorCode: 'NETWORK_ERROR' | 'TIMEOUT' | 'UNKNOWN' =
+            code === ImportErrorCode.NETWORK_ERROR ? 'NETWORK_ERROR'
+            : code === ImportErrorCode.TIMEOUT ? 'TIMEOUT'
+            : 'UNKNOWN'
           return {
             ok: false as const,
             error: e instanceof Error ? e.message : 'Request failed',
+            errorCode,
           }
         }
       },

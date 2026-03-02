@@ -55,7 +55,7 @@ function handleKeydown(e: KeyboardEvent) {
         @keydown="handleKeydown"
         @click.self="cancel"
       >
-        <div class="csv-dialog" :class="`csv-dialog--${state.type}`" role="dialog">
+        <div class="csv-dialog card shadow-lg" :class="`csv-dialog--${state.type}`" role="dialog">
           <div class="csv-dialog__header">
             <span class="csv-dialog__icon" :class="`csv-dialog__icon--${state.type}`">
               <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path :d="dialogIconPath" /></svg>
@@ -70,12 +70,12 @@ function handleKeydown(e: KeyboardEvent) {
             ref="inputEl"
             :value="state.inputValue"
             type="text"
-            class="csv-dialog__input"
+            class="form-control form-control-sm mb-3"
             @input="updateInput(($event.target as HTMLInputElement).value)"
             @keydown.enter="confirm"
           />
 
-          <div class="csv-dialog__actions">
+          <div class="d-flex justify-content-end gap-2 pt-2">
             <Button
               v-if="state.type !== 'alert'"
               variant="outline"
@@ -117,7 +117,7 @@ function handleKeydown(e: KeyboardEvent) {
 .csv-dialog-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: 1050;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -126,13 +126,9 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 .csv-dialog {
-  background: white;
-  border-radius: 0.5rem;
   padding: 1.5rem;
   min-width: 360px;
   max-width: 480px;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-  border: 1px solid #e5e7eb;
 }
 
 .csv-dialog__header {
@@ -141,7 +137,7 @@ function handleKeydown(e: KeyboardEvent) {
   gap: 0.75rem;
   margin-bottom: 1rem;
   padding-bottom: 0.75rem;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--bs-border-color-translucent);
 }
 
 .csv-dialog__icon {
@@ -155,24 +151,24 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 .csv-dialog__icon--alert {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--bs-primary-bg-subtle);
+  color: var(--bs-primary);
 }
 
 .csv-dialog__icon--confirm {
-  background: #fef3c7;
-  color: #b45309;
+  background: var(--bs-warning-bg-subtle);
+  color: var(--bs-warning-text-emphasis);
 }
 
 .csv-dialog__icon--prompt {
-  background: #f3e8ff;
-  color: #7c3aed;
+  background: var(--bs-info-bg-subtle);
+  color: var(--bs-info-text-emphasis);
 }
 
 .csv-dialog__title {
   font-size: 1rem;
   font-weight: 600;
-  color: #111827;
+  color: var(--bs-body-color);
 }
 
 .csv-dialog__message {
@@ -180,33 +176,7 @@ function handleKeydown(e: KeyboardEvent) {
   font-size: 0.875rem;
   font-family: inherit;
   line-height: 1.6;
-  color: #374151;
+  color: var(--bs-secondary-color);
   white-space: pre-wrap;
-}
-
-.csv-dialog__input {
-  width: 100%;
-  height: 2.5rem;
-  padding: 0 0.75rem;
-  margin-bottom: 1.25rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.375rem;
-  font-size: 0.875rem;
-  font-family: inherit;
-  background: #f9fafb;
-}
-
-.csv-dialog__input:focus {
-  outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
-  background: white;
-}
-
-.csv-dialog__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.75rem;
-  padding-top: 0.5rem;
 }
 </style>

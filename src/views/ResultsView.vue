@@ -91,51 +91,51 @@ function startNew() {
 </script>
 
 <template>
-  <div class="csv-p-6 csv-space-y-6">
+  <div class="p-4 d-flex flex-column gap-4">
     <!-- Dry Run Banner -->
-    <div v-if="run.isDryRun" class="csv-dry-run-banner">
+    <div v-if="run.isDryRun" class="alert alert-warning mb-0">
       {{ $t('results.dryRunBanner', { count: summary.totalRows.toLocaleString() }) }}
     </div>
 
     <!-- Summary Card -->
-    <Card class="csv-p-6">
-      <h2 class="csv-text-xl csv-font-semibold csv-mb-4">
+    <Card class="p-4">
+      <h2 class="fs-5 fw-semibold mb-3">
         {{ run.isDryRun ? $t('results.dryRunComplete') : $t('results.importComplete') }}
       </h2>
 
-      <div class="csv-grid csv-grid-cols-4 csv-gap-4">
+      <div class="row row-cols-4 g-3">
         <div>
-          <div class="csv-text-3xl csv-font-bold">
+          <div class="fs-2 fw-bold">
             {{ summary.totalRows.toLocaleString() }}
           </div>
-          <div class="csv-text-sm csv-text-muted">{{ $t('results.totalRows') }}</div>
+          <small class="text-body-secondary">{{ $t('results.totalRows') }}</small>
         </div>
         <div>
-          <div class="csv-text-3xl csv-font-bold csv-text-green-600">
+          <div class="fs-2 fw-bold text-success">
             {{ summary.successRows.toLocaleString() }}
           </div>
-          <div class="csv-text-sm csv-text-muted">{{ $t('results.successful') }}</div>
+          <small class="text-body-secondary">{{ $t('results.successful') }}</small>
         </div>
         <div>
-          <div class="csv-text-3xl csv-font-bold csv-text-red-600">
+          <div class="fs-2 fw-bold text-danger">
             {{ summary.failedRows.toLocaleString() }}
           </div>
-          <div class="csv-text-sm csv-text-muted">{{ $t('results.failed') }}</div>
+          <small class="text-body-secondary">{{ $t('results.failed') }}</small>
         </div>
         <div>
-          <div class="csv-text-3xl csv-font-bold">
+          <div class="fs-2 fw-bold">
             {{ summary.duration }}
           </div>
-          <div class="csv-text-sm csv-text-muted">{{ $t('results.duration') }}</div>
+          <small class="text-body-secondary">{{ $t('results.duration') }}</small>
         </div>
       </div>
     </Card>
 
     <!-- Export Actions -->
-    <Card class="csv-p-4">
-      <h3 class="csv-font-semibold csv-mb-4">{{ $t('results.export') }}</h3>
+    <Card class="p-3">
+      <h3 class="fw-semibold mb-3">{{ $t('results.export') }}</h3>
 
-      <div class="csv-flex csv-gap-4">
+      <div class="d-flex gap-3">
         <Button
           v-if="run.errors.length > 0"
           variant="outline"
@@ -154,32 +154,32 @@ function startNew() {
     </Card>
 
     <!-- Error Details -->
-    <Card v-if="run.errors.length > 0" class="csv-p-4">
-      <h3 class="csv-font-semibold csv-mb-4">
+    <Card v-if="run.errors.length > 0" class="p-3">
+      <h3 class="fw-semibold mb-3">
         {{ $t('results.errors') }} ({{ run.errors.length }})
       </h3>
 
-      <div class="csv-max-h-96 csv-overflow-y-auto">
+      <div class="overflow-auto" style="max-height: 24rem;">
         <Table>
           <thead>
             <tr>
-              <th class="csv-text-left">{{ $t('results.file') }}</th>
-              <th class="csv-text-right">{{ $t('results.row') }}</th>
-              <th class="csv-text-left">{{ $t('results.error') }}</th>
+              <th class="text-start">{{ $t('results.file') }}</th>
+              <th class="text-end">{{ $t('results.row') }}</th>
+              <th class="text-start">{{ $t('results.error') }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="(error, idx) in run.errors" :key="idx">
               <td>{{ error.filename }}</td>
-              <td class="csv-text-right">{{ error.rowNumber }}</td>
-              <td class="csv-text-red-600">{{ error.error }}</td>
+              <td class="text-end">{{ error.rowNumber }}</td>
+              <td class="text-danger">{{ error.error }}</td>
             </tr>
           </tbody>
         </Table>
       </div>
     </Card>
 
-    <div class="csv-flex csv-justify-end csv-gap-4">
+    <div class="d-flex justify-content-end gap-3">
       <Button
         v-if="run.hasRetryableErrors && !run.isDryRun"
         variant="outline"
@@ -194,15 +194,3 @@ function startNew() {
     </div>
   </div>
 </template>
-
-<style scoped>
-.csv-dry-run-banner {
-  padding: 0.75rem 1rem;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: #92400e;
-  background: #fef3c7;
-  border: 1px solid #fbbf24;
-  border-radius: var(--radius, 0.375rem);
-}
-</style>

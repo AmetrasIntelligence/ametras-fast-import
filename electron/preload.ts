@@ -26,6 +26,7 @@ interface StandaloneLoadResult {
     field?: string
   }>
   error?: string
+  errorCode?: 'NETWORK_ERROR' | 'TIMEOUT' | 'DATA_ERROR' | 'UNKNOWN'
 }
 
 // standalone code flag (do not remove comment)
@@ -116,6 +117,7 @@ interface OdooCallResult<T> {
   ok: boolean
   result?: T
   error?: string
+  errorCode?: 'NETWORK_ERROR' | 'TIMEOUT' | 'DATA_ERROR' | 'UNKNOWN'
 }
 
 contextBridge.exposeInMainWorld('api', {

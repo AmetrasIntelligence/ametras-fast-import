@@ -1,7 +1,108 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
+    <!-- Client action for Import view (default) -->
     <record id="action_csv_import_vue_app" model="ir.actions.client">
-        <field name="name">CSV Import</field>
+        <field name="name">Import</field>
         <field name="tag">ametras_csv_import_vue_app</field>
+        <field name="context">{'default_view': 'import'}</field>
+    </record>
+
+    <!-- Client action for Profiles view -->
+    <record id="action_csv_import_profiles" model="ir.actions.client">
+        <field name="name">Profiles</field>
+        <field name="tag">ametras_csv_import_vue_app</field>
+        <field name="context">{'default_view': 'profiles'}</field>
+    </record>
+
+    <!-- Tree view for Logs -->
+    <record id="view_csv_import_log_tree" model="ir.ui.view">
+        <field name="name">csv.import.log.tree</field>
+        <field name="model">csv.import.log</field>
+        <field name="arch" type="xml">
+            <tree create="false">
+                <field name="create_date" string="Date"/>
+                <field name="user_id"/>
+                <field name="profile_name"/>
+                <field name="state"
+                       decoration-success="state == 'completed'"
+                       decoration-danger="state == 'failed'"
+                       decoration-warning="state == 'interrupted'"
+                       decoration-info="state == 'running'"/>
+                <field name="is_dry_run"/>
+                <field name="total_rows"/>
+                <field name="success_rows"/>
+                <field name="failed_rows"/>
+                <field name="pending_rows"/>
+                <field name="duration_seconds" widget="float_time"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- Form view for Logs (results-style) -->
+    <record id="view_csv_import_log_form" model="ir.ui.view">
+        <field name="name">csv.import.log.form</field>
+        <field name="model">csv.import.log</field>
+        <field name="arch" type="xml">
+            <form create="false" edit="false">
+                <header>
+                    <button name="action_resume_import" type="object" string="Resume Import"
+                            class="btn-primary"
+                            attrs="{'invisible': ['|', ('state', 'not in', ['interrupted', 'failed']), '&amp;', ('pending_rows', '=', 0), ('failed_rows', '=', 0)]}"/>
+                    <button name="action_retry_failed" type="object" string="Retry Failed Rows"
+                            class="btn-primary"
+                            attrs="{'invisible': [('failed_rows', '=', 0)]}"/>
+                    <button name="action_download_errors" type="object" string="Download Error Log"
+                            class="btn-secondary"
+                            attrs="{'invisible': [('failed_rows', '=', 0)]}"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="running,completed,failed,interrupted"/>
+                </header>
+                <sheet>
+                    <group string="Summary">
+                        <group>
+                            <field name="profile_name"/>
+                            <field name="profile_id"/>
+                            <field name="user_id"/>
+                            <field name="is_dry_run"/>
+                        </group>
+                        <group>
+                            <field name="total_rows"/>
+                            <field name="success_rows"/>
+                            <field name="failed_rows"/>
+                            <field name="pending_rows"/>
+                        </group>
+                    </group>
+                    <group string="Timing">
+                        <group>
+                            <field name="started_at"/>
+                            <field name="finished_at"/>
+                            <field name="duration_seconds"/>
+                            <field name="heartbeat"/>
+                        </group>
+                    </group>
+                    <group string="Files">
+                        <field name="attachment_ids" widget="many2many_tags" nolabel="1"/>
+                    </group>
+                    <notebook>
+                        <page string="Files">
+                            <field name="filenames" widget="text"/>
+                        </page>
+                        <page string="File Progress">
+                            <field name="file_progress" widget="text"/>
+                        </page>
+                        <page string="Error Log">
+                            <field name="error_log" widget="text"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Window action for Logs (Odoo native list/form) -->
+    <record id="action_csv_import_logs" model="ir.actions.act_window">
+        <field name="name">Logs</field>
+        <field name="res_model">csv.import.log</field>
+        <field name="view_mode">tree,form</field>
     </record>
 </odoo>

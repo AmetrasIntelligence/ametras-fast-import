@@ -2,6 +2,19 @@ import { useSessionStore } from '@/stores/session'
 import type { ParsedRow } from './csvParser'
 import { transformRowData } from '@/utils/rowTransform'
 
+/**
+ * Error thrown when a batch fails due to a network/transient issue.
+ * The rows are NOT marked as failed — they should be retried after reconnection.
+ */
+export class NetworkBatchError extends Error {
+  readonly rows: ParsedRow[]
+  constructor(message: string, rows: ParsedRow[]) {
+    super(message)
+    this.name = 'NetworkBatchError'
+    this.rows = rows
+  }
+}
+
 export interface BatchResult {
   ok: boolean
   error?: string
@@ -90,7 +103,12 @@ export async function executeBatch(
   })
 
   if (!response.ok || !response.result) {
-    // Return all rows as failed if the entire request failed
+    // Network/transient errors: throw so the engine can pause and retry
+    if (response.errorCode === 'NETWORK_ERROR' || response.errorCode === 'TIMEOUT') {
+      throw new NetworkBatchError(response.error || 'Network error', rows)
+    }
+
+    // Data/other errors: return all rows as failed
     return rows.map((_row, idx) => ({
       ok: false,
       error: response.error || 'Request failed',

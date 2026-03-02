@@ -109,7 +109,7 @@ function onDragEnd() {
 </script>
 
 <template>
-  <div class="csv-file-list">
+  <div class="d-flex flex-column gap-1">
     <div
       v-for="(file, index) in files"
       :key="file.id"
@@ -193,19 +193,14 @@ function onDragEnd() {
 </template>
 
 <style scoped>
-.csv-file-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
 .csv-file-list__item {
-  border: 1px solid #e5e7eb;
-  border-radius: var(--radius, 0.375rem);
-  background: white;
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius);
+  background: var(--bs-body-bg);
   transition: border-color 0.15s;
 }
 .csv-file-list__item--drag-over {
-  border-color: #2563eb;
+  border-color: var(--bs-primary);
   border-style: dashed;
 }
 .csv-file-list__item--dragging {
@@ -219,17 +214,17 @@ function onDragEnd() {
   cursor: pointer;
 }
 .csv-file-list__header:hover {
-  background: #fafafa;
+  background: var(--bs-tertiary-bg);
 }
 .csv-file-list__handle {
   cursor: grab;
   padding: 0.125rem;
-  color: #9ca3af;
+  color: var(--bs-secondary-color);
   font-size: 0.75rem;
   user-select: none;
 }
 .csv-file-list__handle:hover {
-  color: #374151;
+  color: var(--bs-body-color);
 }
 .csv-file-list__handle--disabled {
   cursor: not-allowed;
@@ -239,12 +234,12 @@ function onDragEnd() {
   width: 1.5rem;
   text-align: center;
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--bs-secondary-color);
   font-family: monospace;
 }
 .csv-file-list__chevron {
   font-size: 0.625rem;
-  color: #6b7280;
+  color: var(--bs-secondary-color);
   transition: transform 0.15s;
 }
 .csv-file-list__chevron--open {
@@ -260,17 +255,17 @@ function onDragEnd() {
 }
 .csv-file-list__model {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--bs-secondary-color);
   font-family: monospace;
 }
 .csv-file-list__rows {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--bs-secondary-color);
   font-variant-numeric: tabular-nums;
 }
 .csv-file-list__remove {
   padding: 0.25rem;
-  color: #9ca3af;
+  color: var(--bs-secondary-color);
   background: none;
   border: none;
   cursor: pointer;
@@ -278,12 +273,12 @@ function onDragEnd() {
   line-height: 1;
 }
 .csv-file-list__remove:hover {
-  color: #dc2626;
+  color: var(--bs-danger);
 }
 .csv-file-list__expanded {
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--bs-border-color);
   padding: 0.75rem;
-  background: #fafafa;
+  background: var(--bs-tertiary-bg);
 }
 .csv-file-list__expanded--readonly {
   opacity: 0.6;

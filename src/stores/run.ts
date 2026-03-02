@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed, shallowRef } from 'vue'
 import { ImportState } from '@/importer/stateMachine'
 import type { ImportEngine } from '@/importer/engine'
+import type { ConnectionStatus } from '@/importer/connectionMonitor'
 
 export interface FileProgress {
   filename: string
@@ -34,6 +35,9 @@ export const useRunStore = defineStore('run', () => {
   const state = ref<ImportState>(ImportState.IDLE)
   const isDryRun = ref(false)
   const engine = shallowRef<ImportEngine | null>(null)
+  const logId = ref<number | null>(null)
+  const connectionStatus = ref<ConnectionStatus>('online')
+  const resumeLogId = ref<number | null>(null)
   const progress = ref<RunProgress>({
     totalFiles: 0,
     completedFiles: 0,
@@ -84,6 +88,16 @@ export const useRunStore = defineStore('run', () => {
   const hasRetryableErrors = computed(() => {
     // Row-level errors have rowNumber > 0 (rowNumber 0 is used for file-level errors)
     return errors.value.some(e => e.rowNumber > 0)
+  })
+
+  const isWaitingForConnection = computed(() => connectionStatus.value === 'offline')
+
+  const pendingRows = computed(() => {
+    const files = Object.values(progress.value.files)
+    const total = files.reduce((sum, f) => sum + f.totalRows, 0)
+    const success = files.reduce((sum, f) => sum + f.successCount, 0)
+    const failed = files.reduce((sum, f) => sum + f.failedCount, 0)
+    return Math.max(0, total - success - failed)
   })
 
   function setEngine(eng: ImportEngine | null) {
@@ -162,6 +176,9 @@ export const useRunStore = defineStore('run', () => {
     state.value = ImportState.IDLE
     isDryRun.value = false
     engine.value = null
+    logId.value = null
+    connectionStatus.value = 'online'
+    resumeLogId.value = null
     progress.value = {
       totalFiles: 0,
       completedFiles: 0,
@@ -176,6 +193,9 @@ export const useRunStore = defineStore('run', () => {
     state,
     isDryRun,
     engine,
+    logId,
+    connectionStatus,
+    resumeLogId,
     progress,
     errors,
     runStartTime,
@@ -185,6 +205,8 @@ export const useRunStore = defineStore('run', () => {
     isActive,
     isCompleted,
     hasRetryableErrors,
+    isWaitingForConnection,
+    pendingRows,
     initRun,
     startFile,
     updateFileProgress,

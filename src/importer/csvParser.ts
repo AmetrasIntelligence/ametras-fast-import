@@ -50,43 +50,44 @@ export async function parseCSVBatched(
         throw new Error(chunk.error)
       }
 
+      // Process data before checking done flag — the server sends
+      // done=true on the LAST chunk that still contains data, so we
+      // must process it before breaking out of the loop.
+      if (chunk.data) {
+        // Parse this chunk
+        const parsed = Papa.parse(chunk.data, buildParseConfig(options))
+
+        // Check for parse errors
+        if (parsed.errors.length > 0) {
+          for (const err of parsed.errors) {
+            logger.csv.warn(`Parse error at row ${(err.row ?? -1) + rowIndex + 1}: ${err.message}`, {
+              type: err.type,
+              code: err.code,
+              row: err.row
+            })
+          }
+          // Abort on unrecoverable errors (e.g. delimiter detection failure)
+          const critical = parsed.errors.find(e => e.type === 'Delimiter')
+          if (critical) {
+            throw new Error(`CSV parse error: ${critical.message}`)
+          }
+        }
+
+        // Build batch from parsed rows
+        const batch: ParsedRow[] = []
+        for (const data of parsed.data as Record<string, string>[]) {
+          rowIndex++
+          batch.push({ index: rowIndex, data, raw: Object.values(data) })
+        }
+
+        // Process batch - backpressure: we won't request next chunk until done
+        if (batch.length > 0) {
+          await onBatch(batch)
+        }
+      }
+
       if (chunk.done) {
         break
-      }
-
-      if (!chunk.data) {
-        continue
-      }
-
-      // Parse this chunk
-      const parsed = Papa.parse(chunk.data, buildParseConfig(options))
-
-      // Check for parse errors
-      if (parsed.errors.length > 0) {
-        for (const err of parsed.errors) {
-          logger.csv.warn(`Parse error at row ${(err.row ?? -1) + rowIndex + 1}: ${err.message}`, {
-            type: err.type,
-            code: err.code,
-            row: err.row
-          })
-        }
-        // Abort on unrecoverable errors (e.g. delimiter detection failure)
-        const critical = parsed.errors.find(e => e.type === 'Delimiter')
-        if (critical) {
-          throw new Error(`CSV parse error: ${critical.message}`)
-        }
-      }
-
-      // Build batch from parsed rows
-      const batch: ParsedRow[] = []
-      for (const data of parsed.data as Record<string, string>[]) {
-        rowIndex++
-        batch.push({ index: rowIndex, data, raw: Object.values(data) })
-      }
-
-      // Process batch - backpressure: we won't request next chunk until done
-      if (batch.length > 0) {
-        await onBatch(batch)
       }
     }
   } finally {

@@ -25,14 +25,14 @@ const confidencePercent = computed(() =>
     class="csv-field-suggestion"
   >
     <div class="csv-field-suggestion__text">
-      <span class="csv-font-mono csv-text-muted">{{ header }}</span>
+      <span class="font-monospace text-body-secondary">{{ header }}</span>
       <span class="csv-field-suggestion__arrow">&rarr;</span>
-      <span class="csv-font-medium">{{ suggestion.field.string }}</span>
-      <span class="csv-text-xs csv-text-muted csv-ml-1">
+      <span class="fw-medium">{{ suggestion.field.string }}</span>
+      <small class="text-body-secondary ms-1">
         ({{ confidencePercent }}%)
-      </span>
+      </small>
     </div>
-    <div class="csv-flex csv-gap-1">
+    <div class="d-flex gap-1">
       <button
         type="button"
         class="csv-field-suggestion__btn csv-field-suggestion__btn--accept"
@@ -67,8 +67,8 @@ const confidencePercent = computed(() =>
   align-items: center;
   justify-content: space-between;
   padding: 0.375rem 0.75rem;
-  background: #eff6ff;
-  border-radius: var(--radius, 0.375rem);
+  background: var(--bs-primary-bg-subtle);
+  border-radius: var(--bs-border-radius);
   font-size: 0.875rem;
 }
 .csv-field-suggestion__text {
@@ -78,11 +78,11 @@ const confidencePercent = computed(() =>
 }
 .csv-field-suggestion__arrow {
   margin: 0 0.375rem;
-  color: #6b7280;
+  color: var(--bs-secondary-color);
 }
 .csv-field-suggestion__btn {
   padding: 0.25rem;
-  border-radius: var(--radius, 0.375rem);
+  border-radius: var(--bs-border-radius);
   background: none;
   border: none;
   cursor: pointer;
@@ -90,14 +90,14 @@ const confidencePercent = computed(() =>
   line-height: 1;
 }
 .csv-field-suggestion__btn:hover {
-  background: #e5e7eb;
+  background: var(--bs-tertiary-bg);
 }
 .csv-field-suggestion__btn--accept:hover {
-  background: #dcfce7;
-  color: #16a34a;
+  background: var(--bs-success-bg-subtle);
+  color: var(--bs-success);
 }
 .csv-field-suggestion__btn--skip:hover {
-  background: #fef2f2;
-  color: #dc2626;
+  background: var(--bs-danger-bg-subtle);
+  color: var(--bs-danger);
 }
 </style>

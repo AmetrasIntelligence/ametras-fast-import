@@ -295,16 +295,44 @@ ipcMain.handle('odoo:call', async (_event, payload: {
       signal: AbortSignal.timeout(RPC_TIMEOUT_MS)
     })
 
+    // Check HTTP-level errors before parsing JSON
+    if (!response.ok) {
+      const status = response.status
+      if (status === 502 || status === 503 || status === 504) {
+        return { ok: false, error: `HTTP ${status}: Server unavailable`, errorCode: 'NETWORK_ERROR' }
+      }
+      return { ok: false, error: `HTTP ${status}: ${response.statusText}`, errorCode: 'UNKNOWN' }
+    }
+
     const data = await response.json()
 
     if (data.error) {
-      return { ok: false, error: data.error.data?.message || data.error.message || 'RPC Error' }
+      return {
+        ok: false,
+        error: data.error.data?.message || data.error.message || 'RPC Error',
+        errorCode: 'DATA_ERROR'
+      }
     }
 
     return { ok: true, result: data.result }
   } catch (e) {
+    // Classify the error for network resilience
+    let errorCode: 'NETWORK_ERROR' | 'TIMEOUT' | 'UNKNOWN' = 'UNKNOWN'
+    if (e instanceof TypeError) {
+      // TypeError from fetch = DNS failure, connection refused, offline
+      errorCode = 'NETWORK_ERROR'
+    } else if (e instanceof DOMException && e.name === 'AbortError') {
+      errorCode = 'TIMEOUT'
+    } else if (e instanceof Error) {
+      const msg = e.message.toLowerCase()
+      if (msg.includes('timeout') || msg.includes('timed out') || msg.includes('aborted')) {
+        errorCode = 'TIMEOUT'
+      } else if (msg.includes('network') || msg.includes('failed to fetch') || msg.includes('net::')) {
+        errorCode = 'NETWORK_ERROR'
+      }
+    }
     const message = e instanceof Error ? e.message : 'Request failed'
-    return { ok: false, error: message }
+    return { ok: false, error: message, errorCode }
   }
 })
 

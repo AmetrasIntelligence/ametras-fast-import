@@ -10,4 +10,16 @@
               parent="menu_csv_import_root"
               action="action_csv_import_vue_app"
               sequence="1"/>
+
+    <menuitem id="menu_csv_import_profiles"
+              name="Profiles"
+              parent="menu_csv_import_root"
+              action="action_csv_import_profiles"
+              sequence="2"/>
+
+    <menuitem id="menu_csv_import_logs"
+              name="Logs"
+              parent="menu_csv_import_root"
+              action="action_csv_import_logs"
+              sequence="3"/>
 </odoo>

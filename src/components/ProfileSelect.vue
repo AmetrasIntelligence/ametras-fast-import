@@ -76,7 +76,7 @@ function selectProfile(profile: ProfileItem | null) {
     >
       <div class="csv-profile-select__content">
         <div v-if="loading" class="csv-profile-select__loading">
-          <span class="csv-profile-select__spinner" />
+          <span class="spinner-border spinner-border-sm" />
           {{ $t('config.loadingProfiles') }}
         </div>
         <template v-else-if="selectedProfile">
@@ -114,7 +114,7 @@ function selectProfile(profile: ProfileItem | null) {
             v-model="searchQuery"
             type="text"
             :placeholder="$t('profileSelect.searchPlaceholder')"
-            class="csv-profile-select__search-input"
+            class="form-control form-control-sm"
           />
         </div>
 
@@ -129,7 +129,7 @@ function selectProfile(profile: ProfileItem | null) {
           >
             <span class="csv-profile-select__check">{{ !modelValue ? '✓' : '' }}</span>
             <div class="csv-profile-select__option-content">
-              <div class="csv-profile-select__option-name csv-text-muted">
+              <div class="csv-profile-select__option-name text-body-secondary">
                 {{ $t('config.noProfileSelected') }}
               </div>
             </div>
@@ -181,9 +181,9 @@ function selectProfile(profile: ProfileItem | null) {
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.625rem 0.75rem;
-  border: 1px solid #d1d5db;
-  border-radius: var(--radius, 0.375rem);
-  background: white;
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius);
+  background: var(--bs-body-bg);
   cursor: pointer;
   font-family: inherit;
   text-align: left;
@@ -191,22 +191,22 @@ function selectProfile(profile: ProfileItem | null) {
 }
 
 .csv-profile-select__trigger:hover:not(:disabled) {
-  border-color: #9ca3af;
-  background: #fafafa;
+  border-color: var(--bs-secondary-color);
+  background: var(--bs-tertiary-bg);
 }
 
 .csv-profile-select__trigger--selected {
-  border-color: #2563eb;
-  background: #eff6ff;
+  border-color: var(--bs-primary);
+  background: var(--bs-primary-bg-subtle);
 }
 
 .csv-profile-select__trigger--selected:hover:not(:disabled) {
-  border-color: #1d4ed8;
-  background: #dbeafe;
+  border-color: var(--bs-primary);
+  background: var(--bs-primary-bg-subtle);
 }
 
 .csv-profile-select__trigger:disabled {
-  background: #f3f4f6;
+  background: var(--bs-tertiary-bg);
   cursor: not-allowed;
   opacity: 0.6;
 }
@@ -222,22 +222,13 @@ function selectProfile(profile: ProfileItem | null) {
   align-items: center;
   gap: 0.5rem;
   font-size: 0.875rem;
-  color: #6b7280;
-}
-
-.csv-profile-select__spinner {
-  width: 1rem;
-  height: 1rem;
-  border: 2px solid #e5e7eb;
-  border-top-color: #2563eb;
-  border-radius: 50%;
-  animation: csv-spin 1s linear infinite;
+  color: var(--bs-secondary-color);
 }
 
 .csv-profile-select__name {
   font-size: 0.875rem;
   font-weight: 500;
-  color: #111827;
+  color: var(--bs-body-color);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -245,7 +236,7 @@ function selectProfile(profile: ProfileItem | null) {
 
 .csv-profile-select__meta {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--bs-secondary-color);
   margin-top: 0.125rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -253,23 +244,19 @@ function selectProfile(profile: ProfileItem | null) {
 }
 
 .csv-profile-select__desc {
-  color: #9ca3af;
+  color: var(--bs-tertiary-color);
 }
 
 .csv-profile-select__placeholder {
   font-size: 0.875rem;
-  color: #9ca3af;
+  color: var(--bs-tertiary-color);
 }
 
 .csv-profile-select__chevron {
   flex-shrink: 0;
   width: 1.25rem;
   height: 1.25rem;
-  color: #9ca3af;
-}
-
-@keyframes csv-spin {
-  to { transform: rotate(360deg); }
+  color: var(--bs-secondary-color);
 }
 </style>
 
@@ -280,10 +267,10 @@ function selectProfile(profile: ProfileItem | null) {
   z-index: 1000;
   width: 400px;
   max-width: calc(100vw - 2rem);
-  border: 1px solid #d1d5db;
-  border-radius: var(--radius, 0.375rem);
-  background: white;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius);
+  background: var(--bs-body-bg);
+  box-shadow: var(--bs-box-shadow-lg);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -292,23 +279,7 @@ function selectProfile(profile: ProfileItem | null) {
 .csv-profile-select__search {
   flex-shrink: 0;
   padding: 0.5rem;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.csv-profile-select__search-input {
-  width: 100%;
-  height: 2rem;
-  padding: 0 0.5rem;
-  border: 1px solid #d1d5db;
-  border-radius: var(--radius, 0.375rem);
-  font-size: 0.875rem;
-  font-family: inherit;
-}
-
-.csv-profile-select__search-input:focus {
-  outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  border-bottom: 1px solid var(--bs-border-color);
 }
 
 .csv-profile-select__results {
@@ -321,7 +292,7 @@ function selectProfile(profile: ProfileItem | null) {
   padding: 1rem;
   text-align: center;
   font-size: 0.875rem;
-  color: #6b7280;
+  color: var(--bs-secondary-color);
 }
 
 .csv-profile-select__option {
@@ -335,7 +306,7 @@ function selectProfile(profile: ProfileItem | null) {
   border: none;
   cursor: pointer;
   font-family: inherit;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--bs-border-color-translucent);
 }
 
 .csv-profile-select__option:last-child {
@@ -343,17 +314,17 @@ function selectProfile(profile: ProfileItem | null) {
 }
 
 .csv-profile-select__option:hover {
-  background: #f3f4f6;
+  background: var(--bs-tertiary-bg);
 }
 
 .csv-profile-select__option--selected {
-  background: #eff6ff;
+  background: var(--bs-primary-bg-subtle);
 }
 
 .csv-profile-select__check {
   width: 1rem;
   flex-shrink: 0;
-  color: #2563eb;
+  color: var(--bs-primary);
   font-size: 0.875rem;
   padding-top: 0.125rem;
 }
@@ -367,7 +338,7 @@ function selectProfile(profile: ProfileItem | null) {
 .csv-profile-select__option-name {
   font-size: 0.875rem;
   font-weight: 500;
-  color: #111827;
+  color: var(--bs-body-color);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -375,7 +346,7 @@ function selectProfile(profile: ProfileItem | null) {
 
 .csv-profile-select__option-meta {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--bs-secondary-color);
   margin-top: 0.125rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -383,6 +354,6 @@ function selectProfile(profile: ProfileItem | null) {
 }
 
 .csv-profile-select__option-desc {
-  color: #9ca3af;
+  color: var(--bs-tertiary-color);
 }
 </style>

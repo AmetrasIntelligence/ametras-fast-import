@@ -50,3 +50,14 @@ export function tokenize(str: string): string[] {
     .split(/\s+/)
     .filter(t => t.length > 0)
 }
+
+/**
+ * Simple English depluralization: strip common plural suffixes.
+ */
+export function depluralize(word: string): string {
+  if (word.length <= 3) return word
+  if (word.endsWith('ies')) return word.slice(0, -3) + 'y'   // categories → category
+  if (word.endsWith('ses')) return word.slice(0, -2)          // addresses → address
+  if (word.endsWith('s') && !word.endsWith('ss')) return word.slice(0, -1)  // partners → partner
+  return word
+}

@@ -184,7 +184,10 @@
     },
     "recentErrors": "Letzte Fehler",
     "row": "Zeile",
-    "leaveWarning": "Ein Import läuft. Das Verlassen dieser Seite bricht den Import ab.\n\nMöchten Sie wirklich verlassen?"
+    "leaveWarning": "Ein Import läuft. Das Verlassen dieser Seite bricht den Import ab.\n\nMöchten Sie wirklich verlassen?",
+    "connectionLost": "Warte auf Serververbindung...",
+    "connectionLostDetail": "Der Server ist nicht erreichbar. Der Import wird automatisch fortgesetzt, wenn die Verbindung wiederhergestellt ist.",
+    "reconnecting": "Verbindung wird geprüft..."
   },
   "results": {
     "dryRunComplete": "Probelauf abgeschlossen",

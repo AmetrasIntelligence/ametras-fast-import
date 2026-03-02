@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <!-- Detect stale import logs (running but no heartbeat for 2+ hours) -->
+    <record id="cron_detect_stale_logs" model="ir.cron">
+        <field name="name">CSV Import: Detect Stale Logs</field>
+        <field name="model_id" ref="model_csv_import_log"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_detect_stale_logs()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">hours</field>
+        <field name="numbercall">-1</field>
+        <field name="active" eval="True"/>
+    </record>
+
+    <!-- Cleanup old import file attachments (completed/failed logs > 7 days) -->
+    <record id="cron_cleanup_attachments" model="ir.cron">
+        <field name="name">CSV Import: Cleanup Old Attachments</field>
+        <field name="model_id" ref="model_csv_import_log"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_cleanup_attachments()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="numbercall">-1</field>
+        <field name="active" eval="True"/>
+    </record>
+</odoo>

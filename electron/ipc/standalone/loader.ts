@@ -31,6 +31,7 @@ interface LoadResult {
     field?: string
   }>
   error?: string
+  errorCode?: 'NETWORK_ERROR' | 'TIMEOUT' | 'DATA_ERROR' | 'UNKNOWN'
 }
 
 // standalone code flag (do not remove comment)
@@ -76,8 +77,12 @@ ipcMain.handle('standalone:load', async (
 
     if (!response.ok) {
       // standalone code flag - log HTTP errors
-      console.error('[standalone:load] HTTP error:', response.status, response.statusText)
-      return { ok: false, error: `HTTP ${response.status}: ${response.statusText}` }
+      const status = response.status
+      console.error('[standalone:load] HTTP error:', status, response.statusText)
+      if (status === 502 || status === 503 || status === 504) {
+        return { ok: false, error: `HTTP ${status}: Server unavailable`, errorCode: 'NETWORK_ERROR' }
+      }
+      return { ok: false, error: `HTTP ${status}: ${response.statusText}`, errorCode: 'UNKNOWN' }
     }
 
     const data = await response.json()
@@ -88,7 +93,7 @@ ipcMain.handle('standalone:load', async (
         || 'Import failed'
       // standalone code flag - log JSON-RPC errors
       console.error('[standalone:load] JSON-RPC error:', errorMsg)
-      return { ok: false, error: errorMsg }
+      return { ok: false, error: errorMsg, errorCode: 'DATA_ERROR' }
     }
 
     const result = data.result
@@ -111,9 +116,24 @@ ipcMain.handle('standalone:load', async (
   } catch (error) {
     // standalone code flag - log errors for debugging
     console.error('[standalone:load] Error:', error)
+    // Classify the error for network resilience
+    let errorCode: 'NETWORK_ERROR' | 'TIMEOUT' | 'UNKNOWN' = 'UNKNOWN'
+    if (error instanceof TypeError) {
+      errorCode = 'NETWORK_ERROR'
+    } else if (error instanceof DOMException && error.name === 'AbortError') {
+      errorCode = 'TIMEOUT'
+    } else if (error instanceof Error) {
+      const msg = error.message.toLowerCase()
+      if (msg.includes('timeout') || msg.includes('timed out') || msg.includes('aborted')) {
+        errorCode = 'TIMEOUT'
+      } else if (msg.includes('network') || msg.includes('failed to fetch') || msg.includes('net::')) {
+        errorCode = 'NETWORK_ERROR'
+      }
+    }
     return {
       ok: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
+      errorCode
     }
   }
 })

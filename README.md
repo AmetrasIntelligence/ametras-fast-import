@@ -11,6 +11,10 @@ A desktop application for importing large CSV files into Odoo with streaming pro
 - **Reference Resolution** - Bulk prefetch of external IDs for O(1) lookups
 - **Per-Row Savepoints** - One failed row doesn't kill the entire batch
 - **Pause/Resume** - Import can be paused and resumed at any time
+- **Network Resilience** - Auto-pause on network errors, exponential backoff health checks, automatic resume on reconnection
+- **Import Log Lifecycle** - Server-side log records with heartbeat, tracking `running → completed/failed/interrupted` states
+- **Resume Interrupted Imports** - Resume from where you left off after browser close, network outage, or crash
+- **Cron Jobs** - Automatic stale log detection and old file cleanup
 - **Error Export** - Failed rows can be exported as CSV for manual review
 - **Multi-File Imports** - Process multiple files in sequence with dependencies
 - **Import Profiles** - Named configurations stored server-side in Odoo, with ZIP upload/download and RunConfig overrides
@@ -50,21 +54,24 @@ Detailed documentation is available in the `docs/` directory:
 │  ┌──────────┐  ┌───────────┐  ┌────────────────────────────┐│
 │  │ UI       │  │ Import    │  │ Pinia Stores               ││
 │  │ Components│  │ Engine    │  │ (session/config/run/files/ ││
-│  └──────────┘  └───────────┘  │  profiles/savedMappings)   ││
-│                               └────────────────────────────┘│
+│  │          │  │ + ConnMon │  │  profiles/savedMappings)   ││
+│  └──────────┘  └───────────┘  └────────────────────────────┘│
 └─────────────────────────────────────────────────────────────┘
             │
             ▼ JSON-RPC
 ┌─────────────────────────────────────────────────────────────┐
 │  Odoo 16+ Backend                                            │
 │  /ametras_fast_import/run (savepoint per row, upsert)       │
+│  /ametras_fast_import/log/* (create, update, finalize, get) │
 │  /ametras_fast_import/profile/* (CRUD, ZIP upload/download) │
+│  Cron: stale log detection (hourly), file cleanup (daily)   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ## Tech Stack
 
 - **Frontend**: Vue 3 + TypeScript + Pinia
+- **Styling**: Bootstrap 5 (bundled in Electron, provided by Odoo in embedded mode)
 - **Desktop**: Electron with context isolation
 - **Build**: Vite + electron-builder
 - **Testing**: Vitest (unit/integration) + Playwright (e2e)
@@ -93,7 +100,7 @@ cp -r ametras_fast_import_addon /path/to/odoo/addons/
 # Start development server (Vue + Electron)
 npm run dev
 
-# Run unit and integration tests (514 tests)
+# Run unit and integration tests (528 tests)
 npm test
 
 # Run tests in watch mode
@@ -158,7 +165,8 @@ csv-client/
 │   │   ├── engine.ts            # Main orchestrator
 │   │   ├── stateMachine.ts      # Import states + transitions
 │   │   ├── csvParser.ts         # PapaParse wrapper + streaming
-│   │   ├── batchExecutor.ts     # Batch processing
+│   │   ├── batchExecutor.ts     # Batch processing + NetworkBatchError
+│   │   ├── connectionMonitor.ts # Network health check with backoff
 │   │   ├── workerPool.ts        # Parallel worker coordination
 │   │   ├── retryQueue.ts        # Failed row handling
 │   │   ├── persistence.ts       # State recovery
@@ -205,7 +213,7 @@ csv-client/
 │   │   └── defaults.ts          # Default settings values
 │   ├── i18n/
 │   │   └── index.ts             # Vue I18n setup
-│   ├── ui/                      # UI component wrappers
+│   ├── ui/                      # Thin Bootstrap component wrappers
 │   │   ├── Button.vue
 │   │   ├── Input.vue
 │   │   ├── Select.vue
@@ -244,11 +252,15 @@ csv-client/
 │   ├── __manifest__.py
 │   ├── models/
 │   │   ├── __init__.py
-│   │   └── csv_import_profile.py  # csv.import.profile model
+│   │   ├── csv_import_profile.py  # csv.import.profile model
+│   │   └── csv_import_log.py     # csv.import.log model (lifecycle, resume, cron)
 │   ├── controllers/
 │   │   ├── __init__.py
 │   │   ├── import_controller.py   # Import run endpoints
+│   │   ├── log_controller.py      # Log lifecycle endpoints (create/update/finalize/get)
 │   │   └── profile_controller.py  # Profile CRUD + ZIP upload/download
+│   ├── data/
+│   │   └── cron.xml              # Scheduled actions (stale detection, file cleanup)
 │   └── security/
 │       └── ir.model.access.csv
 ├── tests/
@@ -310,14 +322,14 @@ See [docs/reference/transforms.md](docs/reference/transforms.md) for full docume
 
 ## Test Suite
 
-The project includes a comprehensive test suite with 514 tests covering both the TypeScript frontend and Python backend.
+The project includes a comprehensive test suite with 528 tests covering both the TypeScript frontend and Python backend.
 
 See **[Testing Strategy](docs/developer-guide/testing.md)** for details on how to run and extend tests.
 
 ## Design Decisions
 
 1. **Vue owns import logic** - Odoo only validates and writes, keeping the backend simple
-2. **CSS prefixed** (`csv-`) - Avoids conflicts with Odoo's styles
+2. **Bootstrap 5** - Uses Bootstrap classes and CSS variables so the app inherits Odoo's theme when embedded; Electron bundles its own Bootstrap CSS
 3. **Context isolation** - Secure IPC bridge, no Node.js in renderer
 4. **Savepoint per row** - Transactional safety without batch-level rollbacks
 5. **Streaming** - Memory efficiency for large files
@@ -327,8 +339,12 @@ See **[Testing Strategy](docs/developer-guide/testing.md)** for details on how t
 9. **Server-side profile storage** - Profiles in Odoo, client is cache only
 10. **Immutable profiles + RunConfig overrides** - Never edit profiles directly
 11. **In-app dialogs** - Custom modal dialogs since Electron blocks native browser dialogs
-12. **No external UI dependencies** - Native HTML5 drag & drop, CSS-only indicators, plain HTML components
+12. **Minimal UI dependencies** - Bootstrap 5 for layout/utilities, native HTML5 drag & drop, CSS-only indicators
 13. **Standard models for /.id** - Database IDs only for stable reference data (countries, currencies, UoM)
+14. **Network error classification** - Typed error codes distinguish transient network errors from data errors, enabling automatic pause/retry
+15. **Connection monitor with backoff** - Exponential backoff health checks (1s→30s cap) avoid overwhelming recovering servers
+16. **Log lifecycle** - Server-side log records track import progress with 30s heartbeat, enabling resume from any failure point
+17. **Universal health check** - ConnectionMonitor uses injected health check function to work in both embedded (addon) and standalone (Electron) modes
 
 ## License
 

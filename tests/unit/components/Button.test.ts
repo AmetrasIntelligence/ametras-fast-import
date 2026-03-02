@@ -44,12 +44,12 @@ describe('Button Component', () => {
     expect(wrapper.attributes('disabled')).toBeDefined()
   })
 
-  it('shows loading indicator when loading', () => {
+  it('shows loading spinner when loading', () => {
     const wrapper = mount(Button, {
       props: { loading: true },
       slots: { default: 'Submit' }
     })
-    expect(wrapper.text()).toContain('⟳')
+    expect(wrapper.find('.spinner-border').exists()).toBe(true)
   })
 
   it('emits click event', async () => {
@@ -72,36 +72,35 @@ describe('Button Component', () => {
   describe('variants', () => {
     it('applies default variant styles', () => {
       const wrapper = mount(Button)
-      expect(wrapper.classes()).toContain('csv-bg-blue-600')
+      expect(wrapper.classes()).toContain('btn-primary')
     })
 
     it('applies destructive variant styles', () => {
       const wrapper = mount(Button, {
         props: { variant: 'destructive' }
       })
-      expect(wrapper.classes()).toContain('csv-bg-red-600')
+      expect(wrapper.classes()).toContain('btn-danger')
     })
 
     it('applies outline variant styles', () => {
       const wrapper = mount(Button, {
         props: { variant: 'outline' }
       })
-      expect(wrapper.classes()).toContain('csv-border')
+      expect(wrapper.classes()).toContain('btn-outline-secondary')
     })
 
     it('applies secondary variant styles', () => {
       const wrapper = mount(Button, {
         props: { variant: 'secondary' }
       })
-      expect(wrapper.classes()).toContain('csv-bg-gray-100')
+      expect(wrapper.classes()).toContain('btn-secondary')
     })
 
     it('applies ghost variant styles', () => {
       const wrapper = mount(Button, {
         props: { variant: 'ghost' }
       })
-      // Ghost has hover styles
-      expect(wrapper.classes().some(c => c.includes('hover'))).toBe(true)
+      expect(wrapper.classes()).toContain('btn-link')
     })
   })
 
@@ -110,14 +109,14 @@ describe('Button Component', () => {
       const wrapper = mount(Button, {
         props: { size: 'sm' }
       })
-      expect(wrapper.classes()).toContain('csv-text-sm')
+      expect(wrapper.classes()).toContain('btn-sm')
     })
 
     it('applies large size', () => {
       const wrapper = mount(Button, {
         props: { size: 'lg' }
       })
-      expect(wrapper.classes()).toContain('csv-py-3')
+      expect(wrapper.classes()).toContain('btn-lg')
     })
   })
 })

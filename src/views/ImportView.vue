@@ -204,7 +204,10 @@ onMounted(async () => {
         }
       } else {
         // Smart suggestion
-        const suggestion = suggestModel(file.name, models.value)
+        const analysis = filesStore.getAnalysis(file.id)
+        const suggestion = suggestModel(file.name, models.value, undefined, {
+          headers: analysis?.headers
+        })
         modelSuggestions.value.set(file.name, suggestion)
       }
     }
@@ -240,7 +243,10 @@ async function addAndAnalyze(selected: Array<{ id: string; name: string; size: n
       }
     } else {
       // Smart suggestion
-      const suggestion = suggestModel(file.name, models.value)
+      const analysis = filesStore.getAnalysis(file.id)
+      const suggestion = suggestModel(file.name, models.value, undefined, {
+        headers: analysis?.headers
+      })
       modelSuggestions.value.set(file.name, suggestion)
     }
   }
@@ -837,14 +843,14 @@ async function updateExistingProfile() {
 </script>
 
 <template>
-  <div class="csv-p-6 csv-space-y-6">
-    <div class="csv-flex csv-justify-between csv-items-center">
-      <h1 class="csv-text-2xl csv-font-semibold">{{ $t('nav.import') }}</h1>
-      <div v-if="hasFiles" class="csv-flex csv-gap-2 csv-items-center">
-        <span v-if="activeProfile" class="csv-text-xs" :class="hasUnsavedChanges ? 'csv-text-warning' : 'csv-text-muted'">
+  <div class="p-4 d-flex flex-column gap-4">
+    <div class="d-flex justify-content-between align-items-center">
+      <h1 class="fs-4 fw-semibold mb-0">{{ $t('nav.import') }}</h1>
+      <div v-if="hasFiles" class="d-flex gap-2 align-items-center">
+        <small v-if="activeProfile" :class="hasUnsavedChanges ? 'text-warning' : 'text-body-secondary'">
           {{ activeProfile.name }} v{{ activeProfile.version }}
           <span v-if="hasUnsavedChanges" class="csv-edited-badge">{{ $t('config.edited') }}</span>
-        </span>
+        </small>
         <Button
           v-if="activeProfile"
           variant="outline"
@@ -859,7 +865,7 @@ async function updateExistingProfile() {
       </div>
     </div>
 
-    <div v-if="loadError" class="csv-p-3 csv-bg-red-50 csv-text-red-700 csv-rounded csv-text-sm">
+    <div v-if="loadError" class="alert alert-danger py-2 small mb-0">
       {{ loadError }}
     </div>
 
@@ -873,8 +879,8 @@ async function updateExistingProfile() {
     <!-- Show config sections only when files are selected -->
     <template v-if="hasFiles">
       <!-- Profile & Settings Section -->
-      <div class="csv-section-header">
-        <span class="csv-section-title">{{ $t('config.serverProfile') }}</span>
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <span class="small fw-semibold">{{ $t('config.serverProfile') }}</span>
       </div>
       <Card class="csv-import-card">
         <div class="csv-import-card__tabs">
@@ -902,7 +908,7 @@ async function updateExistingProfile() {
             :loading="profiles.loading"
             @update:model-value="handleProfileSelect($event ?? 0)"
           />
-          <div v-if="profileLoading" class="csv-text-sm csv-text-muted csv-mt-2">{{ $t('config.loadingProfileData') }}</div>
+          <div v-if="profileLoading" class="small text-body-secondary mt-2">{{ $t('config.loadingProfileData') }}</div>
         </div>
         <div v-show="configTab === 'settings'" class="csv-import-card__content">
           <ImportSettings />
@@ -910,10 +916,10 @@ async function updateExistingProfile() {
       </Card>
 
       <!-- Draggable File List -->
-      <div class="csv-section-header">
-        <span class="csv-section-title">{{ $t('config.fileListTitle') }}</span>
-        <div class="csv-flex csv-items-center csv-gap-2">
-          <span class="csv-text-xs csv-text-muted">{{ fileListItems.length }} {{ $t('common.files', fileListItems.length) }}</span>
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <span class="small fw-semibold">{{ $t('config.fileListTitle') }}</span>
+        <div class="d-flex align-items-center gap-2">
+          <small class="text-body-secondary">{{ fileListItems.length }} {{ $t('common.files', fileListItems.length) }}</small>
           <Button variant="ghost" size="sm" @click="removeAllFiles">
             {{ $t('files.removeAll') }}
           </Button>
@@ -926,14 +932,14 @@ async function updateExistingProfile() {
         @remove="removeFile"
       >
         <template #expanded="{ file }">
-          <div class="csv-file-config">
+          <div class="d-flex flex-column gap-3">
             <!-- 1. CSV Preview -->
             <div v-if="file.headers?.length" class="csv-config-section">
               <div class="csv-config-section__header">
                 <span>{{ $t('config.csvPreview') }}</span>
-                <span class="csv-text-xs csv-text-muted">
+                <small class="text-body-secondary">
                   {{ file.headers.length }} {{ $t('common.columns', file.headers.length) }} · {{ file.rowCount?.toLocaleString() || '?' }} {{ $t('common.rows', 2) }}
-                </span>
+                </small>
               </div>
               <div class="csv-preview__scroll">
                 <table class="csv-preview__table">
@@ -1021,7 +1027,7 @@ async function updateExistingProfile() {
         @browse="selectFiles"
       />
 
-      <div class="csv-flex csv-justify-end">
+      <div class="d-flex justify-content-end">
         <Button
           :disabled="!canStartImport"
           @click="proceed"
@@ -1035,30 +1041,15 @@ async function updateExistingProfile() {
 
 <style scoped>
 /* Edited indicator */
-.csv-text-warning {
-  color: #d97706;
-}
 .csv-edited-badge {
   display: inline-block;
   margin-left: 0.25rem;
   padding: 0.125rem 0.375rem;
   font-size: 0.65rem;
   font-weight: 500;
-  background: #fef3c7;
-  color: #b45309;
-  border-radius: 0.25rem;
-}
-
-.csv-section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.5rem;
-}
-.csv-section-title {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: #374151;
+  background: var(--bs-warning-bg-subtle);
+  color: var(--bs-warning-text-emphasis);
+  border-radius: var(--bs-border-radius-sm);
 }
 
 /* Import card with tabs (profile/settings) */
@@ -1067,8 +1058,8 @@ async function updateExistingProfile() {
 }
 .csv-import-card__tabs {
   display: flex;
-  border-bottom: 1px solid #e5e7eb;
-  background: #f9fafb;
+  border-bottom: 1px solid var(--bs-border-color);
+  background: var(--bs-tertiary-bg);
 }
 .csv-import-card__tab {
   position: relative;
@@ -1078,28 +1069,22 @@ async function updateExistingProfile() {
   font: inherit;
   font-size: 0.875rem;
   cursor: pointer;
-  color: #6b7280;
+  color: var(--bs-secondary-color);
   border-bottom: 2px solid transparent;
 }
 .csv-import-card__tab:hover {
-  color: #111827;
-  background: #f3f4f6;
+  color: var(--bs-body-color);
+  background: var(--bs-secondary-bg-subtle);
 }
 .csv-import-card__tab--active {
-  color: #2563eb;
-  border-bottom-color: #2563eb;
+  color: var(--bs-primary);
+  border-bottom-color: var(--bs-primary);
 }
 .csv-import-card__content {
   padding: 0.75rem;
 }
 
-/* File config inside expanded area */
-.csv-file-config {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
+/* Config sections inside expanded file area */
 .csv-config-section {
   display: flex;
   flex-direction: column;
@@ -1111,15 +1096,15 @@ async function updateExistingProfile() {
   align-items: center;
   font-size: 0.8rem;
   font-weight: 500;
-  color: #374151;
+  color: var(--bs-body-color);
 }
 
 /* CSV Preview */
 .csv-preview__scroll {
   overflow-x: auto;
   max-width: 100%;
-  border: 1px solid #e5e7eb;
-  border-radius: var(--radius, 0.375rem);
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius);
 }
 .csv-preview__table {
   width: max-content;
@@ -1132,54 +1117,53 @@ async function updateExistingProfile() {
   padding: 0.25rem 0.5rem;
   text-align: left;
   font-weight: 600;
-  color: #374151;
-  background: #f9fafb;
-  border-bottom: 1px solid #e5e7eb;
+  color: var(--bs-body-color);
+  background: var(--bs-tertiary-bg);
+  border-bottom: 1px solid var(--bs-border-color);
   white-space: nowrap;
 }
 .csv-preview__table td {
   padding: 0.2rem 0.5rem;
-  color: #6b7280;
-  border-bottom: 1px solid #f3f4f6;
+  color: var(--bs-secondary-color);
+  border-bottom: 1px solid var(--bs-border-color-translucent);
   white-space: nowrap;
   max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-
 /* Validation result */
 .csv-validation-result {
   margin-top: 0.5rem;
   padding: 0.5rem;
-  border-radius: var(--radius, 0.375rem);
+  border-radius: var(--bs-border-radius);
   font-size: 0.75rem;
 }
 .csv-validation-result--ok {
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
+  background: var(--bs-success-bg-subtle);
+  border: 1px solid var(--bs-success-border-subtle);
 }
 .csv-validation-result--error {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  background: var(--bs-danger-bg-subtle);
+  border: 1px solid var(--bs-danger-border-subtle);
 }
 .csv-validation-result__header {
   font-weight: 600;
   margin-bottom: 0.25rem;
 }
 .csv-validation-result--ok .csv-validation-result__header {
-  color: #166534;
+  color: var(--bs-success-text-emphasis);
 }
 .csv-validation-result--error .csv-validation-result__header {
-  color: #991b1b;
+  color: var(--bs-danger-text-emphasis);
 }
 .csv-validation-result__message {
-  color: #374151;
+  color: var(--bs-body-color);
   margin-bottom: 0.375rem;
 }
 .csv-validation-result__data {
-  background: white;
-  border-radius: 0.2rem;
+  background: var(--bs-body-bg);
+  border-radius: var(--bs-border-radius-sm);
   padding: 0.375rem;
   overflow-x: auto;
 }
@@ -1187,6 +1171,6 @@ async function updateExistingProfile() {
   margin: 0;
   font-size: 0.65rem;
   font-family: ui-monospace, monospace;
-  color: #6b7280;
+  color: var(--bs-secondary-color);
 }
 </style>

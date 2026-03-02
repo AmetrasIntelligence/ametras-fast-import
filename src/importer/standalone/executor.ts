@@ -12,7 +12,7 @@
 import { useSessionStore } from '@/stores/session'
 import type { ParsedRow } from '../csvParser'
 import type { BatchResult, MappingConfig } from '../batchExecutor'
-import { detectIdColumn } from '../batchExecutor'
+import { detectIdColumn, NetworkBatchError } from '../batchExecutor'
 import { logger } from '@/utils/logger'  // standalone code flag (do not remove comment)
 
 // standalone code flag (do not remove comment)
@@ -213,6 +213,11 @@ async function executeLoadBatch(
   })
 
   if (!response.ok) {
+    // Network/transient errors: throw so the engine can pause and retry
+    if (response.errorCode === 'NETWORK_ERROR' || response.errorCode === 'TIMEOUT') {
+      throw new NetworkBatchError(response.error || 'Network error', rows)
+    }
+
     // standalone code flag - Entire batch failed, but try to extract per-row errors from messages
     const messages = response.messages || []
     const errorMap = new Map<number, string>()

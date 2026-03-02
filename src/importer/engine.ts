@@ -1,6 +1,7 @@
 import { ImportStateMachine, ImportState } from './stateMachine'
 import { parseCSVBatched, analyzeCSV, extractRowsByIndex, type ParseOptions } from './csvParser'
-import { executeBatch, type BatchResult } from './batchExecutor'
+import { executeBatch, NetworkBatchError, type BatchResult } from './batchExecutor'
+import { ConnectionMonitor, type HealthCheckFn } from './connectionMonitor'
 // standalone code flag (do not remove comment)
 import {
   executeStandaloneBatch,
@@ -18,6 +19,36 @@ import type { FileMapping } from '@/stores/config'
 import { logger } from '@/utils/logger'
 import { parseOdooError } from '@/utils/errors'
 import { runStateLock } from '@/utils/stateLock'
+import {
+  saveImportLog,
+  createImportLog,
+  updateImportLog,
+  finalizeImportLog,
+  type FileProgressData,
+} from '@/api/odooClient'
+
+/**
+ * Convert a Set of row indices into sorted, compact [start, end] ranges.
+ * E.g. {1,2,3,5,6,10} → [[1,3],[5,6],[10,10]]
+ */
+export function indicesToRanges(indices: Set<number>): [number, number][] {
+  if (indices.size === 0) return []
+  const sorted = [...indices].sort((a, b) => a - b)
+  const ranges: [number, number][] = []
+  let start = sorted[0]
+  let end = sorted[0]
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] === end + 1) {
+      end = sorted[i]
+    } else {
+      ranges.push([start, end])
+      start = sorted[i]
+      end = sorted[i]
+    }
+  }
+  ranges.push([start, end])
+  return ranges
+}
 
 /**
  * Get effective batch size, applying standalone constraints if needed.
@@ -43,6 +74,48 @@ export interface ImportFile {
   name: string
 }
 
+export interface ResumeState {
+  logId: number
+  fileProgress: Record<string, FileProgressData>
+  errorLog: Array<{ filename: string; rowNumber: number; error: string }>
+}
+
+/**
+ * Compute row indices NOT covered by the given processedRanges.
+ * Returns a Set of indices from 1..totalRows that are not in any range.
+ */
+function indicesNotInRanges(totalRows: number, ranges: [number, number][]): Set<number> {
+  const covered = new Set<number>()
+  for (const [start, end] of ranges) {
+    for (let i = start; i <= end; i++) {
+      covered.add(i)
+    }
+  }
+  const result = new Set<number>()
+  for (let i = 1; i <= totalRows; i++) {
+    if (!covered.has(i)) {
+      result.add(i)
+    }
+  }
+  return result
+}
+
+/**
+ * Extract failed row indices from error log for a given file.
+ */
+function failedIndicesFromErrorLog(
+  errorLog: Array<{ filename: string; rowNumber: number }>,
+  filename: string
+): Set<number> {
+  const indices = new Set<number>()
+  for (const entry of errorLog) {
+    if (entry.filename === filename && entry.rowNumber > 0) {
+      indices.add(entry.rowNumber)
+    }
+  }
+  return indices
+}
+
 export class ImportEngine {
   private stateMachine = new ImportStateMachine()
   private retryQueue: RetryQueue
@@ -50,21 +123,30 @@ export class ImportEngine {
   private abortController: AbortController | null = null
   private skipFileController: AbortController | null = null
   private batchSizeAdapter: BatchSizeAdapter | null = null
+  private connectionMonitor: ConnectionMonitor | null = null
 
   // Throughput tracking
   private fileStartTime = 0
   private fileProcessedRows = 0
+
+  // Log lifecycle tracking
+  private logId: number | null = null
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  private processedIndices = new Map<string, Set<number>>()
 
   constructor() {
     const config = useConfigStore()
     this.retryQueue = new RetryQueue(config.settings.retryLimit)
   }
 
-  async start(files: ImportFile[]): Promise<void> {
+  async start(files: ImportFile[], resumeState?: ResumeState): Promise<void> {
     const config = useConfigStore()
     const run = useRunStore()
 
     this.abortController = new AbortController()
+
+    // Initialize connection monitor with appropriate health check for the current mode
+    this.connectionMonitor = new ConnectionMonitor(this.createHealthCheckFn())
 
     this.stateMachine.transition(ImportState.VALIDATING)
     run.setState(ImportState.VALIDATING)
@@ -76,16 +158,90 @@ export class ImportEngine {
       hasHeader: config.settings.skipHeader
     }
 
-    // Analyze files (streaming line count)
+    // Determine which rows to process per file
+    // For resume: compute pending + failed rows only
     const rowCounts = new Map<string, number>()
-    for (const file of files) {
-      const analysis = await analyzeCSV(file.id)
-      rowCounts.set(file.name, analysis.rowCount)
+    const resumeRowFilters = new Map<string, Set<number>>()
+
+    if (resumeState) {
+      // Resume mode: calculate rows to process from file_progress + error_log
+      for (const file of files) {
+        const fp = resumeState.fileProgress[file.name]
+        if (!fp) {
+          // File not in progress — process all rows
+          const analysis = await analyzeCSV(file.id)
+          rowCounts.set(file.name, analysis.rowCount)
+          continue
+        }
+
+        // Pending = not in processedRanges
+        const pendingIndices = indicesNotInRanges(fp.totalRows, fp.processedRanges)
+        // Failed = in error_log for this file
+        const failedIndices = failedIndicesFromErrorLog(resumeState.errorLog, file.name)
+
+        // Union of pending + failed
+        const toProcess = new Set<number>([...pendingIndices, ...failedIndices])
+
+        if (toProcess.size === 0) {
+          // All rows already succeeded — skip this file
+          logger.import.info(`[resume] Skipping ${file.name}: all rows already succeeded`)
+          continue
+        }
+
+        rowCounts.set(file.name, toProcess.size)
+        resumeRowFilters.set(file.name, toProcess)
+      }
+    } else {
+      // Normal mode: analyze files (streaming line count)
+      for (const file of files) {
+        const analysis = await analyzeCSV(file.id)
+        rowCounts.set(file.name, analysis.rowCount)
+      }
     }
 
     run.initRun(config.importSequence, rowCounts, config.settings.dryRun)
 
     if (this.abortController?.signal.aborted) return
+
+    // Log lifecycle: create or reuse log record
+    this.processedIndices.clear()
+    if (resumeState) {
+      // Reuse existing log record
+      this.logId = resumeState.logId
+      run.logId = this.logId
+      // Set log state back to 'running'
+      try {
+        await updateImportLog({
+          log_id: this.logId,
+          success_rows: 0, // will be updated during import
+          failed_rows: 0,
+          file_progress: resumeState.fileProgress,
+        })
+      } catch (err) {
+        logger.import.warn('Failed to update log for resume', { error: (err as Error).message })
+      }
+    } else {
+      // Create new log record
+      const totalRows = [...rowCounts.values()].reduce((a, b) => a + b, 0)
+      try {
+        this.logId = await createImportLog({
+          profile_name: config.activeProfileId ? `Profile #${config.activeProfileId}` : '',
+          profile_id: config.activeProfileId ?? undefined,
+          is_dry_run: config.settings.dryRun ?? false,
+          started_at: new Date().toISOString(),
+          filenames: config.importSequence,
+          total_rows: totalRows,
+        })
+        if (this.logId) {
+          run.logId = this.logId
+        }
+      } catch (err) {
+        logger.import.warn('Failed to create import log record', { error: (err as Error).message })
+      }
+    }
+
+    // Start heartbeat timer (every 30s)
+    this.startHeartbeat()
 
     if (!this.stateMachine.tryTransition(ImportState.RUNNING_FILE)) {
       return
@@ -95,6 +251,9 @@ export class ImportEngine {
     // Process files SEQUENTIALLY (never parallel)
     for (const filename of config.importSequence) {
       if (this.abortController.signal.aborted) break
+
+      // Skip files with 0 rows to process (already completed in resume)
+      if (!rowCounts.has(filename) || rowCounts.get(filename) === 0) continue
 
       const file = files.find(f => f.name === filename)
       if (!file) {
@@ -106,8 +265,15 @@ export class ImportEngine {
       this.skipFileController = new AbortController()
 
       try {
-        logger.import.info(`Starting file: ${filename}`)
-        await this.processFile(file, parseOptions)
+        const rowFilter = resumeRowFilters.get(filename)
+        if (rowFilter) {
+          // Resume mode: extract only specific rows
+          logger.import.info(`[resume] Starting file: ${filename} (${rowFilter.size} rows to process)`)
+          await this.processFileWithFilter(file, rowFilter, parseOptions)
+        } else {
+          logger.import.info(`Starting file: ${filename}`)
+          await this.processFile(file, parseOptions)
+        }
         logger.import.info(`Completed file: ${filename}`)
       } catch (error) {
         // Check if file was skipped
@@ -150,7 +316,112 @@ export class ImportEngine {
         this.stateMachine.reset()
         run.setState(ImportState.FAILED)
       }
+      this.finalizeLog()
     }
+  }
+
+  /**
+   * Process a file with only specific row indices (for resume).
+   * Extracts the target rows, then processes them like a normal batch import.
+   */
+  private async processFileWithFilter(
+    file: ImportFile,
+    rowFilter: Set<number>,
+    parseOptions: ParseOptions = {}
+  ): Promise<void> {
+    const config = useConfigStore()
+    const run = useRunStore()
+
+    const mapping = config.getFileMapping(file.name)
+    if (!mapping) {
+      throw new Error(`No mapping for file: ${file.name}`)
+    }
+
+    const settings = { ...config.settings }
+
+    run.startFile(file.name)
+    this.retryQueue.clear()
+    this.fileStartTime = Date.now()
+    this.fileProcessedRows = 0
+
+    // standalone code flag (do not remove comment)
+    const session = useSessionStore()
+    const importMode = session.importMode ?? 'addon'
+    const effectiveBatchSize = getEffectiveBatchSize(
+      settings.batchSize,
+      importMode === 'standalone'
+    )
+
+    this.batchSizeAdapter = importMode === 'standalone'
+      ? new BatchSizeAdapter(effectiveBatchSize)
+      : null
+
+    // Extract only the target rows from the file
+    const rows = await extractRowsByIndex(file.id, rowFilter, parseOptions)
+
+    if (rows.length === 0) {
+      logger.import.warn(`[resume] No rows extracted for ${file.name}`)
+      run.completeFile(file.name)
+      this.batchSizeAdapter = null
+      return
+    }
+
+    if (this.abortController?.signal.aborted) return
+
+    // Create worker pool
+    const maxWorkers = importMode === 'standalone' ? 1 : 4
+    const workers = Math.max(1, Math.min(maxWorkers, settings.workers || 1))
+    this.workerPool = new WorkerPool(workers)
+
+    this.workerPool.start(
+      (batch) => this.executeBatchWithMapping(batch, mapping, settings.dryRun, importMode),
+      (result) => this.handleBatchResult(file.name, result)
+    )
+
+    // Enqueue rows in batches
+    for (let i = 0; i < rows.length; i += effectiveBatchSize) {
+      if (this.abortController?.signal.aborted) break
+      if (this.skipFileController?.signal.aborted) break
+
+      await this.workerPool.waitWhilePaused()
+      if (this.abortController?.signal.aborted) break
+      if (this.skipFileController?.signal.aborted) break
+
+      const batchRows = rows.slice(i, i + effectiveBatchSize)
+      try {
+        this.workerPool.enqueueBatch(batchRows, file.name)
+      } catch (err) {
+        if (this.abortController?.signal.aborted || this.skipFileController?.signal.aborted) break
+        throw err
+      }
+    }
+
+    if (this.skipFileController?.signal.aborted) {
+      this.workerPool?.abort()
+      this.workerPool = null
+      throw new Error('File skipped')
+    }
+
+    if (!this.abortController?.signal.aborted && !this.skipFileController?.signal.aborted) {
+      await this.workerPool.finishFile()
+    }
+
+    if (this.skipFileController?.signal.aborted) {
+      this.workerPool = null
+      throw new Error('File skipped')
+    }
+
+    // Retry pass
+    if (!this.abortController?.signal.aborted && !this.skipFileController?.signal.aborted) {
+      await this.processRetries(file.name, mapping, settings, importMode)
+    }
+
+    if (!this.abortController?.signal.aborted && !this.skipFileController?.signal.aborted) {
+      run.completeFile(file.name)
+    }
+
+    this.workerPool = null
+    this.batchSizeAdapter = null
   }
 
   private async processFile(file: ImportFile, parseOptions: ParseOptions = {}): Promise<void> {
@@ -264,6 +535,9 @@ export class ImportEngine {
    * Execute a batch using the file mapping.
    * Uses standalone executor when ametras_fast_import addon is not available.
    * Accepts snapshotted values to avoid re-reading stores mid-file.
+   *
+   * On network errors: pauses the engine, waits for reconnection via
+   * ConnectionMonitor, then retries the same batch automatically.
    */
   private async executeBatchWithMapping(
     batch: Batch,
@@ -271,21 +545,74 @@ export class ImportEngine {
     dryRun: boolean | undefined,
     importMode: string
   ): Promise<BatchResult[]> {
-    // standalone code flag (do not remove comment)
-    if (importMode === 'standalone') {
-      // Use standalone executor (direct Odoo API)
-      return executeStandaloneBatch(mapping.model, batch.rows, {
-        fieldMappings: mapping.fieldMappings
-        // Note: searchKeys, strict not supported in standalone mode
-      }, dryRun, this.abortController?.signal, this.batchSizeAdapter ?? undefined)
-    }
+    while (true) {
+      try {
+        let results: BatchResult[]
 
-    // Use addon executor (default)
-    return executeBatch(mapping.model, batch.rows, {
-      fieldMappings: mapping.fieldMappings,
-      searchKeys: mapping.searchKeys,
-      strict: mapping.strict
-    }, dryRun)
+        // standalone code flag (do not remove comment)
+        if (importMode === 'standalone') {
+          // Use standalone executor (direct Odoo API)
+          results = await executeStandaloneBatch(mapping.model, batch.rows, {
+            fieldMappings: mapping.fieldMappings
+            // Note: searchKeys, strict not supported in standalone mode
+          }, dryRun, this.abortController?.signal, this.batchSizeAdapter ?? undefined)
+        } else {
+          // Use addon executor (default)
+          results = await executeBatch(mapping.model, batch.rows, {
+            fieldMappings: mapping.fieldMappings,
+            searchKeys: mapping.searchKeys,
+            strict: mapping.strict
+          }, dryRun)
+        }
+
+        // Successful batch — signal online
+        this.connectionMonitor?.reportOnline()
+        return results
+      } catch (error) {
+        if (!(error instanceof NetworkBatchError)) {
+          throw error
+        }
+
+        // Network error — pause and wait for reconnection
+        logger.import.warn(`[engine] Network error during batch: ${error.message}. Pausing for reconnection...`)
+
+        const run = useRunStore()
+        this.connectionMonitor?.reportOffline()
+        run.connectionStatus = 'offline'
+
+        // Pause the engine (state machine + store)
+        const wasRunning = this.stateMachine.canPause
+        if (wasRunning) {
+          this.stateMachine.transition(ImportState.PAUSED)
+          run.setState(ImportState.PAUSED)
+          this.workerPool?.pause()
+        }
+
+        // Block until server is reachable again (or abort)
+        try {
+          await this.connectionMonitor!.waitForConnection(this.abortController?.signal)
+        } catch {
+          // Aborted during wait — break out, let normal abort flow handle it
+          return batch.rows.map(row => ({
+            ok: false,
+            error: 'Import aborted during reconnection wait',
+            rowIndex: row.index
+          }))
+        }
+
+        // Reconnected — restore state and retry the same batch
+        run.connectionStatus = 'online'
+        if (wasRunning) {
+          if (this.stateMachine.state === ImportState.PAUSED) {
+            this.stateMachine.transition(ImportState.RUNNING_FILE)
+            run.setState(ImportState.RUNNING_FILE)
+            this.workerPool?.resume()
+          }
+        }
+        logger.import.info('[engine] Reconnected. Retrying batch...')
+        // Loop continues to retry
+      }
+    }
   }
 
   /**
@@ -327,6 +654,15 @@ export class ImportEngine {
       // standalone code flag - add failed rows to retry queue for later retry pass
       if (failedCount > 0 && result.rows) {
         this.retryQueue.addFailedRows(result.rows, batch)
+      }
+
+      // Track processed row indices for log lifecycle
+      if (!this.processedIndices.has(filename)) {
+        this.processedIndices.set(filename, new Set())
+      }
+      const fileIndices = this.processedIndices.get(filename)!
+      for (const rowResult of batch) {
+        fileIndices.add(rowResult.rowIndex)
       }
 
       // Track processed rows for throughput
@@ -451,10 +787,13 @@ export class ImportEngine {
     this.abortController?.abort()
     this.skipFileController?.abort()
     this.workerPool?.abort()
+    this.connectionMonitor?.destroy()
+    this.stopHeartbeat()
     // Set to FAILED state instead of resetting, so results can be viewed
     this.stateMachine.reset()
     const run = useRunStore()
     run.setState(ImportState.FAILED)
+    this.finalizeLog()
   }
 
   skipCurrentFile(): void {
@@ -663,6 +1002,7 @@ export class ImportEngine {
         this.stateMachine.reset()
         run.setState(ImportState.FAILED)
       }
+      this.finalizeLog()
     }
   }
 
@@ -681,6 +1021,144 @@ export class ImportEngine {
         resolve()
       }, { once: true })
     })
+  }
+
+  /**
+   * Create a health check function appropriate for the current import mode.
+   * - Embedded mode: uses the default same-origin fetch to /ametras_fast_import/info
+   * - Standalone mode: uses window.api.odoo.call with /web/session/get_session_info
+   */
+  private createHealthCheckFn(): HealthCheckFn | undefined {
+    const session = useSessionStore()
+    if (session.isEmbedded) {
+      // Embedded mode: use the default health check (same-origin fetch)
+      return undefined
+    }
+    // Standalone/Electron mode: use the IPC bridge with a universal endpoint
+    const baseUrl = session.baseUrl
+    const db = session.currentServer?.db
+    return async () => {
+      try {
+        const result = await window.api.odoo.call({
+          baseUrl: baseUrl || '',
+          db,
+          endpoint: '/web/session/get_session_info',
+          params: {},
+        })
+        return result.ok === true
+      } catch {
+        return false
+      }
+    }
+  }
+
+  /**
+   * Build file_progress data from processedIndices for the log record.
+   */
+  private buildFileProgress(): Record<string, FileProgressData> {
+    const run = useRunStore()
+    const result: Record<string, FileProgressData> = {}
+
+    for (const [filename, indices] of this.processedIndices.entries()) {
+      const fileProgress = run.progress.files[filename]
+      result[filename] = {
+        totalRows: fileProgress?.totalRows ?? 0,
+        successCount: fileProgress?.successCount ?? 0,
+        failedCount: fileProgress?.failedCount ?? 0,
+        processedRanges: indicesToRanges(indices),
+      }
+    }
+    return result
+  }
+
+  /**
+   * Start periodic heartbeat updates to the server (every 30s).
+   */
+  private startHeartbeat(): void {
+    this.stopHeartbeat()
+    this.heartbeatTimer = setInterval(() => {
+      this.sendHeartbeat()
+    }, 30_000)
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer)
+      this.heartbeatTimer = null
+    }
+  }
+
+  private sendHeartbeat(): void {
+    if (!this.logId) return
+    const run = useRunStore()
+    const files = Object.values(run.progress.files)
+    const successRows = files.reduce((sum, f) => sum + f.successCount, 0)
+    const failedRows = files.reduce((sum, f) => sum + f.failedCount, 0)
+
+    updateImportLog({
+      log_id: this.logId,
+      success_rows: successRows,
+      failed_rows: failedRows,
+      file_progress: this.buildFileProgress(),
+    }).catch(err => logger.import.warn('Failed to send heartbeat', { error: (err as Error).message }))
+  }
+
+  /**
+   * Finalize the log record on the server (fire-and-forget).
+   * If no logId exists (creation failed), falls back to legacy saveImportLog().
+   */
+  private finalizeLog(): void {
+    this.stopHeartbeat()
+    const run = useRunStore()
+    const config = useConfigStore()
+
+    const files = Object.values(run.progress.files)
+    const totalRows = files.reduce((sum, f) => sum + f.totalRows, 0)
+    const successRows = files.reduce((sum, f) => sum + f.successCount, 0)
+    const failedRows = files.reduce((sum, f) => sum + f.failedCount, 0)
+    const filenames = Object.keys(run.progress.files)
+
+    const startedAt = run.runStartTime
+      ? new Date(run.runStartTime).toISOString()
+      : new Date().toISOString()
+    const finishedAt = new Date().toISOString()
+
+    const errorLog = run.errors.map(e => ({
+      filename: e.filename,
+      rowNumber: e.rowNumber,
+      error: e.error,
+    }))
+
+    const state = failedRows > 0 ? 'failed' as const : 'completed' as const
+
+    if (this.logId) {
+      // Use new finalize endpoint
+      finalizeImportLog({
+        log_id: this.logId,
+        state,
+        finished_at: finishedAt,
+        total_rows: totalRows,
+        success_rows: successRows,
+        failed_rows: failedRows,
+        error_log: errorLog,
+        file_progress: this.buildFileProgress(),
+      }).catch(err => logger.import.error('Failed to finalize log', { error: (err as Error).message }))
+    } else {
+      // Legacy fallback (log creation failed or standalone mode)
+      saveImportLog({
+        profile_name: config.activeProfileId ? `Profile #${config.activeProfileId}` : '',
+        profile_id: config.activeProfileId ?? undefined,
+        is_dry_run: run.isDryRun,
+        state,
+        started_at: startedAt,
+        finished_at: finishedAt,
+        filenames,
+        total_rows: totalRows,
+        success_rows: successRows,
+        failed_rows: failedRows,
+        error_log: errorLog,
+      }).catch(err => logger.import.error('Failed to save log', { error: (err as Error).message }))
+    }
   }
 
   get state(): ImportState {

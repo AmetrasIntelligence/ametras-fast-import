@@ -109,8 +109,8 @@ onBeforeUnmount(() => {
         <span class="csv-model-select__tech">{{ selectedModel.model }}</span>
         {{ selectedModel.name }}
       </span>
-      <span v-else class="csv-text-muted">{{ $t('modelSelect.placeholder') }}</span>
-      <span v-if="loading" class="csv-model-select__spinner" />
+      <span v-else class="text-body-secondary">{{ $t('modelSelect.placeholder') }}</span>
+      <span v-if="loading" class="spinner-border spinner-border-sm" />
     </button>
 
     <!-- Dropdown (teleported to body for proper z-index) -->
@@ -128,7 +128,7 @@ onBeforeUnmount(() => {
             v-model="searchQuery"
             type="text"
             :placeholder="$t('modelSelect.searchPlaceholder')"
-            class="csv-model-select__search-input"
+            class="form-control form-control-sm"
           />
         </div>
 
@@ -173,30 +173,22 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   height: 2rem;
   padding: 0 0.5rem;
-  border: 1px solid #d1d5db;
-  border-radius: var(--radius, 0.375rem);
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius);
   font-size: 0.875rem;
   text-align: left;
-  background: white;
+  background: var(--bs-body-bg);
   cursor: pointer;
   font-family: inherit;
 }
 .csv-model-select__trigger:disabled {
-  background: #f3f4f6;
+  background: var(--bs-tertiary-bg);
   cursor: not-allowed;
 }
 .csv-model-select__selected {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.csv-model-select__spinner {
-  width: 1rem;
-  height: 1rem;
-  border: 2px solid #e5e7eb;
-  border-top-color: #2563eb;
-  border-radius: 50%;
-  animation: csv-spin 1s linear infinite;
 }
 </style>
 
@@ -205,7 +197,7 @@ onBeforeUnmount(() => {
 .csv-model-select__tech {
   font-family: monospace;
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--bs-secondary-color);
   margin-right: 0.25rem;
 }
 .csv-model-select__dropdown {
@@ -213,10 +205,10 @@ onBeforeUnmount(() => {
   z-index: 1000;
   width: 360px;
   max-width: calc(100vw - 2rem);
-  border: 1px solid #d1d5db;
-  border-radius: var(--radius, 0.375rem);
-  background: white;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius);
+  background: var(--bs-body-bg);
+  box-shadow: var(--bs-box-shadow-lg);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -224,21 +216,7 @@ onBeforeUnmount(() => {
 .csv-model-select__search {
   flex-shrink: 0;
   padding: 0.5rem;
-  border-bottom: 1px solid #e5e7eb;
-}
-.csv-model-select__search-input {
-  width: 100%;
-  height: 2rem;
-  padding: 0 0.5rem;
-  border: 1px solid #d1d5db;
-  border-radius: var(--radius, 0.375rem);
-  font-size: 0.875rem;
-  font-family: inherit;
-}
-.csv-model-select__search-input:focus {
-  outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  border-bottom: 1px solid var(--bs-border-color);
 }
 .csv-model-select__results {
   flex: 1;
@@ -249,7 +227,7 @@ onBeforeUnmount(() => {
   padding: 1rem;
   text-align: center;
   font-size: 0.875rem;
-  color: #6b7280;
+  color: var(--bs-secondary-color);
 }
 .csv-model-select__option {
   width: 100%;
@@ -265,15 +243,15 @@ onBeforeUnmount(() => {
   font-family: inherit;
 }
 .csv-model-select__option:hover {
-  background: #f3f4f6;
+  background: var(--bs-tertiary-bg);
 }
 .csv-model-select__option--selected {
-  background: #eff6ff;
+  background: var(--bs-primary-bg-subtle);
 }
 .csv-model-select__check {
   width: 1rem;
   flex-shrink: 0;
-  color: #2563eb;
+  color: var(--bs-primary);
   font-size: 0.875rem;
 }
 .csv-model-select__option-text {

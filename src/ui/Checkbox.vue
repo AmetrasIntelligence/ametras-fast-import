@@ -11,42 +11,15 @@ defineEmits<{
 </script>
 
 <template>
-  <label class="csv-checkbox-wrapper">
+  <div class="form-check">
     <input
       type="checkbox"
       :checked="modelValue"
       :disabled="disabled"
-      class="csv-checkbox"
+      class="form-check-input"
       @change="$emit('update:modelValue', ($event.target as HTMLInputElement).checked)"
     />
-    <span v-if="label" class="csv-checkbox-label">{{ label }}</span>
+    <label v-if="label" class="form-check-label">{{ label }}</label>
     <slot />
-  </label>
+  </div>
 </template>
-
-<style scoped>
-.csv-checkbox-wrapper {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  cursor: pointer;
-}
-.csv-checkbox {
-  width: 1rem;
-  height: 1rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.25rem;
-  cursor: pointer;
-}
-.csv-checkbox:checked {
-  background-color: #2563eb;
-  border-color: #2563eb;
-}
-.csv-checkbox:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-.csv-checkbox-label {
-  font-size: 0.875rem;
-}
-</style>

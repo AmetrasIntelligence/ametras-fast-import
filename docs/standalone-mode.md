@@ -23,6 +23,8 @@ On login, the client attempts to detect the `ametras_fast_import` addon by calli
 | External ID (`id`) | ✓ | ✓ |
 | Database ID (`.id`) | ✓ | ✓ |
 | Relational fields (`field/id`, `field/.id`) | ✓ | ✓ |
+| Network error detection | ✓ | ✓ |
+| Auto-reconnection on network failure | ✓ | ✓ |
 | Server profiles | ✓ | ✗ |
 | Local profiles | ✓ | ✓ |
 | Search key upsert | ✓ | ✗ |
@@ -31,6 +33,11 @@ On login, the client attempts to detect the `ametras_fast_import` addon by calli
 | Adaptive batch sizing | N/A | ✓ |
 | Dry run validation | ✓ | ✗ |
 | Row validation button | ✓ | ✗ |
+| Server-side import logs | ✓ | ✗ |
+| Resume interrupted imports | ✓ | ✗ |
+| Automatic stale log detection | ✓ | ✗ |
+| File cleanup cron | ✓ | ✗ |
+| Explicit operation column (`__op__`) | ✓ | ✗ |
 
 ## Visual Indicators
 
@@ -132,6 +139,15 @@ If 3 batches fail at size 100, the adapter drops back to 10. After 100 more succ
 
 This approach avoids the problem of aggressive multiplicative scaling where a single bad batch of 100 rows triggers geometric retry (100→10→1), wasting many API calls. By starting small and proving data quality first, the warmup minimizes wasted work.
 
+## Network Resilience
+
+Standalone mode now shares the same network resilience infrastructure as addon mode:
+
+- **Network error classification**: The Electron IPC handlers (`odoo:call` and `standalone:load`) now return `errorCode` in their responses, classifying HTTP 502/503/504 as `NETWORK_ERROR`, timeouts as `TIMEOUT`, and Odoo-level errors as `DATA_ERROR`.
+- **NetworkBatchError**: Both the addon executor and standalone executor throw `NetworkBatchError` on transient network failures, preventing rows from being permanently marked as failed.
+- **Auto-pause and reconnection**: When a `NetworkBatchError` is caught, the import engine pauses, the `ConnectionMonitor` starts health check polling with exponential backoff, and the import automatically resumes when the server is reachable again.
+- **Universal health check**: In embedded mode, the health check pings `/ametras_fast_import/info`. In standalone mode, it uses `/web/session/get_session_info` (available on all Odoo instances) via the IPC bridge.
+
 ## Auto-Navigation
 
 When a standalone import completes (all files processed) or is aborted, the Run view automatically navigates to the Results view, matching the behavior of addon-mode imports.
@@ -158,6 +174,18 @@ The addon's ability to upsert records based on custom search keys (e.g., `defaul
 
 Server-stored profiles are not available. Use local profiles instead.
 
+### No Server-Side Import Logs
+
+Import logs with heartbeat tracking, progress persistence, and stale detection require the addon. In standalone mode, logs are saved at import completion only (legacy mode).
+
+### No Resume for Interrupted Imports
+
+The addon tracks per-file processed row ranges (`processedRanges`) and error logs, allowing imports to be resumed after browser close or network outage. Standalone mode does not support this — if an import is interrupted, it must be restarted from scratch.
+
+### No Explicit Operation Column (`__op__`)
+
+The `__op__` column (create/update/skip per row) requires the addon's import controller. Standalone mode always uses Odoo's default `model.load()` behavior (create or update based on ID presence).
+
 ## Code Organization
 
 All standalone-related code is marked with:
@@ -171,9 +199,13 @@ All standalone-related code is marked with:
 |------|---------|
 | `src/services/importMode.ts` | Detects addon availability |
 | `src/services/standaloneProfiles.ts` | Local profile storage |
-| `src/importer/standalone/executor.ts` | Batch execution via `model.load()` |
+| `src/importer/standalone/executor.ts` | Batch execution via `model.load()` + NetworkBatchError |
+| `src/importer/connectionMonitor.ts` | Health check polling with configurable check function |
+| `src/importer/batchExecutor.ts` | Addon batch executor + NetworkBatchError class |
+| `src/utils/errors.ts` | Error classification (classifyFetchError, isNetworkError) |
 | `src/components/StandaloneBanner.vue` | Warning banner component |
-| `electron/ipc/standalone/loader.ts` | IPC handler for load calls |
+| `electron/ipc/odoo.ts` | Odoo RPC proxy with error code classification |
+| `electron/ipc/standalone/loader.ts` | IPC handler for load calls with error codes |
 | `electron/ipc/standalone/detector.ts` | IPC handler for addon detection |
 
 ## Troubleshooting
@@ -243,6 +275,12 @@ POST /web/dataset/call_kw
 
 ## Version History
 
+- **1.3.0**: Network resilience parity with addon mode
+  - Error code classification in Electron IPC (NETWORK_ERROR, TIMEOUT, DATA_ERROR)
+  - NetworkBatchError thrown by standalone executor on transient failures
+  - Auto-pause/reconnection via ConnectionMonitor (shared with addon mode)
+  - Universal health check: `/web/session/get_session_info` for standalone, `/ametras_fast_import/info` for embedded
+  - Updated limitations list with new addon-only features
 - **1.2.0**: Warmup-based adaptive batch sizing
   - Conservative warmup: start at size 1, step through 1 → 10 → max
   - Level-up after 100 consecutive successful rows

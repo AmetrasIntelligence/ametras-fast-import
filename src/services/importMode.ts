@@ -50,7 +50,10 @@ export async function detectImportMode(
     limitations: [
       'Search key upsert not available',
       'Per-row error isolation not available',
-      'Explicit operation column (__op__) not supported'
+      'Explicit operation column (__op__) not supported',
+      'Dry-run validation not available',
+      'Server-side import logs not available',
+      'Resume interrupted imports not available',
     ]
   }
 }

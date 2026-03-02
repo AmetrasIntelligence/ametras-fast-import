@@ -1,6 +1,6 @@
 {
     'name': 'CSV Import',
-    'version': '16.0.1.0.0',
+    'version': '16.0.1.1.0',
     'category': 'Tools',
     'summary': 'CSV Import Tool with embedded Vue frontend',
     'description': '''
@@ -18,6 +18,7 @@
         'security/ir.model.access.csv',
         'views/actions.xml',
         'views/menu.xml',
+        'data/cron.xml',
     ],
     'assets': {
         'web.assets_backend': [

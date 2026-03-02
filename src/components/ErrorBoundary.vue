@@ -51,21 +51,21 @@ function exportDiagnostics() {
 <template>
   <slot v-if="!error" />
 
-  <div v-else class="csv-min-h-screen csv-flex csv-items-center csv-justify-center csv-p-4">
-    <Card class="csv-max-w-lg csv-p-6">
-      <h2 class="csv-text-xl csv-font-semibold csv-text-red-600 csv-mb-4">
+  <div v-else class="min-vh-100 d-flex align-items-center justify-content-center p-3">
+    <Card class="p-4" style="max-width: 32rem;">
+      <h2 class="fs-5 fw-semibold text-danger mb-3">
         Something went wrong
       </h2>
 
-      <p class="csv-text-muted csv-mb-4">
+      <p class="text-body-secondary mb-3">
         An unexpected error occurred. You can try to reset the application or download diagnostics.
       </p>
 
-      <div class="csv-bg-gray-100 csv-p-3 csv-rounded csv-mb-4 csv-text-sm csv-font-mono csv-overflow-auto csv-max-h-32">
+      <div class="bg-light p-3 rounded mb-3 small font-monospace overflow-auto" style="max-height: 8rem;">
         {{ error.message }}
       </div>
 
-      <div class="csv-flex csv-gap-4">
+      <div class="d-flex gap-3">
         <Button @click="reset">
           Reset
         </Button>

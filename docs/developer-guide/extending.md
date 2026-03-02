@@ -64,7 +64,6 @@ Field suggestions are managed in `src/utils/smartFieldMapping.ts`.
 
 The following files were removed during refactoring and their functionality has been consolidated:
 
-*   `src/components/FieldMappingTable.vue` — field mapping table is now inline in `ImportView.vue`.
 *   `src/components/FileMappingRow.vue` — file mapping rows are now inline in `ImportView.vue`.
 *   `src/composables/useImportValidation.ts` — validation logic is now in `src/importer/fieldMappingValidator.ts`.
 

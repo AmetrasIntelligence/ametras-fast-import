@@ -98,26 +98,25 @@ const fieldMappings = computed(() => props.profile.richFieldMappings || [])
 
     <!-- Mappings Tab -->
     <div v-show="activeTab === 'mappings'" class="csv-profile-editor__content">
-      <div v-if="effectiveMappings.length === 0" class="csv-text-center csv-py-4 csv-text-muted csv-text-sm">
+      <div v-if="effectiveMappings.length === 0" class="text-center py-3 text-body-secondary small">
         {{ $t('profileEditor.noMappings') }}
       </div>
-      <table v-else class="csv-w-full csv-text-sm">
+      <table v-else class="table table-sm small mb-0">
         <thead>
-          <tr class="csv-profile-editor__table-header">
-            <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium">{{ $t('profileEditor.filename') }}</th>
-            <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium">{{ $t('profileEditor.model') }}</th>
-            <th class="csv-text-center csv-px-3 csv-py-2 csv-w-8"></th>
+          <tr>
+            <th class="text-start fw-medium">{{ $t('profileEditor.filename') }}</th>
+            <th class="text-start fw-medium">{{ $t('profileEditor.model') }}</th>
+            <th class="text-center" style="width: 2rem;"></th>
           </tr>
         </thead>
         <tbody>
           <tr
             v-for="mapping in effectiveMappings"
             :key="mapping.filename"
-            class="csv-profile-editor__table-row"
           >
-            <td class="csv-px-3 csv-py-2 csv-font-mono csv-text-xs">{{ mapping.filename }}</td>
-            <td class="csv-px-3 csv-py-2 csv-text-xs">{{ mapping.model }}</td>
-            <td class="csv-text-center csv-px-3 csv-py-2">
+            <td class="font-monospace" style="font-size: 0.75rem;">{{ mapping.filename }}</td>
+            <td style="font-size: 0.75rem;">{{ mapping.model }}</td>
+            <td class="text-center">
               <span
                 v-if="runConfig.mappingsOverride.has(mapping.filename)"
                 class="csv-override-indicator"
@@ -131,72 +130,70 @@ const fieldMappings = computed(() => props.profile.richFieldMappings || [])
 
     <!-- Sequence Tab -->
     <div v-show="activeTab === 'sequence'" class="csv-profile-editor__content">
-      <div v-if="effectiveSequence.length === 0" class="csv-text-center csv-py-4 csv-text-muted csv-text-sm">
+      <div v-if="effectiveSequence.length === 0" class="text-center py-3 text-body-secondary small">
         {{ $t('profileEditor.noSequence') }}
       </div>
-      <table v-else class="csv-w-full csv-text-sm">
+      <table v-else class="table table-sm small mb-0">
         <thead>
-          <tr class="csv-profile-editor__table-header">
-            <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium csv-w-16">#</th>
-            <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium">{{ $t('profileEditor.filename') }}</th>
-            <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium">{{ $t('profileEditor.requires') }}</th>
+          <tr>
+            <th class="text-start fw-medium" style="width: 4rem;">#</th>
+            <th class="text-start fw-medium">{{ $t('profileEditor.filename') }}</th>
+            <th class="text-start fw-medium">{{ $t('profileEditor.requires') }}</th>
           </tr>
         </thead>
         <tbody>
           <tr
             v-for="item in effectiveSequence"
             :key="item.filename"
-            class="csv-profile-editor__table-row"
           >
-            <td class="csv-px-3 csv-py-2 csv-text-muted">{{ item.order }}</td>
-            <td class="csv-px-3 csv-py-2 csv-font-mono csv-text-xs">{{ item.filename }}</td>
-            <td class="csv-px-3 csv-py-2 csv-text-xs csv-text-muted">
+            <td class="text-body-secondary">{{ item.order }}</td>
+            <td class="font-monospace" style="font-size: 0.75rem;">{{ item.filename }}</td>
+            <td class="text-body-secondary" style="font-size: 0.75rem;">
               {{ item.requires?.join(', ') || '-' }}
             </td>
           </tr>
         </tbody>
       </table>
-      <div
+      <small
         v-if="hasSequenceOverride"
-        class="csv-text-xs csv-text-orange-600 csv-mt-2 csv-px-3"
+        class="text-warning d-block mt-2 px-3"
       >
         {{ $t('profileEditor.sequenceOverridden') }}
-      </div>
+      </small>
     </div>
 
     <!-- Field Mappings Tab -->
     <div v-show="activeTab === 'field-mappings'" class="csv-profile-editor__content">
-      <div v-if="fieldMappings.length === 0" class="csv-text-center csv-py-4 csv-text-muted csv-text-sm">
+      <div v-if="fieldMappings.length === 0" class="text-center py-3 text-body-secondary small">
         {{ $t('profileEditor.noFieldMappings') }}
       </div>
-      <table v-else class="csv-w-full csv-text-sm">
+      <table v-else class="table table-sm small mb-0">
         <thead>
-          <tr class="csv-profile-editor__table-header">
-            <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium">File</th>
-            <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium">CSV Header</th>
-            <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium">Odoo Field</th>
-            <th class="csv-text-center csv-px-3 csv-py-2 csv-font-medium csv-w-12">Req</th>
-            <th class="csv-text-left csv-px-3 csv-py-2 csv-font-medium">Transform</th>
-            <th class="csv-text-center csv-px-3 csv-py-2 csv-w-8"></th>
+          <tr>
+            <th class="text-start fw-medium">File</th>
+            <th class="text-start fw-medium">CSV Header</th>
+            <th class="text-start fw-medium">Odoo Field</th>
+            <th class="text-center fw-medium" style="width: 3rem;">Req</th>
+            <th class="text-start fw-medium">Transform</th>
+            <th class="text-center" style="width: 2rem;"></th>
           </tr>
         </thead>
         <tbody>
           <tr
             v-for="(fm, idx) in fieldMappings"
             :key="`${fm.filename}-${fm.csvHeader}-${idx}`"
-            class="csv-profile-editor__table-row"
           >
-            <td class="csv-px-3 csv-py-2 csv-font-mono csv-text-xs">{{ fm.filename }}</td>
-            <td class="csv-px-3 csv-py-2 csv-text-xs">{{ fm.csvHeader }}</td>
-            <td class="csv-px-3 csv-py-2 csv-font-mono csv-text-xs">{{ fm.odooField }}</td>
-            <td class="csv-text-center csv-px-3 csv-py-2">
-              <span v-if="fm.required" class="csv-text-orange-600">Yes</span>
-              <span v-else class="csv-text-muted">-</span>
+            <td class="font-monospace" style="font-size: 0.75rem;">{{ fm.filename }}</td>
+            <td style="font-size: 0.75rem;">{{ fm.csvHeader }}</td>
+            <td class="font-monospace" style="font-size: 0.75rem;">{{ fm.odooField }}</td>
+            <td class="text-center">
+              <span v-if="fm.required" class="text-warning">Yes</span>
+              <span v-else class="text-body-secondary">-</span>
             </td>
-            <td class="csv-px-3 csv-py-2 csv-text-xs csv-text-muted">
+            <td class="text-body-secondary" style="font-size: 0.75rem;">
               {{ fm.transform ? serializeTransform(fm.transform) : '-' }}
             </td>
-            <td class="csv-text-center csv-px-3 csv-py-2">
+            <td class="text-center">
               <span
                 v-if="runConfig.fieldMappingsOverride.has(fm.filename)"
                 class="csv-override-indicator"
@@ -212,12 +209,12 @@ const fieldMappings = computed(() => props.profile.richFieldMappings || [])
 
 <style scoped>
 .csv-profile-editor {
-  background: white;
+  background: var(--bs-body-bg);
 }
 .csv-profile-editor__tabs {
   display: flex;
-  border-bottom: 1px solid #e5e7eb;
-  background: #f9fafb;
+  border-bottom: 1px solid var(--bs-border-color);
+  background: var(--bs-tertiary-bg);
 }
 .csv-profile-editor__tab {
   position: relative;
@@ -227,16 +224,16 @@ const fieldMappings = computed(() => props.profile.richFieldMappings || [])
   font: inherit;
   font-size: 0.875rem;
   cursor: pointer;
-  color: #6b7280;
+  color: var(--bs-secondary-color);
   border-bottom: 2px solid transparent;
 }
 .csv-profile-editor__tab:hover {
-  color: #111827;
-  background: #f3f4f6;
+  color: var(--bs-body-color);
+  background: var(--bs-secondary-bg-subtle);
 }
 .csv-profile-editor__tab--active {
-  color: #2563eb;
-  border-bottom-color: #2563eb;
+  color: var(--bs-primary);
+  border-bottom-color: var(--bs-primary);
 }
 .csv-profile-editor__override-dot {
   position: absolute;
@@ -245,22 +242,13 @@ const fieldMappings = computed(() => props.profile.richFieldMappings || [])
   width: 0.5rem;
   height: 0.5rem;
   border-radius: 50%;
-  background: #f97316;
+  background: var(--bs-warning);
 }
 .csv-profile-editor__content {
   padding: 0.75rem;
 }
-.csv-profile-editor__table-header {
-  background: #f9fafb;
-}
-.csv-profile-editor__table-row {
-  border-top: 1px solid #e5e7eb;
-}
 .csv-override-indicator {
-  color: #f97316;
+  color: var(--bs-warning);
   font-weight: bold;
-}
-.csv-text-orange-600 {
-  color: #ea580c;
 }
 </style>

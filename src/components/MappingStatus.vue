@@ -9,11 +9,11 @@ const props = defineProps<{
 const config = computed(() => {
   switch (props.status) {
     case 'valid':
-      return { label: 'Ready to import', dotClass: 'csv-status--valid', badgeClass: 'csv-status-badge--valid' }
+      return { label: 'Ready to import', dotClass: 'bg-success', badgeClass: 'text-bg-success' }
     case 'partial':
-      return { label: 'Some fields unmapped', dotClass: 'csv-status--partial', badgeClass: 'csv-status-badge--partial' }
+      return { label: 'Some fields unmapped', dotClass: 'bg-warning', badgeClass: 'text-bg-warning' }
     case 'none':
-      return { label: 'No model selected', dotClass: 'csv-status--none', badgeClass: 'csv-status-badge--none' }
+      return { label: 'No model selected', dotClass: 'bg-danger', badgeClass: 'text-bg-danger' }
     default:
       return { label: '', dotClass: '', badgeClass: '' }
   }
@@ -21,49 +21,19 @@ const config = computed(() => {
 </script>
 
 <template>
-  <div
+  <span
     v-if="compact"
-    class="csv-status-dot"
+    class="d-inline-block rounded-circle"
     :class="config.dotClass"
     :title="config.label"
+    style="width: 0.5rem; height: 0.5rem;"
   />
-  <div
+  <span
     v-else
-    class="csv-status-badge"
+    class="badge"
     :class="config.badgeClass"
+    style="font-size: 0.75rem; font-weight: 500;"
   >
     {{ config.label }}
-  </div>
+  </span>
 </template>
-
-<style scoped>
-.csv-status-dot {
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 9999px;
-}
-.csv-status--valid { background-color: #22c55e; }
-.csv-status--partial { background-color: #f97316; }
-.csv-status--none { background-color: #ef4444; }
-
-.csv-status-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  padding: 0.125rem 0.5rem;
-  border-radius: var(--radius, 0.375rem);
-  font-size: 0.75rem;
-}
-.csv-status-badge--valid {
-  color: #16a34a;
-  background-color: #f0fdf4;
-}
-.csv-status-badge--partial {
-  color: #ea580c;
-  background-color: #fff7ed;
-}
-.csv-status-badge--none {
-  color: #dc2626;
-  background-color: #fef2f2;
-}
-</style>

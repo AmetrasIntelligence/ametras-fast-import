@@ -8,8 +8,8 @@ describe('Progress Component', () => {
       props: { value: 50 }
     })
 
-    expect(wrapper.find('.csv-progress-track').exists()).toBe(true)
-    expect(wrapper.find('.csv-progress-bar').exists()).toBe(true)
+    expect(wrapper.find('.progress').exists()).toBe(true)
+    expect(wrapper.find('.progress-bar').exists()).toBe(true)
   })
 
   it('sets correct width for value', () => {
@@ -17,7 +17,7 @@ describe('Progress Component', () => {
       props: { value: 75 }
     })
 
-    const bar = wrapper.find('.csv-progress-bar')
+    const bar = wrapper.find('.progress-bar')
     expect(bar.attributes('style')).toContain('width: 75%')
   })
 
@@ -26,7 +26,7 @@ describe('Progress Component', () => {
       props: { value: 0 }
     })
 
-    const bar = wrapper.find('.csv-progress-bar')
+    const bar = wrapper.find('.progress-bar')
     expect(bar.attributes('style')).toContain('width: 0%')
   })
 
@@ -35,7 +35,7 @@ describe('Progress Component', () => {
       props: { value: 100 }
     })
 
-    const bar = wrapper.find('.csv-progress-bar')
+    const bar = wrapper.find('.progress-bar')
     expect(bar.attributes('style')).toContain('width: 100%')
   })
 
@@ -44,7 +44,7 @@ describe('Progress Component', () => {
       props: { value: 150 }
     })
 
-    const bar = wrapper.find('.csv-progress-bar')
+    const bar = wrapper.find('.progress-bar')
     expect(bar.attributes('style')).toContain('width: 100%')
   })
 
@@ -53,7 +53,7 @@ describe('Progress Component', () => {
       props: { value: -10 }
     })
 
-    const bar = wrapper.find('.csv-progress-bar')
+    const bar = wrapper.find('.progress-bar')
     expect(bar.attributes('style')).toContain('width: 0%')
   })
 
@@ -62,7 +62,7 @@ describe('Progress Component', () => {
       props: { value: 25, max: 50 }
     })
 
-    const bar = wrapper.find('.csv-progress-bar')
+    const bar = wrapper.find('.progress-bar')
     expect(bar.attributes('style')).toContain('width: 50%')
   })
 
@@ -71,7 +71,7 @@ describe('Progress Component', () => {
       props: { value: 75, showLabel: true }
     })
 
-    expect(wrapper.find('.csv-progress-label').exists()).toBe(true)
+    expect(wrapper.find('small').exists()).toBe(true)
     expect(wrapper.text()).toContain('75%')
   })
 
@@ -80,7 +80,7 @@ describe('Progress Component', () => {
       props: { value: 75 }
     })
 
-    expect(wrapper.find('.csv-progress-label').exists()).toBe(false)
+    expect(wrapper.find('small').exists()).toBe(false)
   })
 
   describe('sizes', () => {
@@ -89,7 +89,8 @@ describe('Progress Component', () => {
         props: { value: 50, size: 'sm' }
       })
 
-      expect(wrapper.find('.csv-h-1').exists()).toBe(true)
+      const progress = wrapper.find('.progress')
+      expect(progress.attributes('style')).toContain('height: 0.25rem')
     })
 
     it('applies medium size by default', () => {
@@ -97,7 +98,8 @@ describe('Progress Component', () => {
         props: { value: 50 }
       })
 
-      expect(wrapper.find('.csv-h-2').exists()).toBe(true)
+      const progress = wrapper.find('.progress')
+      expect(progress.attributes('style')).toContain('height: 0.5rem')
     })
 
     it('applies large size', () => {
@@ -105,7 +107,8 @@ describe('Progress Component', () => {
         props: { value: 50, size: 'lg' }
       })
 
-      expect(wrapper.find('.csv-h-4').exists()).toBe(true)
+      const progress = wrapper.find('.progress')
+      expect(progress.attributes('style')).toContain('height: 1rem')
     })
   })
 })

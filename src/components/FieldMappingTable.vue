@@ -92,17 +92,17 @@ import { computed } from 'vue'
   <div class="csv-config-section">
     <div class="csv-config-section__header">
       <span>{{ t('config.fieldMappings') }}</span>
-      <div class="csv-flex csv-items-center csv-gap-4">
-        <span class="csv-text-xs csv-text-muted">
+      <div class="d-flex align-items-center gap-3">
+        <small class="text-body-secondary">
           {{ mappedCount }} {{ t('common.of') }} {{ headers.length }} {{ t('config.mapped') }}
-        </span>
+        </small>
         <label class="csv-field-mapping__strict-toggle" :title="t('config.strictTooltip')">
           <input
             type="checkbox"
             :checked="strict"
             @change="emit('update:strict', ($event.target as HTMLInputElement).checked)"
           />
-          <span class="csv-text-xs">{{ t('config.strict') }}</span>
+          <small>{{ t('config.strict') }}</small>
         </label>
       </div>
     </div>
@@ -139,7 +139,7 @@ import { computed } from 'vue'
             :relation-model="getFieldInfo(header).relationModel"
             @update:model-value="emit('update:transform', header, $event)"
           />
-          <span v-else class="csv-text-muted">-</span>
+          <span v-else class="text-body-secondary">-</span>
         </div>
         <div class="csv-field-mapping__col csv-field-mapping__col--req">
           <span v-if="getMappingInfo(header)" class="csv-field-mapping__req" :class="{ 'csv-field-mapping__req--active': getMappingInfo(header)?.required }">
@@ -164,12 +164,12 @@ import { computed } from 'vue'
   align-items: center;
   font-size: 0.8rem;
   font-weight: 500;
-  color: var(--csv-color-text-secondary, #374151);
+  color: var(--bs-body-color);
 }
 
 .csv-field-mapping__table {
-  border: 1px solid var(--csv-color-border-light, #e5e7eb);
-  border-radius: var(--radius, 0.375rem);
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius);
   overflow: hidden;
 }
 .csv-field-mapping__row {
@@ -178,7 +178,7 @@ import { computed } from 'vue'
   gap: 0.5rem;
   align-items: center;
   padding: 0.375rem 0.75rem;
-  border-bottom: 1px solid var(--csv-color-border-faint, #f3f4f6);
+  border-bottom: 1px solid var(--bs-border-color-translucent);
 }
 .csv-field-mapping__row:last-child {
   border-bottom: none;
@@ -186,12 +186,12 @@ import { computed } from 'vue'
 .csv-field-mapping__row--header {
   font-size: 0.7rem;
   font-weight: 500;
-  color: var(--csv-color-text-muted, #6b7280);
-  background: var(--csv-color-bg-subtle, #f9fafb);
-  border-bottom: 1px solid var(--csv-color-border-light, #e5e7eb);
+  color: var(--bs-secondary-color);
+  background: var(--bs-tertiary-bg);
+  border-bottom: 1px solid var(--bs-border-color);
 }
 .csv-field-mapping__row--mapped {
-  background: var(--csv-color-success-light, #f0fdf4);
+  background: var(--bs-success-bg-subtle);
 }
 .csv-field-mapping__col--csv {
   font-family: ui-monospace, monospace;
@@ -199,11 +199,11 @@ import { computed } from 'vue'
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--csv-color-text-secondary, #374151);
+  color: var(--bs-body-color);
 }
 .csv-field-mapping__col--arrow {
   text-align: center;
-  color: var(--csv-color-text-faint, #9ca3af);
+  color: var(--bs-secondary-color);
   font-size: 0.75rem;
 }
 .csv-field-mapping__col--transform {
@@ -214,10 +214,10 @@ import { computed } from 'vue'
   font-size: 0.75rem;
 }
 .csv-field-mapping__req {
-  color: var(--csv-color-text-faint, #9ca3af);
+  color: var(--bs-secondary-color);
 }
 .csv-field-mapping__req--active {
-  color: var(--csv-color-success, #16a34a);
+  color: var(--bs-success);
   font-weight: 600;
 }
 .csv-field-mapping__strict-toggle {
@@ -226,11 +226,11 @@ import { computed } from 'vue'
   gap: 0.25rem;
   cursor: pointer;
   padding: 0.125rem 0.375rem;
-  border-radius: 0.25rem;
-  background: var(--csv-color-bg-muted, #f3f4f6);
+  border-radius: var(--bs-border-radius-sm);
+  background: var(--bs-tertiary-bg);
 }
 .csv-field-mapping__strict-toggle:hover {
-  background: var(--csv-color-border-light, #e5e7eb);
+  background: var(--bs-secondary-bg-subtle);
 }
 .csv-field-mapping__strict-toggle input {
   margin: 0;

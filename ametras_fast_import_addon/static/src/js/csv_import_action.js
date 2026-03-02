@@ -40,10 +40,15 @@ class CsvImportVueApp extends Component {
                 }
                 const uid = this.env.services.user.userId;
                 const db = this.env.services.user.db;
+                const ctx = this.props.action && this.props.action.context || {};
+                const defaultView = ctx.default_view || 'import';
+                const resumeLogId = ctx.resume_log_id || null;
                 this._unmount = mod.mountApp(el, {
                     uid: uid,
                     baseUrl: "",
                     db: db,
+                    defaultView: defaultView,
+                    resumeLogId: resumeLogId,
                 });
             } catch (err) {
                 console.error("[CsvImportVueApp] Failed to mount Vue app:", err);

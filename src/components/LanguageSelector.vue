@@ -14,7 +14,8 @@ const currentLocale = computed({
 <template>
   <select
     v-model="currentLocale"
-    class="csv-lang-selector"
+    class="form-select form-select-sm"
+    style="width: auto; font-size: 0.75rem; padding: 0.125rem 1.75rem 0.125rem 0.5rem;"
   >
     <option
       v-for="loc in SUPPORTED_LOCALES"
@@ -25,22 +26,3 @@ const currentLocale = computed({
     </option>
   </select>
 </template>
-
-<style scoped>
-.csv-lang-selector {
-  padding: 0.125rem 0.5rem;
-  font-size: 0.75rem;
-  color: #6b7280;
-  background: white;
-  border: 1px solid #e5e7eb;
-  border-radius: 0.25rem;
-  cursor: pointer;
-}
-.csv-lang-selector:hover {
-  border-color: #d1d5db;
-}
-.csv-lang-selector:focus {
-  outline: none;
-  border-color: #2563eb;
-}
-</style>

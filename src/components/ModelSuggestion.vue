@@ -31,22 +31,22 @@ const confidenceLabel = computed(() => {
     v-if="suggestion && !currentModel"
     class="csv-suggestion"
   >
-    <div class="csv-text-sm csv-text-muted csv-mb-2">
+    <div class="small text-body-secondary mb-2">
       {{ $t('modelSuggestion.title') }}
     </div>
-    <div class="csv-flex csv-items-center csv-justify-between">
+    <div class="d-flex align-items-center justify-content-between">
       <div>
-        <span class="csv-font-medium">{{ suggestion.model.name }}</span>
-        <span class="csv-text-xs csv-text-muted csv-ml-1">
+        <span class="fw-medium">{{ suggestion.model.name }}</span>
+        <small class="text-body-secondary ms-1">
           ({{ suggestion.model.model }})
-        </span>
-        <span class="csv-text-xs csv-text-muted csv-ml-2">
+        </small>
+        <small class="text-body-secondary ms-2">
           {{ confidencePercent }}% &mdash; {{ confidenceLabel }}
-        </span>
+        </small>
       </div>
       <button
         type="button"
-        class="csv-suggestion__accept"
+        class="btn btn-primary btn-sm"
         @click="emit('accept', suggestion.model.model)"
       >
         &#10003; {{ $t('modelSuggestion.accept') }}
@@ -58,21 +58,8 @@ const confidenceLabel = computed(() => {
 <style scoped>
 .csv-suggestion {
   padding: 0.75rem;
-  border: 1px solid #e5e7eb;
-  border-radius: var(--radius, 0.375rem);
-  background: #eff6ff;
-}
-.csv-suggestion__accept {
-  padding: 0.25rem 0.75rem;
-  font-size: 0.875rem;
-  color: white;
-  background: #2563eb;
-  border: none;
-  border-radius: var(--radius, 0.375rem);
-  cursor: pointer;
-  font-family: inherit;
-}
-.csv-suggestion__accept:hover {
-  background: #1d4ed8;
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius);
+  background: var(--bs-primary-bg-subtle);
 }
 </style>

@@ -152,7 +152,7 @@ function selectSkip() {
           [{{ selectedOption.suffix }}]
         </span>
       </span>
-      <span v-else class="csv-text-muted">{{ $t('common.skip') }}</span>
+      <span v-else class="text-body-secondary">{{ $t('common.skip') }}</span>
     </button>
 
     <!-- Dropdown (fixed position, teleported to body) -->
@@ -170,7 +170,7 @@ function selectSkip() {
             v-model="searchQuery"
             type="text"
             :placeholder="$t('fieldSelect.searchPlaceholder')"
-            class="csv-field-sel__search-input"
+            class="form-control form-control-sm"
           />
         </div>
 
@@ -185,7 +185,7 @@ function selectSkip() {
           >
             <span class="csv-field-sel__check">{{ !modelValue ? '&#10003;' : '' }}</span>
             <div class="csv-field-sel__option-text">
-              <div class="csv-text-muted">{{ $t('common.skip') }}</div>
+              <div class="text-body-secondary">{{ $t('common.skip') }}</div>
             </div>
           </button>
 
@@ -234,16 +234,16 @@ function selectSkip() {
   justify-content: space-between;
   height: 1.75rem;
   padding: 0 0.5rem;
-  border: 1px solid #d1d5db;
-  border-radius: var(--radius, 0.375rem);
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius);
   font-size: 0.8rem;
   text-align: left;
-  background: white;
+  background: var(--bs-body-bg);
   cursor: pointer;
   font-family: inherit;
 }
 .csv-field-sel__trigger:disabled {
-  background: #f3f4f6;
+  background: var(--bs-tertiary-bg);
   cursor: not-allowed;
 }
 .csv-field-sel__selected {
@@ -258,12 +258,12 @@ function selectSkip() {
 .csv-field-sel__tech {
   font-family: monospace;
   font-size: 0.7rem;
-  color: #6b7280;
+  color: var(--bs-secondary-color);
   margin-right: 0.25rem;
 }
 .csv-field-sel__suffix {
   font-size: 0.7rem;
-  color: #2563eb;
+  color: var(--bs-primary);
   margin-left: 0.125rem;
 }
 .csv-field-sel__dropdown {
@@ -271,10 +271,10 @@ function selectSkip() {
   z-index: 1000;
   width: 400px;
   max-width: calc(100vw - 2rem);
-  border: 1px solid #d1d5db;
-  border-radius: var(--radius, 0.375rem);
-  background: white;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius);
+  background: var(--bs-body-bg);
+  box-shadow: var(--bs-box-shadow-lg);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -282,21 +282,7 @@ function selectSkip() {
 .csv-field-sel__search {
   flex-shrink: 0;
   padding: 0.5rem;
-  border-bottom: 1px solid #e5e7eb;
-}
-.csv-field-sel__search-input {
-  width: 100%;
-  height: 2rem;
-  padding: 0 0.5rem;
-  border: 1px solid #d1d5db;
-  border-radius: var(--radius, 0.375rem);
-  font-size: 0.875rem;
-  font-family: inherit;
-}
-.csv-field-sel__search-input:focus {
-  outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  border-bottom: 1px solid var(--bs-border-color);
 }
 .csv-field-sel__results {
   flex: 1;
@@ -307,7 +293,7 @@ function selectSkip() {
   padding: 1rem;
   text-align: center;
   font-size: 0.875rem;
-  color: #6b7280;
+  color: var(--bs-secondary-color);
 }
 .csv-field-sel__option {
   width: 100%;
@@ -323,15 +309,15 @@ function selectSkip() {
   font-family: inherit;
 }
 .csv-field-sel__option:hover {
-  background: #f3f4f6;
+  background: var(--bs-tertiary-bg);
 }
 .csv-field-sel__option--selected {
-  background: #eff6ff;
+  background: var(--bs-primary-bg-subtle);
 }
 .csv-field-sel__check {
   width: 1rem;
   flex-shrink: 0;
-  color: #2563eb;
+  color: var(--bs-primary);
   font-size: 0.875rem;
 }
 .csv-field-sel__option-text {
@@ -347,10 +333,10 @@ function selectSkip() {
 .csv-field-sel__type {
   flex-shrink: 0;
   font-size: 0.7rem;
-  color: #9ca3af;
+  color: var(--bs-secondary-color);
   font-family: monospace;
   padding: 0.125rem 0.375rem;
-  background: #f3f4f6;
+  background: var(--bs-tertiary-bg);
   border-radius: 3px;
 }
 </style>

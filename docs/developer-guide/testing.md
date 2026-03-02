@@ -6,12 +6,17 @@ The project maintains high code quality through a comprehensive test suite cover
 
 Most of the client's logic is covered by Vitest unit tests. These are located in `tests/unit/`.
 
-*   **Coverage**: The suite includes 514 tests.
+*   **Coverage**: The suite includes 612+ tests.
 *   **Key Test Areas**:
     *   `csvParser.test.ts`: Delimiter detection, streaming, and chunking.
     *   `stateMachine.test.ts`: Transitions between import states and error recovery.
     *   `smartMapping.test.ts`: Scoring logic for model and field suggestions.
     *   `batchExecutor.test.ts`: Parallel batch processing and worker coordination.
+    *   `errors.test.ts`: Error codes, severity mapping, category mapping, `classifyFetchError`, `isNetworkError`, `isNetworkErrorCode`.
+    *   `connectionMonitor.test.ts`: Health check polling, exponential backoff, status transitions, `waitForConnection`, abort signal handling, destroy cleanup.
+    *   `networkBatchError.test.ts`: `NetworkBatchError` class behavior, instanceof checks, rows preservation.
+    *   `indicesToRanges.test.ts`: Range compaction utility for processed row tracking.
+    *   `odooClient.test.ts`: Log lifecycle API functions (`createImportLog`, `updateImportLog`, `finalizeImportLog`, `getImportLog`), embedded mode guards.
 *   **Running Unit Tests**:
     ```bash
     npm test                # single run

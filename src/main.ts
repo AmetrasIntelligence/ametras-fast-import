@@ -4,6 +4,7 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 import App from './App.vue'
 import { i18n } from './i18n'
 import { installBrowserFallback } from './utils/browserFallback'
+import 'bootstrap/dist/css/bootstrap.min.css'
 import './assets/main.css'
 
 // Browser fallback for window.api when not running in Electron

@@ -116,12 +116,12 @@ function handleChange(event: Event) {
 .csv-transform-select {
   display: inline-block;
   padding: 0.1rem 0.3rem;
-  border-radius: 0.2rem;
+  border-radius: var(--bs-border-radius-sm);
   font-size: 0.6rem;
   font-family: ui-monospace, monospace;
   white-space: nowrap;
-  background: #f3f4f6;
-  color: #6b7280;
+  background: var(--bs-tertiary-bg);
+  color: var(--bs-secondary-color);
   border: 1px solid transparent;
   cursor: pointer;
   min-width: 3rem;
@@ -129,7 +129,7 @@ function handleChange(event: Event) {
 }
 
 .csv-transform-select:hover:not(:disabled) {
-  border-color: #d1d5db;
+  border-color: var(--bs-border-color);
 }
 
 .csv-transform-select:disabled {
@@ -138,22 +138,22 @@ function handleChange(event: Event) {
 }
 
 .csv-transform-select--m2o {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--bs-primary-bg-subtle);
+  color: var(--bs-primary-text-emphasis);
 }
 
 .csv-transform-select--m2m {
-  background: #e0e7ff;
-  color: #4338ca;
+  background: var(--bs-info-bg-subtle);
+  color: var(--bs-info-text-emphasis);
 }
 
 .csv-transform-select--dbid {
-  background: #fef3c7;
-  color: #b45309;
+  background: var(--bs-warning-bg-subtle);
+  color: var(--bs-warning-text-emphasis);
 }
 
 .csv-transform-select--dbid-warn {
-  background: #fee2e2;
-  color: #dc2626;
+  background: var(--bs-danger-bg-subtle);
+  color: var(--bs-danger);
 }
 </style>

@@ -169,17 +169,17 @@ function createViewRunConfig(profileId: number) {
 </script>
 
 <template>
-  <div class="csv-p-6 csv-space-y-4">
+  <div class="p-4 d-flex flex-column gap-3">
     <!-- Header -->
-    <div class="csv-flex csv-justify-between csv-items-center">
-      <h1 class="csv-text-2xl csv-font-semibold">{{ $t('profiles.title') }}</h1>
-      <div class="csv-flex csv-gap-2 csv-items-center">
-        <span
+    <div class="d-flex justify-content-between align-items-center">
+      <h1 class="fs-4 fw-semibold mb-0">{{ $t('profiles.title') }}</h1>
+      <div class="d-flex gap-2 align-items-center">
+        <small
           v-if="importError || localImportError"
-          class="csv-text-xs csv-text-red-600"
+          class="text-danger"
         >
           {{ importError || localImportError }}
-        </span>
+        </small>
         <!-- standalone code flag (do not remove comment) -->
         <!-- Server profile import (hidden in standalone mode) -->
         <Button
@@ -204,17 +204,17 @@ function createViewRunConfig(profileId: number) {
     </div>
 
     <!-- Loading state -->
-    <div v-if="profiles.loading" class="csv-text-center csv-py-8 csv-text-muted csv-text-sm">
+    <div v-if="profiles.loading" class="text-center py-5 text-body-secondary small">
       {{ $t('profiles.loading') }}
     </div>
 
     <!-- Empty state -->
-    <div v-else-if="profiles.profileList.length === 0" class="csv-text-center csv-py-8 csv-text-muted csv-text-sm">
+    <div v-else-if="profiles.profileList.length === 0" class="text-center py-5 text-body-secondary small">
       {{ $t('profiles.noProfiles') }}
     </div>
 
     <!-- Profile list -->
-    <div v-else class="csv-space-y-3">
+    <div v-else class="d-flex flex-column gap-3">
       <Card
         v-for="profile in profiles.profileList"
         :key="profile.id"
@@ -227,7 +227,7 @@ function createViewRunConfig(profileId: number) {
           @click="toggleProfileExpand(profile.id)"
         >
           <div class="csv-profile-card__info">
-            <div class="csv-font-medium csv-text-sm csv-flex csv-items-center csv-gap-2">
+            <div class="fw-medium small d-flex align-items-center gap-2">
               <span class="csv-profile-card__expand-icon">
                 {{ expandedProfileId === profile.id ? '▼' : '▶' }}
               </span>
@@ -235,39 +235,39 @@ function createViewRunConfig(profileId: number) {
               <!-- standalone code flag (do not remove comment) -->
               <span
                 v-if="profile.isStandalone && profile.id < 0"
-                class="csv-compat-badge csv-compat-badge--local"
+                class="badge rounded-pill csv-compat-badge--local"
               >
                 {{ $t('profiles.local') }}
               </span>
               <span
                 v-else-if="profile.isStandalone && profile.id > 0"
-                class="csv-compat-badge csv-compat-badge--server"
+                class="badge rounded-pill csv-compat-badge--server"
               >
                 {{ $t('profiles.server') }}
               </span>
               <span
                 v-if="!getCompatibility(profile).compatible"
-                class="csv-compat-badge csv-compat-badge--incompatible"
+                class="badge rounded-pill csv-compat-badge--incompatible"
                 :title="getCompatibility(profile).reason"
               >
                 {{ $t('profiles.incompatible') }}
               </span>
               <span
                 v-else-if="profile.odooMinVersion"
-                class="csv-compat-badge csv-compat-badge--compatible"
+                class="badge rounded-pill csv-compat-badge--compatible"
               >
                 v{{ profile.odooMinVersion }}+
               </span>
             </div>
-            <div v-if="profile.description" class="csv-text-xs csv-text-muted csv-ml-5">
+            <div v-if="profile.description" class="text-body-secondary ms-4" style="font-size: 0.75rem;">
               {{ profile.description }}
             </div>
-            <div class="csv-text-xs csv-text-muted csv-mt-1 csv-ml-5">
+            <div class="text-body-secondary mt-1 ms-4" style="font-size: 0.75rem;">
               v{{ profile.version }} &middot; {{ $t('profiles.updated') }}: {{ formatTimestamp(profile.updatedAt) }}
             </div>
           </div>
 
-          <div class="csv-flex csv-gap-1" @click.stop>
+          <div class="d-flex gap-1" @click.stop>
             <!-- standalone code flag (do not remove comment) -->
             <Button
               v-if="profile.isStandalone && profile.id < 0"
@@ -331,10 +331,6 @@ function createViewRunConfig(profileId: number) {
 </template>
 
 <style scoped>
-.csv-text-red-600 {
-  color: #dc2626;
-}
-
 .csv-profile-card {
   overflow: hidden;
 }
@@ -349,11 +345,11 @@ function createViewRunConfig(profileId: number) {
 }
 
 .csv-profile-card__header:hover {
-  background-color: #f9fafb;
+  background-color: var(--bs-tertiary-bg);
 }
 
 .csv-profile-card--expanded .csv-profile-card__header {
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--bs-border-color);
 }
 
 .csv-profile-card__info {
@@ -365,19 +361,19 @@ function createViewRunConfig(profileId: number) {
   display: inline-block;
   width: 1rem;
   font-size: 0.625rem;
-  color: #6b7280;
+  color: var(--bs-secondary-color);
 }
 
 .csv-profile-card__loading {
   padding: 1rem;
   text-align: center;
-  color: #6b7280;
+  color: var(--bs-secondary-color);
   font-size: 0.875rem;
 }
 
 .csv-profile-card__details {
   padding: 0;
-  background: #f9fafb;
+  background: var(--bs-tertiary-bg);
 }
 
 .csv-profile-card__details :deep(.csv-profile-editor) {
@@ -385,33 +381,32 @@ function createViewRunConfig(profileId: number) {
   border-radius: 0;
 }
 
-.csv-compat-badge {
-  display: inline-block;
-  padding: 0.125rem 0.375rem;
-  border-radius: 9999px;
+.csv-compat-badge--compatible {
+  background: var(--bs-success-bg-subtle);
+  color: var(--bs-success-text-emphasis);
   font-size: 0.625rem;
   font-weight: 500;
-  line-height: 1.25;
-}
-
-.csv-compat-badge--compatible {
-  background: #dcfce7;
-  color: #166534;
 }
 
 .csv-compat-badge--incompatible {
-  background: #fef2f2;
-  color: #991b1b;
+  background: var(--bs-danger-bg-subtle);
+  color: var(--bs-danger-text-emphasis);
+  font-size: 0.625rem;
+  font-weight: 500;
 }
 
 /* standalone code flag (do not remove comment) */
 .csv-compat-badge--local {
-  background: #e0e7ff;
-  color: #3730a3;
+  background: var(--bs-info-bg-subtle);
+  color: var(--bs-info-text-emphasis);
+  font-size: 0.625rem;
+  font-weight: 500;
 }
 
 .csv-compat-badge--server {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--bs-success-bg-subtle);
+  color: var(--bs-success-text-emphasis);
+  font-size: 0.625rem;
+  font-weight: 500;
 }
 </style>

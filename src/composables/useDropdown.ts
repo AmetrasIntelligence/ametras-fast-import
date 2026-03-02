@@ -89,17 +89,26 @@ export function useDropdown(options: DropdownOptions = {}) {
     }
   }
 
-  // Register/unregister click outside listener
+  // Close dropdown on scroll so it doesn't detach from the trigger.
+  // Use capture phase to catch scroll on any ancestor (including overflow containers).
+  function handleScroll() {
+    close()
+  }
+
+  // Register/unregister click outside and scroll listeners
   watch(isOpen, (open) => {
     if (open) {
       document.addEventListener('click', handleClickOutside, true)
+      document.addEventListener('scroll', handleScroll, true)
     } else {
       document.removeEventListener('click', handleClickOutside, true)
+      document.removeEventListener('scroll', handleScroll, true)
     }
   })
 
   onBeforeUnmount(() => {
     document.removeEventListener('click', handleClickOutside, true)
+    document.removeEventListener('scroll', handleScroll, true)
   })
 
   return {
