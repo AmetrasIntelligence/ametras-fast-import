@@ -1,22 +1,32 @@
 {
-    'name': 'CSV Import API',
+    'name': 'CSV Import',
     'version': '16.0.1.0.0',
     'category': 'Tools',
-    'summary': 'JSON-RPC endpoint for external CSV import tool with profile management',
+    'summary': 'CSV Import Tool with embedded Vue frontend',
     'description': '''
-        Provides JSON-RPC endpoints for the CSV Import Tool.
+        Provides JSON-RPC endpoints and an embedded Vue frontend for CSV importing.
         - Import endpoint: /ametras_fast_import/run
         - Profile management: upload, list, get, delete, export
+        - File operations via ir.attachment
         - Savepoint per row (one failure doesn't kill the batch)
         - External ID (xml_id) upsert support
         - ACL checks before import
     ''',
     'author': 'Ametras',
-    'depends': ['base'],
+    'depends': ['base', 'web'],
     'data': [
         'security/ir.model.access.csv',
+        'views/actions.xml',
+        'views/menu.xml',
     ],
+    'assets': {
+        'web.assets_backend': [
+            'ametras_fast_import_addon/static/vue/style.css',
+            'ametras_fast_import_addon/static/src/js/csv_import_action.js',
+            'ametras_fast_import_addon/static/src/xml/csv_import_action.xml',
+        ],
+    },
     'installable': True,
-    'application': False,
+    'application': True,
     'license': 'LGPL-3',
 }

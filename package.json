@@ -18,7 +18,8 @@
     "test:all": "npm run test:unit && npm run test:e2e",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "typecheck": "vue-tsc --noEmit"
+    "typecheck": "vue-tsc --noEmit",
+    "build:odoo": "vue-tsc && vite build --config vite.config.odoo.ts"
   },
   "keywords": [
     "odoo",

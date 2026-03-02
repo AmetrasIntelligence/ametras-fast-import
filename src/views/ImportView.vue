@@ -616,12 +616,17 @@ async function handleProfileSelect(id: number) {
     richFieldMappings.value = newRichMappings
     transformOverrides.value = newTransformOverrides
 
-    // Apply sequence (only for uploaded files)
+    // Apply sequence: use profile order for known files, append any
+    // uploaded files not in the profile so they don't get silently skipped.
     if (profile.sequence.length > 0) {
-      const filteredSequence = profile.sequence
+      const profileFilenames = profile.sequence
         .filter(s => uploadedFilenames.has(s.filename))
         .map(s => s.filename)
-      config.setSequence(filteredSequence)
+      const profileSet = new Set(profileFilenames)
+      const extraFiles = filesStore.files
+        .map(f => f.name)
+        .filter(name => !profileSet.has(name))
+      config.setSequence([...profileFilenames, ...extraFiles])
     }
 
     // Mark as freshly loaded (no unsaved changes yet)

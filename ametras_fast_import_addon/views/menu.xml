@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <menuitem id="menu_csv_import_root"
+              name="CSV Import"
+              web_icon="ametras_fast_import_addon,static/description/icon.png"
+              sequence="90"/>
+
+    <menuitem id="menu_csv_import_main"
+              name="Import"
+              parent="menu_csv_import_root"
+              action="action_csv_import_vue_app"
+              sequence="1"/>
+</odoo>

@@ -57,12 +57,14 @@ function logout() {
         </div>
         <div class="csv-nav__right">
           <LanguageSelector />
-          <span class="csv-text-xs csv-text-muted">
-            {{ session.currentServer?.baseUrl }}
-          </span>
-          <button type="button" class="csv-nav__logout" @click="logout">
-            {{ $t('nav.logout') }}
-          </button>
+          <template v-if="!session.isEmbedded">
+            <span class="csv-text-xs csv-text-muted">
+              {{ session.currentServer?.baseUrl }}
+            </span>
+            <button type="button" class="csv-nav__logout" @click="logout">
+              {{ $t('nav.logout') }}
+            </button>
+          </template>
         </div>
       </nav>
       <!-- Version compatibility warning -->
@@ -133,6 +135,11 @@ function logout() {
   line-height: 1.5;
   color: var(--csv-color-text);
   background: var(--csv-color-bg);
+}
+
+/* When embedded inside Odoo's container, don't force 100vh */
+.o_csv_import_vue_app #csv-import-app {
+  min-height: 100%;
 }
 
 .csv-nav {

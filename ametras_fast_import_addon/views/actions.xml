@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="action_csv_import_vue_app" model="ir.actions.client">
+        <field name="name">CSV Import</field>
+        <field name="tag">ametras_csv_import_vue_app</field>
+    </record>
+</odoo>

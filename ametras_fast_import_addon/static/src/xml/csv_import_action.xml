@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="ametras_fast_import_addon.CsvImportAction" owl="1">
+        <div class="o_csv_import_vue_app h-100 w-100 overflow-auto" t-ref="vue-container"/>
+    </t>
+</templates>

@@ -97,7 +97,10 @@ export class ImportEngine {
       if (this.abortController.signal.aborted) break
 
       const file = files.find(f => f.name === filename)
-      if (!file) continue
+      if (!file) {
+        logger.import.warn(`File "${filename}" is in import sequence but not in files list — skipping`)
+        continue
+      }
 
       // Create skip controller for this file
       this.skipFileController = new AbortController()

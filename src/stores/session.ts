@@ -30,7 +30,12 @@ export const useSessionStore = defineStore('session', () => {
 
   const isAuthenticated = computed(() => uid.value !== null)
   const isEmbedded = computed(() => mode.value === 'embedded')
-  const baseUrl = computed(() => currentServer.value?.baseUrl || null)
+  const baseUrl = computed((): string | null => {
+    if (currentServer.value == null) return null
+    // In embedded mode baseUrl is "" (same-origin); return "/" so
+    // callers that guard with `if (!session.baseUrl)` still pass.
+    return currentServer.value.baseUrl || '/'
+  })
 
   // Check if addon version is compatible with client
   const isAddonCompatible = computed(() => {
