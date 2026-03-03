@@ -35,7 +35,7 @@ function logout() {
             <router-link
               to="/import"
               class="nav-link"
-              :class="{ 'active fw-semibold': route.path === '/import' }"
+              :class="{ 'active fw-semibold': route?.path === '/import' }"
             >
               {{ $t('nav.import') }}
             </router-link>
@@ -44,7 +44,7 @@ function logout() {
             <router-link
               to="/profiles"
               class="nav-link"
-              :class="{ 'active fw-semibold': route.path === '/profiles' }"
+              :class="{ 'active fw-semibold': route?.path === '/profiles' }"
             >
               {{ $t('nav.profiles') }}
             </router-link>
@@ -54,7 +54,7 @@ function logout() {
               :to="run.isCompleted ? '/results' : '/run'"
               class="nav-link"
               :class="{
-                'active fw-semibold': route.path === '/run' || route.path === '/results',
+                'active fw-semibold': route?.path === '/run' || route?.path === '/results',
                 'text-success': run.isActive
               }"
             >
