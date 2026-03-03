@@ -474,6 +474,12 @@ export class ImportEngine {
   ): Promise<BatchResult[]> {
     const platform = usePlatformStore()
     while (true) {
+      // Check if file was skipped before retrying
+      if (this.skipFileController?.signal.aborted) {
+        return batch.rows.map(row => ({
+          ok: false, error: 'File skipped', rowIndex: row.index
+        }))
+      }
       try {
         const results = await platform.executeBatch(
           mapping.model,
@@ -513,11 +519,17 @@ export class ImportEngine {
           this.workerPool?.pause()
         }
 
-        // Block until server is reachable again (or abort)
+        // Block until server is reachable again (or abort/skip)
         try {
-          await this.connectionMonitor!.waitForConnection(this.abortController?.signal)
+          await this.connectionMonitor!.waitForConnection(this.fileOrRunSignal())
         } catch {
-          // Aborted during wait — break out, let normal abort flow handle it
+          // Aborted or file skipped during wait — restore state and return
+          if (wasRunning && this.stateMachine.state === ImportState.PAUSED) {
+            this.stateMachine.transition(ImportState.RUNNING_FILE)
+            run.setState(ImportState.RUNNING_FILE)
+            this.workerPool?.resume()
+          }
+          run.connectionStatus = 'online'
           return batch.rows.map(row => ({
             ok: false,
             error: 'Import aborted during reconnection wait',
@@ -629,6 +641,7 @@ export class ImportEngine {
     await this.delay(settings.retryDelayMs)
 
     if (this.abortController?.signal.aborted) return
+    if (this.skipFileController?.signal.aborted) return
 
     // Process retries in single batches (serialized, workers=1)
     // Wrapped with network error handling — same pattern as executeBatchWithMapping()
@@ -636,6 +649,8 @@ export class ImportEngine {
 
     let results: BatchResult[]
     while (true) {
+      // Check if file was skipped before retrying
+      if (this.skipFileController?.signal.aborted) return
       try {
         results = await platform.executeBatch(
           mapping.model,
@@ -672,9 +687,15 @@ export class ImportEngine {
         }
 
         try {
-          await this.connectionMonitor!.waitForConnection(this.abortController?.signal)
+          await this.connectionMonitor!.waitForConnection(this.fileOrRunSignal())
         } catch {
-          return // Aborted during wait
+          // Restore state from PAUSED if skip/abort cancelled the wait
+          if (wasRetrying && this.stateMachine.state === ImportState.PAUSED) {
+            this.stateMachine.transition(ImportState.RETRYING)
+            run.setState(ImportState.RETRYING)
+          }
+          run.connectionStatus = 'online'
+          return
         }
 
         // Reconnected — restore state and retry
@@ -1027,17 +1048,41 @@ export class ImportEngine {
     }
   }
 
+  /**
+   * Create a combined AbortSignal that fires when EITHER the run-level
+   * abortController OR the file-level skipFileController is triggered.
+   * This allows waitForConnection() to be cancelled by a file skip.
+   */
+  private fileOrRunSignal(): AbortSignal | undefined {
+    const run = this.abortController?.signal
+    const skip = this.skipFileController?.signal
+    if (!run && !skip) return undefined
+    if (!skip) return run
+    if (!run) return skip
+    if (run.aborted || skip.aborted) {
+      const c = new AbortController()
+      c.abort()
+      return c.signal
+    }
+    const combined = new AbortController()
+    const onAbort = () => combined.abort()
+    run.addEventListener('abort', onAbort, { once: true })
+    skip.addEventListener('abort', onAbort, { once: true })
+    return combined.signal
+  }
+
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => {
-      if (this.abortController?.signal.aborted) {
+      const signal = this.fileOrRunSignal()
+      if (signal?.aborted) {
         resolve()
         return
       }
 
       const timeout = setTimeout(resolve, ms)
 
-      // Clean up if aborted during delay
-      this.abortController?.signal.addEventListener('abort', () => {
+      // Clean up if aborted or file skipped during delay
+      signal?.addEventListener('abort', () => {
         clearTimeout(timeout)
         resolve()
       }, { once: true })
