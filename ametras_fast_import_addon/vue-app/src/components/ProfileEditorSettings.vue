@@ -1,0 +1,188 @@
+<script setup lang="ts">
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+import type { RunSettings } from '@/stores/config'
+import type { RunConfig } from '@/types/runConfig'
+
+const { t } = useI18n()
+
+const props = defineProps<{
+  effectiveRunSettings: RunSettings
+  runConfig: RunConfig
+}>()
+
+const emit = defineEmits<{
+  'update:setting': [key: string, value: unknown]
+}>()
+
+function isSettingOverridden(key: string): boolean {
+  return key in props.runConfig.runSettingsOverride
+}
+
+const delimiterOptions = computed(() => [
+  { value: ',', label: t('settings.delimiter_options.comma') },
+  { value: ';', label: t('settings.delimiter_options.semicolon') },
+  { value: '\t', label: t('settings.delimiter_options.tab') },
+  { value: '', label: t('settings.delimiter_options.auto') }
+])
+
+const encodingOptions = computed(() => [
+  { value: 'utf-8', label: t('settings.encoding_options.utf-8') },
+  { value: 'utf-8-sig', label: t('settings.encoding_options.utf-8-sig') },
+  { value: 'latin-1', label: t('settings.encoding_options.latin-1') },
+  { value: 'cp1252', label: t('settings.encoding_options.cp1252') }
+])
+
+function updateSetting(key: string, value: unknown) {
+  emit('update:setting', key, value)
+}
+</script>
+
+<template>
+  <div class="row row-cols-1 row-cols-sm-2 g-3">
+    <div>
+      <label class="form-label small text-body-secondary mb-1">
+        {{ $t('settings.batchSize') }}
+        <span v-if="isSettingOverridden('batchSize')" class="csv-override-indicator">*</span>
+      </label>
+      <input
+        :value="effectiveRunSettings.batchSize"
+        type="number"
+        min="1"
+        max="1000"
+        class="form-control form-control-sm"
+        @input="updateSetting('batchSize', parseInt(($event.target as HTMLInputElement).value) || 100)"
+      />
+    </div>
+    <div>
+      <label class="form-label small text-body-secondary mb-1">
+        {{ $t('settings.retryLimit') }}
+        <span v-if="isSettingOverridden('retryLimit')" class="csv-override-indicator">*</span>
+      </label>
+      <input
+        :value="effectiveRunSettings.retryLimit"
+        type="number"
+        min="0"
+        max="10"
+        class="form-control form-control-sm"
+        @input="updateSetting('retryLimit', parseInt(($event.target as HTMLInputElement).value) || 0)"
+      />
+    </div>
+    <div>
+      <label class="form-label small text-body-secondary mb-1">
+        {{ $t('settings.retryDelayMs') }}
+        <span v-if="isSettingOverridden('retryDelayMs')" class="csv-override-indicator">*</span>
+      </label>
+      <input
+        :value="effectiveRunSettings.retryDelayMs"
+        type="number"
+        min="100"
+        step="100"
+        class="form-control form-control-sm"
+        @input="updateSetting('retryDelayMs', parseInt(($event.target as HTMLInputElement).value) || 1000)"
+      />
+    </div>
+    <div class="d-flex align-items-center gap-2 pt-4">
+      <input
+        id="pe-stopOnError"
+        :checked="effectiveRunSettings.stopOnFatalError"
+        type="checkbox"
+        class="form-check-input"
+        @change="updateSetting('stopOnFatalError', ($event.target as HTMLInputElement).checked)"
+      />
+      <label for="pe-stopOnError" class="form-check-label small">
+        {{ $t('settings.stopOnFatalError') }}
+        <span v-if="isSettingOverridden('stopOnFatalError')" class="csv-override-indicator">*</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="row row-cols-1 row-cols-sm-2 g-3 mt-1">
+    <div>
+      <label class="form-label small text-body-secondary mb-1">
+        {{ $t('settings.encoding') }}
+        <span v-if="isSettingOverridden('encoding')" class="csv-override-indicator">*</span>
+      </label>
+      <select
+        :value="effectiveRunSettings.encoding"
+        class="form-select form-select-sm"
+        @change="updateSetting('encoding', ($event.target as HTMLSelectElement).value)"
+      >
+        <option
+          v-for="opt in encodingOptions"
+          :key="opt.value"
+          :value="opt.value"
+        >
+          {{ opt.label }}
+        </option>
+      </select>
+    </div>
+    <div>
+      <label class="form-label small text-body-secondary mb-1">
+        {{ $t('settings.delimiter') }}
+        <span v-if="isSettingOverridden('delimiter')" class="csv-override-indicator">*</span>
+      </label>
+      <select
+        :value="effectiveRunSettings.delimiter"
+        class="form-select form-select-sm"
+        @change="updateSetting('delimiter', ($event.target as HTMLSelectElement).value)"
+      >
+        <option
+          v-for="opt in delimiterOptions"
+          :key="opt.value"
+          :value="opt.value"
+        >
+          {{ opt.label }}
+        </option>
+      </select>
+    </div>
+    <div class="d-flex align-items-center gap-2 pt-4">
+      <input
+        id="pe-skipHeader"
+        :checked="effectiveRunSettings.skipHeader"
+        type="checkbox"
+        class="form-check-input"
+        @change="updateSetting('skipHeader', ($event.target as HTMLInputElement).checked)"
+      />
+      <label for="pe-skipHeader" class="form-check-label small">
+        {{ $t('settings.skipHeader') }}
+        <span v-if="isSettingOverridden('skipHeader')" class="csv-override-indicator">*</span>
+      </label>
+    </div>
+    <div class="d-flex align-items-center gap-2 pt-4">
+      <input
+        id="pe-dryRun"
+        :checked="effectiveRunSettings.dryRun"
+        type="checkbox"
+        class="form-check-input"
+        @change="updateSetting('dryRun', ($event.target as HTMLInputElement).checked)"
+      />
+      <label for="pe-dryRun" class="form-check-label small">
+        {{ $t('settings.dryRun') }}
+        <span v-if="isSettingOverridden('dryRun')" class="csv-override-indicator">*</span>
+      </label>
+    </div>
+  </div>
+  <div class="row row-cols-1 row-cols-sm-2 g-3 mt-1">
+    <div>
+      <label class="form-label small text-body-secondary mb-1">
+        {{ $t('settings.language') }}
+        <span v-if="isSettingOverridden('lang')" class="csv-override-indicator">*</span>
+      </label>
+      <input
+        :value="effectiveRunSettings.lang"
+        type="text"
+        class="form-control form-control-sm"
+        placeholder="e.g. de_DE"
+        @input="updateSetting('lang', ($event.target as HTMLInputElement).value)"
+      />
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.csv-override-indicator {
+  color: var(--bs-warning);
+  font-weight: bold;
+}
+</style>

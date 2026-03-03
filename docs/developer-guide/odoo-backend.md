@@ -36,7 +36,6 @@ Returns a list of all non-transient models that the current user has 'create' ac
 | `POST /ametras_fast_import/log/update` | JSON-RPC | user | Heartbeat + progress update. Updates `success_rows`, `failed_rows`, `file_progress`, and `heartbeat` timestamp. |
 | `POST /ametras_fast_import/log/finalize` | JSON-RPC | user | Set final `state`, `finished_at`, final counts, and `error_log`. |
 | `POST /ametras_fast_import/log/get` | JSON-RPC | user | Get full log details for resume, including `file_progress`, `attachment_ids`, and `error_log`. |
-| `POST /ametras_fast_import/log/save` | JSON-RPC | user | Legacy endpoint — saves a completed log in one call (backward compat). |
 | `POST /ametras_fast_import/log/list` | JSON-RPC | user | List recent import logs with pagination. |
 | `GET /ametras_fast_import/log/<id>/error_csv` | HTTP | user | Download the error log as a CSV file. |
 

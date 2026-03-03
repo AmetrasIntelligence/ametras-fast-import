@@ -40,15 +40,26 @@ class CsvImportVueApp extends Component {
                 }
                 const uid = this.env.services.user.userId;
                 const db = this.env.services.user.db;
-                const ctx = this.props.action && this.props.action.context || {};
-                const defaultView = ctx.default_view || 'import';
-                const resumeLogId = ctx.resume_log_id || null;
+                const action = this.props.action || {};
+                // Read routing data from params (preferred) with context fallback.
+                // Dynamic actions use params; stored XML actions use context.
+                const params = action.params || {};
+                const ctx = action.context || {};
+                const defaultView = params.default_view || ctx.default_view || 'import';
+                const resumeLogId = params.resume_log_id || ctx.resume_log_id || null;
+                const logId = params.log_id || ctx.log_id || null;
+                const profileId = params.profile_id || ctx.profile_id || null;
+                const inDialog = action.target === 'new' || false;
+                console.log("[CsvImportVueApp] mount", { defaultView, logId, profileId, resumeLogId, inDialog });
                 this._unmount = mod.mountApp(el, {
                     uid: uid,
                     baseUrl: "",
                     db: db,
                     defaultView: defaultView,
                     resumeLogId: resumeLogId,
+                    logId: logId,
+                    profileId: profileId,
+                    inDialog: inDialog,
                 });
             } catch (err) {
                 console.error("[CsvImportVueApp] Failed to mount Vue app:", err);

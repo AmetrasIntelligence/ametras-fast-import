@@ -5,21 +5,17 @@
               web_icon="ametras_fast_import_addon,static/description/icon.png"
               sequence="90"/>
 
+    <!-- Import (shows log tree = import history) -->
     <menuitem id="menu_csv_import_main"
               name="Import"
               parent="menu_csv_import_root"
-              action="action_csv_import_vue_app"
+              action="action_csv_import_logs"
               sequence="1"/>
 
+    <!-- Profiles (shows native Odoo tree) -->
     <menuitem id="menu_csv_import_profiles"
               name="Profiles"
               parent="menu_csv_import_root"
-              action="action_csv_import_profiles"
+              action="action_csv_import_profile_list"
               sequence="2"/>
-
-    <menuitem id="menu_csv_import_logs"
-              name="Logs"
-              parent="menu_csv_import_root"
-              action="action_csv_import_logs"
-              sequence="3"/>
 </odoo>

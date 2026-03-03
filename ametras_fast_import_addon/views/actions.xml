@@ -14,12 +14,20 @@
         <field name="context">{'default_view': 'profiles'}</field>
     </record>
 
-    <!-- Tree view for Logs -->
+    <!-- Dialog client action for "Start New Import" -->
+    <record id="action_csv_import_new_dialog" model="ir.actions.client">
+        <field name="name">Start Import</field>
+        <field name="tag">ametras_csv_import_vue_app</field>
+        <field name="target">new</field>
+        <field name="context">{'default_view': 'import', 'dialog_size': 'extra-large'}</field>
+    </record>
+
+    <!-- Tree view for Logs (landing page) -->
     <record id="view_csv_import_log_tree" model="ir.ui.view">
         <field name="name">csv.import.log.tree</field>
         <field name="model">csv.import.log</field>
         <field name="arch" type="xml">
-            <tree create="false">
+            <tree create="false" js_class="csv_import_log_list">
                 <field name="create_date" string="Date"/>
                 <field name="user_id"/>
                 <field name="profile_name"/>
@@ -101,8 +109,30 @@
 
     <!-- Window action for Logs (Odoo native list/form) -->
     <record id="action_csv_import_logs" model="ir.actions.act_window">
-        <field name="name">Logs</field>
+        <field name="name">Import</field>
         <field name="res_model">csv.import.log</field>
         <field name="view_mode">tree,form</field>
+    </record>
+
+    <!-- Tree view for Profiles -->
+    <record id="view_csv_import_profile_tree" model="ir.ui.view">
+        <field name="name">csv.import.profile.tree</field>
+        <field name="model">csv.import.profile</field>
+        <field name="arch" type="xml">
+            <tree create="false" js_class="csv_import_profile_list">
+                <field name="name"/>
+                <field name="version"/>
+                <field name="description"/>
+                <field name="odoo_min_version"/>
+                <field name="write_date" string="Updated"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- Window action for Profiles (Odoo native tree) -->
+    <record id="action_csv_import_profile_list" model="ir.actions.act_window">
+        <field name="name">Profiles</field>
+        <field name="res_model">csv.import.profile</field>
+        <field name="view_mode">tree</field>
     </record>
 </odoo>

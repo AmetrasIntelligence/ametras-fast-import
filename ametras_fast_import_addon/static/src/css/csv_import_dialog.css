@@ -1,0 +1,5 @@
+/* Ensure the Vue app content fits within the Odoo dialog modal body */
+.o_dialog .modal-dialog:has(.o_csv_import_vue_app) .modal-body {
+    max-height: 80vh;
+    overflow-y: auto;
+}

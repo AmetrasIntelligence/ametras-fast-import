@@ -2,13 +2,30 @@ name: Build
 
 on:
   push:
-    branches: [v1]
+    branches: ['16.0']
     tags: ['v*']
   pull_request:
-    branches: [v1]
+    branches: ['16.0']
 
 jobs:
-  lint-and-test:
+  test-vue-app:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ametras_fast_import_addon/vue-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ametras_fast_import_addon/vue-app/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:unit
+
+  test-client:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,13 +33,32 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npx vitest run
+          cache-dependency-path: |
+            ametras_fast_import_addon/vue-app/package-lock.json
+            ametras_fast_import_client/package-lock.json
+      - run: cd ametras_fast_import_addon/vue-app && npm ci
+      - run: cd ametras_fast_import_client && npm ci
+      - run: cd ametras_fast_import_client && npm run lint
+      - run: cd ametras_fast_import_client && npm run typecheck
 
-  build:
-    needs: lint-and-test
+  build-addon:
+    needs: test-vue-app
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ametras_fast_import_addon/vue-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ametras_fast_import_addon/vue-app/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  build-client:
+    needs: [test-vue-app, test-client]
     strategy:
       matrix:
         include:
@@ -39,14 +75,18 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
-      - run: npm run build
-      - run: npx electron-builder --${{ matrix.platform }} --publish never
+          cache-dependency-path: |
+            ametras_fast_import_addon/vue-app/package-lock.json
+            ametras_fast_import_client/package-lock.json
+      - run: cd ametras_fast_import_addon/vue-app && npm ci
+      - run: cd ametras_fast_import_client && npm ci
+      - run: cd ametras_fast_import_client && npm run build
+      - run: cd ametras_fast_import_client && npx electron-builder --${{ matrix.platform }} --publish never
       - uses: actions/upload-artifact@v4
         with:
-          name: csv-import-${{ matrix.platform }}
+          name: ametras-fast-import-${{ matrix.platform }}
           path: |
-            release/*.dmg
-            release/*.exe
-            release/*.AppImage
+            ametras_fast_import_client/release/*.dmg
+            ametras_fast_import_client/release/*.exe
+            ametras_fast_import_client/release/*.AppImage
           if-no-files-found: ignore

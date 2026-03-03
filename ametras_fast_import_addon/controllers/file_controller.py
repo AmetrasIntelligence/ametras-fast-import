@@ -98,15 +98,21 @@ class FileController(http.Controller):
         '/ametras_fast_import/file/count_lines',
         type='json', auth='user', methods=['POST'],
     )
-    def count_lines(self, file_id, encoding='utf-8', **kwargs):
-        """Count newlines in an attachment."""
+    def count_lines(self, file_id, **kwargs):
+        """Count newline bytes in an attachment.
+
+        Counts raw 0x0A bytes without decoding to text — faster and
+        uses less memory than a full text decode.
+
+        Note: approximate for CSV files with quoted multi-line fields,
+        where embedded newlines inflate the count.
+        """
         attachment = request.env['ir.attachment'].browse(int(file_id))
         if not attachment.exists():
             return {'error': 'Attachment not found'}
 
         raw = base64.b64decode(attachment.datas)
-        text = self._decode(raw, encoding)
-        return {'count': text.count('\n')}
+        return {'count': raw.count(b'\n')}
 
     # ------------------------------------------------------------------
     # Streaming: start / next / close

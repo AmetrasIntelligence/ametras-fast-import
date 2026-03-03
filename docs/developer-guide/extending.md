@@ -1,22 +1,28 @@
 # Extending the Tool
 
-This guide explains how to add new features or customizations to the CSV Import Tool.
+This guide explains how to add new features or customizations to the Ametras Fast Import tool.
+
+## Project Structure
+
+All shared Vue source lives in `ametras_fast_import_addon/vue-app/src/`. The Electron client at `ametras_fast_import_client/` shares this source via a path alias (`@` -> `../ametras_fast_import_addon/vue-app/src/`).
+
+When adding new shared features, add them to `vue-app/src/`. Client-only features go in `ametras_fast_import_client/src/`.
 
 ## Shared Utilities
 
 The following utilities are available for reuse across the codebase:
 
-### Row Transformation (`src/utils/rowTransform.ts`)
+### Row Transformation (`vue-app/src/utils/rowTransform.ts`)
 
 `transformRowData()` applies field mappings, ID columns, and relational reference transforms to a single row. Used by both the addon-mode batch executor and standalone executor.
 
-### File Downloads (`src/utils/download.ts`)
+### File Downloads (`vue-app/src/utils/download.ts`)
 
-*   `downloadFile(content, filename, mimeType)` — trigger a browser file download with arbitrary content.
-*   `downloadCSV(content, filename)` — download content as a `.csv` file.
-*   `downloadJSON(data, filename)` — serialize an object to JSON and download it.
+*   `downloadFile(content, filename, mimeType)` -- trigger a browser file download with arbitrary content.
+*   `downloadCSV(content, filename)` -- download content as a `.csv` file.
+*   `downloadJSON(data, filename)` -- serialize an object to JSON and download it.
 
-### CSV Parse Config (`src/importer/csvParser.ts`)
+### CSV Parse Config (`vue-app/src/importer/csvParser.ts`)
 
 `buildParseConfig()` constructs a PapaParse config object from the current settings (delimiter, encoding, etc.).
 
@@ -24,19 +30,19 @@ The following utilities are available for reuse across the codebase:
 
 Field transforms are used to modify data before it's sent to Odoo.
 
-1.  **Define the Type**: Add the new transform type to `src/types/fieldMapping.ts`.
+1.  **Define the Type**: Add the new transform type to `vue-app/src/types/fieldMapping.ts`.
     ```typescript
     export type FieldTransform =
       | { type: 'passthrough' }
       // ...
       | { type: 'my_new_transform'; parameter: string }
     ```
-2.  **Add Frontend Logic**: Update the transform handling in `src/utils/rowTransform.ts` (the shared `transformRowData` function).
-3.  **Update the UI**: Modify the field mapping UI in `src/views/ImportView.vue` to allow users to select the new transform and provide any necessary parameters.
+2.  **Add Frontend Logic**: Update the transform handling in `vue-app/src/utils/rowTransform.ts` (the shared `transformRowData` function).
+3.  **Update the UI**: Modify the field mapping UI in `vue-app/src/views/ImportView.vue` to allow users to select the new transform and provide any necessary parameters.
 
 ## Adding Smart Model Suggestions
 
-The tool suggests Odoo models based on filenames in `src/utils/smartMapping.ts`.
+The tool suggests Odoo models based on filenames in `vue-app/src/utils/smartMapping.ts`.
 
 1.  **Update the Alias Map**: Add common filename patterns to the `MODEL_ALIASES` constant.
     ```typescript
@@ -50,7 +56,7 @@ The tool suggests Odoo models based on filenames in `src/utils/smartMapping.ts`.
 
 ## Adding Smart Field Suggestions
 
-Field suggestions are managed in `src/utils/smartFieldMapping.ts`.
+Field suggestions are managed in `vue-app/src/utils/smartFieldMapping.ts`.
 
 1.  **Add Language Aliases**: The tool supports aliases for different languages. Add new terms to the `FIELD_ALIASES` map.
     ```typescript
@@ -59,13 +65,6 @@ Field suggestions are managed in `src/utils/smartFieldMapping.ts`.
       'my_field': ['alias1', 'alias2']
     };
     ```
-
-## Removed Files
-
-The following files were removed during refactoring and their functionality has been consolidated:
-
-*   `src/components/FileMappingRow.vue` — file mapping rows are now inline in `ImportView.vue`.
-*   `src/composables/useImportValidation.ts` — validation logic is now in `src/importer/fieldMappingValidator.ts`.
 
 ## Extending the Odoo Backend
 

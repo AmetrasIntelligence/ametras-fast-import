@@ -47,6 +47,21 @@ class CsvImportProfile(models.Model):
             except (ValueError, IndexError):
                 pass  # Non-numeric version, skip check
 
+    def action_open_editor(self):
+        """Open the profile viewer (Vue) in a dialog."""
+        self.ensure_one()
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'ametras_csv_import_vue_app',
+            'name': self.name,
+            'target': 'new',
+            'params': {
+                'default_view': 'profile_detail',
+                'profile_id': self.id,
+            },
+            'context': {'dialog_size': 'extra-large'},
+        }
+
     def _to_dict(self, full=False):
         """Serialize record to dict for JSON-RPC responses."""
         self.ensure_one()

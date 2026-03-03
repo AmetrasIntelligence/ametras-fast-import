@@ -64,6 +64,39 @@ class CsvImportLog(models.Model):
         for rec in self:
             rec.pending_rows = max(0, rec.total_rows - rec.success_rows - rec.failed_rows)
 
+    @api.model
+    def action_start_new_import(self):
+        """Open the import wizard in a dialog."""
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'ametras_csv_import_vue_app',
+            'name': 'CSV Import',
+            'target': 'new',
+            'params': {'default_view': 'import'},
+            'context': {'dialog_size': 'extra-large'},
+        }
+
+    def action_open_log(self):
+        """Open the appropriate Vue view based on log state."""
+        self.ensure_one()
+        params = {}
+        if self.state == 'running':
+            params.update(default_view='run', resume_log_id=self.id)
+        elif self.state in ('completed', 'failed'):
+            params.update(default_view='results', log_id=self.id)
+        elif self.state == 'interrupted':
+            params.update(default_view='import', resume_log_id=self.id)
+        else:
+            params['default_view'] = 'import'
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'ametras_csv_import_vue_app',
+            'name': 'Import',
+            'target': 'new',
+            'params': params,
+            'context': {'dialog_size': 'extra-large'},
+        }
+
     def action_retry_failed(self):
         """Open the Import client action for retrying failed rows."""
         self.ensure_one()
@@ -71,7 +104,7 @@ class CsvImportLog(models.Model):
             'type': 'ir.actions.client',
             'tag': 'ametras_csv_import_vue_app',
             'name': 'Retry Import',
-            'context': {
+            'params': {
                 'default_view': 'import',
                 'retry_log_id': self.id,
             },
@@ -84,7 +117,7 @@ class CsvImportLog(models.Model):
             'type': 'ir.actions.client',
             'tag': 'ametras_csv_import_vue_app',
             'name': 'Resume Import',
-            'context': {
+            'params': {
                 'default_view': 'import',
                 'resume_log_id': self.id,
             },

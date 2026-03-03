@@ -1,0 +1,97 @@
+/**
+ * Shared CSS for searchable dropdown overlays (teleported to body).
+ * Used by ModelSelect, FieldSelect, and ProfileSelect.
+ *
+ * Components keep their own scoped trigger styles and any unique elements.
+ * This file covers the dropdown panel, search, results list, options, and checks.
+ */
+
+/* Dropdown panel (fixed-position overlay) */
+.csv-dropdown {
+  position: fixed;
+  z-index: 1060;  /* above Odoo modal (1055) */
+  max-width: calc(100vw - 2rem);
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius);
+  background: var(--bs-body-bg);
+  box-shadow: var(--bs-box-shadow-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Search input area */
+.csv-dropdown__search {
+  flex-shrink: 0;
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--bs-border-color);
+}
+
+/* Scrollable results list */
+.csv-dropdown__results {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* Empty state */
+.csv-dropdown__empty {
+  padding: 1rem;
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--bs-secondary-color);
+}
+
+/* Option row */
+.csv-dropdown__option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-size: 0.875rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+.csv-dropdown__option:hover {
+  background: var(--bs-tertiary-bg);
+}
+.csv-dropdown__option:focus-visible {
+  outline: 2px solid var(--bs-primary);
+  outline-offset: -2px;
+  background: var(--bs-tertiary-bg);
+}
+.csv-dropdown__option--selected {
+  background: var(--bs-primary-bg-subtle);
+}
+
+/* Checkmark column */
+.csv-dropdown__check {
+  width: 1rem;
+  flex-shrink: 0;
+  color: var(--bs-primary);
+  font-size: 0.875rem;
+}
+
+/* Option text container */
+.csv-dropdown__option-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.csv-dropdown__option-text > div {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Technical name (monospace) */
+.csv-dropdown__tech {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: var(--bs-secondary-color);
+  margin-right: 0.25rem;
+}

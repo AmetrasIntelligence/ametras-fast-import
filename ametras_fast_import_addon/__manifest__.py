@@ -23,7 +23,10 @@
     'assets': {
         'web.assets_backend': [
             'ametras_fast_import_addon/static/vue/style.css',
+            'ametras_fast_import_addon/static/src/css/csv_import_dialog.css',
             'ametras_fast_import_addon/static/src/js/csv_import_action.js',
+            'ametras_fast_import_addon/static/src/js/csv_import_log_list.js',
+            'ametras_fast_import_addon/static/src/js/csv_import_profile_list.js',
             'ametras_fast_import_addon/static/src/xml/csv_import_action.xml',
         ],
     },

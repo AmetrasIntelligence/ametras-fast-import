@@ -1,0 +1,73 @@
+{
+  "name": "ametras-fast-import-client",
+  "version": "1.0.0",
+  "description": "Electron client for Ametras Fast Import",
+  "main": "dist-electron/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:electron": "vite --mode electron",
+    "build": "vue-tsc --noEmit && vite build && vite build --mode electron",
+    "electron:build": "npm run build && electron-builder",
+    "typecheck": "vue-tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "license": "LGPL-3.0",
+  "dependencies": {
+    "bootstrap": "^5.3.3",
+    "jszip": "^3.10.1",
+    "papaparse": "^5.5.2",
+    "pinia": "^3.0.2",
+    "vue": "^3.5.15",
+    "vue-i18n": "^11.2.8",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@intlify/unplugin-vue-i18n": "^11.0.3",
+    "@playwright/test": "^1.58.1",
+    "@types/node": "^22.14.1",
+    "@types/papaparse": "^5.3.15",
+    "@vitejs/plugin-vue": "^5.2.4",
+    "concurrently": "^9.2.1",
+    "electron": "^35.2.0",
+    "electron-builder": "^26.0.12",
+    "eslint": "^10.0.2",
+    "eslint-plugin-vue": "^10.8.0",
+    "globals": "^17.3.0",
+    "happy-dom": "^20.5.0",
+    "playwright": "^1.58.1",
+    "typescript": "~5.8.3",
+    "typescript-eslint": "^8.56.1",
+    "vite": "^6.3.5",
+    "vite-plugin-electron": "^0.29.0",
+    "vite-plugin-electron-renderer": "^0.14.6",
+    "vue-tsc": "^2.2.8"
+  },
+  "overrides": {
+    "vue-i18n": "^11.2.8"
+  },
+  "build": {
+    "appId": "com.ametras.fast-import",
+    "productName": "Ametras Fast Import",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
+    "mac": {
+      "target": "dmg"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}

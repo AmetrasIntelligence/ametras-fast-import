@@ -3,4 +3,12 @@
     <t t-name="ametras_fast_import_addon.CsvImportAction" owl="1">
         <div class="o_csv_import_vue_app h-100 w-100 overflow-auto" t-ref="vue-container"/>
     </t>
+
+    <t t-name="ametras_fast_import_addon.CsvImportLogListButtons" owl="1">
+        <div class="o_list_buttons d-flex">
+            <button type="button" class="btn btn-primary" t-on-click="() => this.onStartNewImport()">
+                Start New Import
+            </button>
+        </div>
+    </t>
 </templates>
