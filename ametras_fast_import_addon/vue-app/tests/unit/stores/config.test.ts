@@ -53,7 +53,7 @@ describe('ConfigStore', () => {
   })
 
   describe('initial state', () => {
-    it('has default run settings', () => {
+    it('has correct defaults', () => {
       const store = useConfigStore()
 
       expect(store.settings.batchSize).toBe(200)
@@ -65,60 +65,27 @@ describe('ConfigStore', () => {
       expect(store.settings.skipHeader).toBe(true)
       expect(store.settings.dryRun).toBe(false)
       expect(store.settings.lang).toBe('de_DE')
-    })
-
-    it('has empty file mappings', () => {
-      const store = useConfigStore()
       expect(Object.keys(store.fileMappings).length).toBe(0)
-    })
-
-    it('has empty import sequence', () => {
-      const store = useConfigStore()
       expect(store.importSequence).toEqual([])
     })
   })
 
   describe('setSettings', () => {
-    it('updates batch size', () => {
+    it('updates individual settings', () => {
       const store = useConfigStore()
-      store.setSettings({ batchSize: 50 })
-      expect(store.settings.batchSize).toBe(50)
-    })
-
-    it('updates retry limit', () => {
-      const store = useConfigStore()
-      store.setSettings({ retryLimit: 5 })
-      expect(store.settings.retryLimit).toBe(5)
-    })
-
-    it('updates encoding', () => {
-      const store = useConfigStore()
-      store.setSettings({ encoding: 'latin-1' })
-      expect(store.settings.encoding).toBe('latin-1')
-    })
-
-    it('updates delimiter', () => {
-      const store = useConfigStore()
-      store.setSettings({ delimiter: ';' })
-      expect(store.settings.delimiter).toBe(';')
-    })
-
-    it('updates skipHeader', () => {
-      const store = useConfigStore()
-      store.setSettings({ skipHeader: false })
-      expect(store.settings.skipHeader).toBe(false)
-    })
-
-    it('updates dryRun', () => {
-      const store = useConfigStore()
-      store.setSettings({ dryRun: true })
-      expect(store.settings.dryRun).toBe(true)
-    })
-
-    it('updates lang', () => {
-      const store = useConfigStore()
-      store.setSettings({ lang: 'en_US' })
-      expect(store.settings.lang).toBe('en_US')
+      const cases: [Partial<RunSettings>, keyof RunSettings, unknown][] = [
+        [{ batchSize: 50 }, 'batchSize', 50],
+        [{ retryLimit: 5 }, 'retryLimit', 5],
+        [{ encoding: 'latin-1' }, 'encoding', 'latin-1'],
+        [{ delimiter: ';' }, 'delimiter', ';'],
+        [{ skipHeader: false }, 'skipHeader', false],
+        [{ dryRun: true }, 'dryRun', true],
+        [{ lang: 'en_US' }, 'lang', 'en_US'],
+      ]
+      for (const [update, key, expected] of cases) {
+        store.setSettings(update)
+        expect(store.settings[key]).toBe(expected)
+      }
     })
 
     it('updates multiple settings at once', () => {
@@ -137,15 +104,13 @@ describe('ConfigStore', () => {
     it('preserves unspecified settings', () => {
       const store = useConfigStore()
       const originalRetryDelay = store.settings.retryDelayMs
-
       store.setSettings({ batchSize: 200 })
-
       expect(store.settings.retryDelayMs).toBe(originalRetryDelay)
     })
   })
 
   describe('file mappings', () => {
-    it('sets file mapping', () => {
+    it('sets, gets, updates, and handles unknown files', () => {
       const store = useConfigStore()
 
       store.setFileMapping('partners.csv', {
@@ -154,12 +119,7 @@ describe('ConfigStore', () => {
         idColumn: 'id',
         fieldMappings: { name: 'name', email: 'email' }
       })
-
       expect('partners.csv' in store.fileMappings).toBe(true)
-    })
-
-    it('gets file mapping', () => {
-      const store = useConfigStore()
 
       const mapping = {
         filename: 'partners.csv',
@@ -167,26 +127,10 @@ describe('ConfigStore', () => {
         idColumn: 'id' as const,
         fieldMappings: { name: 'name' }
       }
-
       store.setFileMapping('partners.csv', mapping)
-
       expect(store.getFileMapping('partners.csv')).toEqual(mapping)
-    })
 
-    it('returns undefined for unknown file', () => {
-      const store = useConfigStore()
       expect(store.getFileMapping('unknown.csv')).toBeUndefined()
-    })
-
-    it('updates existing mapping', () => {
-      const store = useConfigStore()
-
-      store.setFileMapping('partners.csv', {
-        filename: 'partners.csv',
-        model: 'res.partner',
-        idColumn: 'id',
-        fieldMappings: { name: 'name' }
-      })
 
       store.setFileMapping('partners.csv', {
         filename: 'partners.csv',
@@ -194,10 +138,9 @@ describe('ConfigStore', () => {
         idColumn: '.id',
         fieldMappings: { name: 'display_name' }
       })
-
-      const mapping = store.getFileMapping('partners.csv')
-      expect(mapping?.idColumn).toBe('.id')
-      expect(mapping?.fieldMappings.name).toBe('display_name')
+      const updated = store.getFileMapping('partners.csv')
+      expect(updated?.idColumn).toBe('.id')
+      expect(updated?.fieldMappings.name).toBe('display_name')
     })
   })
 
@@ -208,48 +151,25 @@ describe('ConfigStore', () => {
       expect(store.importSequence).toEqual(['file1.csv', 'file2.csv', 'file3.csv'])
     })
 
-    it('moves file up in sequence', () => {
-      const store = useConfigStore()
-      store.setSequence(['file1.csv', 'file2.csv', 'file3.csv'])
-
-      store.moveInSequence('file2.csv', 'up')
-
-      expect(store.importSequence).toEqual(['file2.csv', 'file1.csv', 'file3.csv'])
-    })
-
-    it('moves file down in sequence', () => {
-      const store = useConfigStore()
-      store.setSequence(['file1.csv', 'file2.csv', 'file3.csv'])
-
-      store.moveInSequence('file2.csv', 'down')
-
-      expect(store.importSequence).toEqual(['file1.csv', 'file3.csv', 'file2.csv'])
-    })
-
-    it('does not move first file up', () => {
-      const store = useConfigStore()
-      store.setSequence(['file1.csv', 'file2.csv'])
-
-      store.moveInSequence('file1.csv', 'up')
-
-      expect(store.importSequence).toEqual(['file1.csv', 'file2.csv'])
-    })
-
-    it('does not move last file down', () => {
-      const store = useConfigStore()
-      store.setSequence(['file1.csv', 'file2.csv'])
-
-      store.moveInSequence('file2.csv', 'down')
-
-      expect(store.importSequence).toEqual(['file1.csv', 'file2.csv'])
+    it('moves files in sequence', () => {
+      const cases: [string, 'up' | 'down', string[]][] = [
+        ['file2.csv', 'up', ['file2.csv', 'file1.csv', 'file3.csv']],
+        ['file2.csv', 'down', ['file1.csv', 'file3.csv', 'file2.csv']],
+        ['file1.csv', 'up', ['file1.csv', 'file2.csv', 'file3.csv']],
+        ['file3.csv', 'down', ['file1.csv', 'file2.csv', 'file3.csv']],
+      ]
+      for (const [file, direction, expected] of cases) {
+        const store = useConfigStore()
+        store.setSequence(['file1.csv', 'file2.csv', 'file3.csv'])
+        store.moveInSequence(file, direction)
+        expect(store.importSequence).toEqual(expected)
+      }
     })
 
     it('ignores unknown file', () => {
       const store = useConfigStore()
       store.setSequence(['file1.csv', 'file2.csv'])
-
       store.moveInSequence('unknown.csv', 'up')
-
       expect(store.importSequence).toEqual(['file1.csv', 'file2.csv'])
     })
   })
@@ -323,10 +243,7 @@ lang,en_US`
     it('handles partial settings import', () => {
       const store = useConfigStore()
 
-      const csv = `key,value
-batchSize,50`
-
-      importSettingsCSV(csv)
+      importSettingsCSV(`key,value\nbatchSize,50`)
 
       expect(store.settings.batchSize).toBe(50)
       expect(store.settings.retryLimit).toBe(3) // unchanged default
@@ -334,37 +251,25 @@ batchSize,50`
   })
 
   describe('different configurations', () => {
-    it('applies small batch configuration', () => {
+    it('applies all configuration presets', () => {
       const store = useConfigStore()
-      store.setSettings(mockRunSettings.small)
 
+      store.setSettings(mockRunSettings.small)
       expect(store.settings.batchSize).toBe(10)
       expect(store.settings.stopOnFatalError).toBe(true)
-    })
 
-    it('applies large batch configuration', () => {
-      const store = useConfigStore()
       store.setSettings(mockRunSettings.large)
-
       expect(store.settings.batchSize).toBe(500)
       expect(store.settings.retryLimit).toBe(5)
-    })
 
-    it('applies no-retry configuration', () => {
-      const store = useConfigStore()
       store.setSettings(mockRunSettings.noRetry)
-
       expect(store.settings.retryLimit).toBe(0)
       expect(store.settings.retryDelayMs).toBe(0)
       expect(store.settings.encoding).toBe('latin-1')
       expect(store.settings.delimiter).toBe('\t')
       expect(store.settings.skipHeader).toBe(false)
-    })
 
-    it('applies dry run configuration', () => {
-      const store = useConfigStore()
       store.setSettings(mockRunSettings.dryRun)
-
       expect(store.settings.dryRun).toBe(true)
       expect(store.settings.batchSize).toBe(200)
     })

@@ -12,7 +12,6 @@ describe('SavedMappingsStore', () => {
   })
 
   function loginFirst() {
-    // Set up authenticated session so baseUrl is available
     const session = useSessionStore()
     session.setAuthenticated(
       mockServerProfiles[0],
@@ -29,36 +28,22 @@ describe('SavedMappingsStore', () => {
   })
 
   describe('addMapping', () => {
-    it('adds a new mapping', async () => {
+    it('adds, updates, and persists mappings', async () => {
       await loginFirst()
       const store = useSavedMappingsStore()
 
       const mapping = await store.addMapping('partners.csv', 'res.partner')
-
       expect(mapping.filenamePattern).toBe('partners.csv')
       expect(mapping.model).toBe('res.partner')
       expect(mapping.id).toBeDefined()
       expect(store.mappings).toHaveLength(1)
-    })
 
-    it('updates existing mapping with same pattern', async () => {
-      await loginFirst()
-      const store = useSavedMappingsStore()
-
-      await store.addMapping('partners.csv', 'res.partner')
       await store.addMapping('partners.csv', 'res.users')
-
       expect(store.mappings).toHaveLength(1)
       expect(store.mappings[0].model).toBe('res.users')
-    })
 
-    it('persists to store', async () => {
-      await loginFirst()
-      const store = useSavedMappingsStore()
       vi.clearAllMocks()
-
-      await store.addMapping('partners.csv', 'res.partner')
-
+      await store.addMapping('products.csv', 'product.template')
       expect(mockApi.store.set).toHaveBeenCalled()
     })
   })
@@ -76,36 +61,16 @@ describe('SavedMappingsStore', () => {
   })
 
   describe('findSuggestion', () => {
-    it('finds exact match', async () => {
+    it('finds exact, glob, and no match', async () => {
       await loginFirst()
       const store = useSavedMappingsStore()
 
       await store.addMapping('partners.csv', 'res.partner')
+      expect(store.findSuggestion('partners.csv')!.model).toBe('res.partner')
+      expect(store.findSuggestion('products.csv')).toBeNull()
 
-      const suggestion = store.findSuggestion('partners.csv')
-      expect(suggestion).not.toBeNull()
-      expect(suggestion!.model).toBe('res.partner')
-    })
-
-    it('finds glob match', async () => {
-      await loginFirst()
-      const store = useSavedMappingsStore()
-
-      await store.addMapping('*_partners.csv', 'res.partner')
-
-      const suggestion = store.findSuggestion('2024_partners.csv')
-      expect(suggestion).not.toBeNull()
-      expect(suggestion!.model).toBe('res.partner')
-    })
-
-    it('returns null for no match', async () => {
-      await loginFirst()
-      const store = useSavedMappingsStore()
-
-      await store.addMapping('partners.csv', 'res.partner')
-
-      const suggestion = store.findSuggestion('products.csv')
-      expect(suggestion).toBeNull()
+      await store.addMapping('*_data.csv', 'product.template')
+      expect(store.findSuggestion('2024_data.csv')!.model).toBe('product.template')
     })
 
     it('prefers exact match over glob', async () => {
@@ -115,8 +80,7 @@ describe('SavedMappingsStore', () => {
       await store.addMapping('*.csv', 'product.template')
       await store.addMapping('partners.csv', 'res.partner')
 
-      const suggestion = store.findSuggestion('partners.csv')
-      expect(suggestion!.model).toBe('res.partner')
+      expect(store.findSuggestion('partners.csv')!.model).toBe('res.partner')
     })
   })
 
@@ -128,9 +92,7 @@ describe('SavedMappingsStore', () => {
       const mapping = await store.addMapping('partners.csv', 'res.partner')
       const originalTimestamp = mapping.lastUsedAt
 
-      // Wait a tick
       await new Promise(r => setTimeout(r, 10))
-
       await store.markUsed(mapping.id)
 
       expect(store.mappings[0].lastUsedAt).toBeGreaterThanOrEqual(originalTimestamp)
@@ -138,7 +100,7 @@ describe('SavedMappingsStore', () => {
   })
 
   describe('load', () => {
-    it('loads from per-server storage key', async () => {
+    it('loads from per-server storage key when connected', async () => {
       await loginFirst()
       const session = useSessionStore()
 
@@ -157,7 +119,6 @@ describe('SavedMappingsStore', () => {
     it('does nothing when not connected', async () => {
       const store = useSavedMappingsStore()
       await store.load()
-
       expect(store.mappings).toEqual([])
     })
   })

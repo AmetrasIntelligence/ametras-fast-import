@@ -6,49 +6,35 @@ describe('useDialog', () => {
 
   beforeEach(() => {
     dialog = useDialogState()
-    // Ensure dialog is closed before each test
     if (dialog.state.value.open) {
       dialog.cancel()
     }
   })
 
   describe('initial state', () => {
-    it('starts closed', () => {
+    it('starts closed with defaults', () => {
       expect(dialog.state.value.open).toBe(false)
-    })
-
-    it('defaults to alert type', () => {
       expect(dialog.state.value.type).toBe('alert')
-    })
-
-    it('has empty message', () => {
       expect(dialog.state.value.message).toBe('')
     })
   })
 
   describe('showAlert', () => {
-    it('opens dialog with alert type', () => {
+    it('opens dialog and resolves on confirm/cancel', async () => {
       showAlert('Something happened')
       expect(dialog.state.value.open).toBe(true)
       expect(dialog.state.value.type).toBe('alert')
       expect(dialog.state.value.message).toBe('Something happened')
-    })
+      dialog.cancel() // close to proceed
 
-    it('resolves with undefined on confirm', async () => {
-      const promise = showAlert('Test alert')
+      const p1 = showAlert('Test alert')
       dialog.confirm()
-      const result = await promise
-      expect(result).toBeUndefined()
-    })
+      expect(await p1).toBeUndefined()
 
-    it('resolves with undefined on cancel', async () => {
-      const promise = showAlert('Test alert')
+      const p2 = showAlert('Test alert')
       dialog.cancel()
-      const result = await promise
-      expect(result).toBeUndefined()
-    })
+      expect(await p2).toBeUndefined()
 
-    it('closes dialog on confirm', () => {
       showAlert('Test')
       dialog.confirm()
       expect(dialog.state.value.open).toBe(false)
@@ -56,32 +42,27 @@ describe('useDialog', () => {
   })
 
   describe('showConfirm', () => {
-    it('opens dialog with confirm type', () => {
+    it('resolves true on confirm, false on cancel', async () => {
       showConfirm('Are you sure?')
       expect(dialog.state.value.open).toBe(true)
       expect(dialog.state.value.type).toBe('confirm')
       expect(dialog.state.value.message).toBe('Are you sure?')
-    })
-
-    it('resolves with true on confirm', async () => {
-      const promise = showConfirm('Proceed?')
-      dialog.confirm()
-      expect(await promise).toBe(true)
-    })
-
-    it('resolves with false on cancel', async () => {
-      const promise = showConfirm('Proceed?')
       dialog.cancel()
-      expect(await promise).toBe(false)
+
+      const p1 = showConfirm('Proceed?')
+      dialog.confirm()
+      expect(await p1).toBe(true)
+
+      const p2 = showConfirm('Proceed?')
+      dialog.cancel()
+      expect(await p2).toBe(false)
     })
 
-    it('closes dialog on confirm', () => {
+    it('closes dialog on confirm and cancel', () => {
       showConfirm('Test')
       dialog.confirm()
       expect(dialog.state.value.open).toBe(false)
-    })
 
-    it('closes dialog on cancel', () => {
       showConfirm('Test')
       dialog.cancel()
       expect(dialog.state.value.open).toBe(false)
@@ -89,42 +70,32 @@ describe('useDialog', () => {
   })
 
   describe('showPrompt', () => {
-    it('opens dialog with prompt type', () => {
+    it('resolves with input value or null', async () => {
       showPrompt('Enter name:')
       expect(dialog.state.value.open).toBe(true)
       expect(dialog.state.value.type).toBe('prompt')
       expect(dialog.state.value.message).toBe('Enter name:')
-    })
+      expect(dialog.state.value.defaultValue).toBe('')
+      expect(dialog.state.value.inputValue).toBe('')
+      dialog.cancel()
 
-    it('sets default value', () => {
       showPrompt('Enter name:', 'John')
       expect(dialog.state.value.defaultValue).toBe('John')
       expect(dialog.state.value.inputValue).toBe('John')
-    })
+      dialog.cancel()
 
-    it('uses empty default when not provided', () => {
-      showPrompt('Enter name:')
-      expect(dialog.state.value.defaultValue).toBe('')
-      expect(dialog.state.value.inputValue).toBe('')
-    })
-
-    it('resolves with input value on confirm', async () => {
-      const promise = showPrompt('Enter name:', 'default')
+      const p1 = showPrompt('Enter name:', 'default')
       dialog.updateInput('Alice')
       dialog.confirm()
-      expect(await promise).toBe('Alice')
-    })
+      expect(await p1).toBe('Alice')
 
-    it('resolves with default value if not changed', async () => {
-      const promise = showPrompt('Enter name:', 'default')
+      const p2 = showPrompt('Enter name:', 'default')
       dialog.confirm()
-      expect(await promise).toBe('default')
-    })
+      expect(await p2).toBe('default')
 
-    it('resolves with null on cancel', async () => {
-      const promise = showPrompt('Enter name:', 'default')
+      const p3 = showPrompt('Enter name:', 'default')
       dialog.cancel()
-      expect(await promise).toBeNull()
+      expect(await p3).toBeNull()
     })
   })
 
@@ -159,15 +130,6 @@ describe('useDialog', () => {
       dialog.updateInput('Eve')
       dialog.confirm()
       expect(await p2).toBe('Eve')
-    })
-  })
-
-  describe('state is readonly', () => {
-    it('exposes readonly state', () => {
-      // The state ref returned by useDialogState should not allow
-      // direct assignment — it's wrapped in readonly()
-      expect(dialog.state).toBeDefined()
-      expect(dialog.state.value).toBeDefined()
     })
   })
 })

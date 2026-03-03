@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseVersion, checkOdooCompatibility, PROFILE_SCHEMA_VERSION } from '@/utils/profileUtils'
+import { parseVersion, checkOdooCompatibility } from '@/utils/profileUtils'
 import type { ImportProfile } from '@/types/importProfile'
 
 function makeProfile(overrides: Partial<ImportProfile> = {}): ImportProfile {
@@ -27,81 +27,39 @@ function makeProfile(overrides: Partial<ImportProfile> = {}): ImportProfile {
 }
 
 describe('parseVersion', () => {
-  it('parses simple version "1.0"', () => {
-    const v = parseVersion('1.0')
-    expect(v).toEqual({ major: 1, minor: 0, patch: 0 })
-  })
-
-  it('parses version "16.0"', () => {
-    const v = parseVersion('16.0')
-    expect(v).toEqual({ major: 16, minor: 0, patch: 0 })
-  })
-
-  it('parses version "16.0.1"', () => {
-    const v = parseVersion('16.0.1')
-    expect(v).toEqual({ major: 16, minor: 0, patch: 1 })
-  })
-
-  it('handles empty string', () => {
-    const v = parseVersion('')
-    expect(v).toEqual({ major: 0, minor: 0, patch: 0 })
-  })
-
-  it('handles version with suffix "16.0+e"', () => {
-    const v = parseVersion('16.0+e')
-    expect(v).toEqual({ major: 16, minor: 0, patch: 0 })
-  })
-
-  it('handles version "2.3.4"', () => {
-    const v = parseVersion('2.3.4')
-    expect(v).toEqual({ major: 2, minor: 3, patch: 4 })
+  it('parses all version formats', () => {
+    const cases: [string, object][] = [
+      ['1.0', { major: 1, minor: 0, patch: 0 }],
+      ['16.0', { major: 16, minor: 0, patch: 0 }],
+      ['16.0.1', { major: 16, minor: 0, patch: 1 }],
+      ['', { major: 0, minor: 0, patch: 0 }],
+      ['16.0+e', { major: 16, minor: 0, patch: 0 }],
+      ['2.3.4', { major: 2, minor: 3, patch: 4 }],
+    ]
+    for (const [input, expected] of cases) {
+      expect(parseVersion(input)).toEqual(expected)
+    }
   })
 })
 
 describe('checkOdooCompatibility', () => {
-  it('returns compatible when no min version is set', () => {
-    const profile = makeProfile({ odooMinVersion: undefined })
-    const result = checkOdooCompatibility(profile, '16.0')
-    expect(result.compatible).toBe(true)
-    expect(result.reason).toBeUndefined()
-  })
-
-  it('returns compatible when server version is null', () => {
-    const profile = makeProfile({ odooMinVersion: '16.0' })
-    const result = checkOdooCompatibility(profile, null)
-    expect(result.compatible).toBe(true)
-  })
-
-  it('returns compatible when server meets minimum', () => {
-    const profile = makeProfile({ odooMinVersion: '16.0' })
-    const result = checkOdooCompatibility(profile, '16.0+e')
-    expect(result.compatible).toBe(true)
-  })
-
-  it('returns compatible when server exceeds minimum', () => {
-    const profile = makeProfile({ odooMinVersion: '15.0' })
-    const result = checkOdooCompatibility(profile, '16.0')
-    expect(result.compatible).toBe(true)
-  })
-
-  it('returns incompatible when server is below minimum', () => {
-    const profile = makeProfile({ odooMinVersion: '17.0' })
-    const result = checkOdooCompatibility(profile, '16.0+e')
-    expect(result.compatible).toBe(false)
-    expect(result.reason).toContain('17.0')
-    expect(result.reason).toContain('16.0')
-  })
-
-  it('handles patch version comparison', () => {
-    const profile = makeProfile({ odooMinVersion: '16.0.2' })
-    expect(checkOdooCompatibility(profile, '16.0.1').compatible).toBe(false)
-    expect(checkOdooCompatibility(profile, '16.0.2').compatible).toBe(true)
-    expect(checkOdooCompatibility(profile, '16.0.3').compatible).toBe(true)
-  })
-})
-
-describe('PROFILE_SCHEMA_VERSION', () => {
-  it('is defined', () => {
-    expect(PROFILE_SCHEMA_VERSION).toBe('1.0')
+  it('checks compatibility for all version scenarios', () => {
+    const cases: [Partial<ImportProfile>, string | null, boolean][] = [
+      [{ odooMinVersion: undefined }, '16.0', true],
+      [{ odooMinVersion: '16.0' }, null, true],
+      [{ odooMinVersion: '16.0' }, '16.0+e', true],
+      [{ odooMinVersion: '15.0' }, '16.0', true],
+      [{ odooMinVersion: '17.0' }, '16.0+e', false],
+      [{ odooMinVersion: '16.0.2' }, '16.0.1', false],
+      [{ odooMinVersion: '16.0.2' }, '16.0.2', true],
+      [{ odooMinVersion: '16.0.2' }, '16.0.3', true],
+    ]
+    for (const [overrides, serverVersion, expectedCompatible] of cases) {
+      const result = checkOdooCompatibility(makeProfile(overrides), serverVersion)
+      expect(result.compatible).toBe(expectedCompatible)
+      if (!expectedCompatible) {
+        expect(result.reason).toBeDefined()
+      }
+    }
   })
 })

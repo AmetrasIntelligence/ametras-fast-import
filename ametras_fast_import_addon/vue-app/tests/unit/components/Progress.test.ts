@@ -3,112 +3,40 @@ import { mount } from '@vue/test-utils'
 import Progress from '@/ui/Progress.vue'
 
 describe('Progress Component', () => {
-  it('renders progress bar', () => {
-    const wrapper = mount(Progress, {
-      props: { value: 50 }
-    })
-
-    expect(wrapper.find('.progress').exists()).toBe(true)
-    expect(wrapper.find('.progress-bar').exists()).toBe(true)
+  it('renders correct width for all value ranges', () => {
+    const cases: [object, string][] = [
+      [{ value: 0 }, '0%'],
+      [{ value: 75 }, '75%'],
+      [{ value: 100 }, '100%'],
+      [{ value: 150 }, '100%'],
+      [{ value: -10 }, '0%'],
+      [{ value: 25, max: 50 }, '50%'],
+    ]
+    for (const [props, expectedWidth] of cases) {
+      const wrapper = mount(Progress, { props })
+      expect(wrapper.find('.progress').exists()).toBe(true)
+      expect(wrapper.find('.progress-bar').attributes('style')).toContain(`width: ${expectedWidth}`)
+    }
   })
 
-  it('sets correct width for value', () => {
-    const wrapper = mount(Progress, {
-      props: { value: 75 }
-    })
+  it('shows/hides label', () => {
+    const withLabel = mount(Progress, { props: { value: 75, showLabel: true } })
+    expect(withLabel.find('small').exists()).toBe(true)
+    expect(withLabel.text()).toContain('75%')
 
-    const bar = wrapper.find('.progress-bar')
-    expect(bar.attributes('style')).toContain('width: 75%')
+    const noLabel = mount(Progress, { props: { value: 75 } })
+    expect(noLabel.find('small').exists()).toBe(false)
   })
 
-  it('handles 0%', () => {
-    const wrapper = mount(Progress, {
-      props: { value: 0 }
-    })
-
-    const bar = wrapper.find('.progress-bar')
-    expect(bar.attributes('style')).toContain('width: 0%')
-  })
-
-  it('handles 100%', () => {
-    const wrapper = mount(Progress, {
-      props: { value: 100 }
-    })
-
-    const bar = wrapper.find('.progress-bar')
-    expect(bar.attributes('style')).toContain('width: 100%')
-  })
-
-  it('clamps value over 100', () => {
-    const wrapper = mount(Progress, {
-      props: { value: 150 }
-    })
-
-    const bar = wrapper.find('.progress-bar')
-    expect(bar.attributes('style')).toContain('width: 100%')
-  })
-
-  it('clamps negative value', () => {
-    const wrapper = mount(Progress, {
-      props: { value: -10 }
-    })
-
-    const bar = wrapper.find('.progress-bar')
-    expect(bar.attributes('style')).toContain('width: 0%')
-  })
-
-  it('calculates percentage with custom max', () => {
-    const wrapper = mount(Progress, {
-      props: { value: 25, max: 50 }
-    })
-
-    const bar = wrapper.find('.progress-bar')
-    expect(bar.attributes('style')).toContain('width: 50%')
-  })
-
-  it('shows label when showLabel is true', () => {
-    const wrapper = mount(Progress, {
-      props: { value: 75, showLabel: true }
-    })
-
-    expect(wrapper.find('small').exists()).toBe(true)
-    expect(wrapper.text()).toContain('75%')
-  })
-
-  it('hides label by default', () => {
-    const wrapper = mount(Progress, {
-      props: { value: 75 }
-    })
-
-    expect(wrapper.find('small').exists()).toBe(false)
-  })
-
-  describe('sizes', () => {
-    it('applies small size', () => {
-      const wrapper = mount(Progress, {
-        props: { value: 50, size: 'sm' }
-      })
-
-      const progress = wrapper.find('.progress')
-      expect(progress.attributes('style')).toContain('height: 0.25rem')
-    })
-
-    it('applies medium size by default', () => {
-      const wrapper = mount(Progress, {
-        props: { value: 50 }
-      })
-
-      const progress = wrapper.find('.progress')
-      expect(progress.attributes('style')).toContain('height: 0.5rem')
-    })
-
-    it('applies large size', () => {
-      const wrapper = mount(Progress, {
-        props: { value: 50, size: 'lg' }
-      })
-
-      const progress = wrapper.find('.progress')
-      expect(progress.attributes('style')).toContain('height: 1rem')
-    })
+  it('applies all sizes', () => {
+    const cases: [object, string][] = [
+      [{ value: 50, size: 'sm' }, '0.25rem'],
+      [{ value: 50 }, '0.5rem'],
+      [{ value: 50, size: 'lg' }, '1rem'],
+    ]
+    for (const [props, expectedHeight] of cases) {
+      const wrapper = mount(Progress, { props })
+      expect(wrapper.find('.progress').attributes('style')).toContain(`height: ${expectedHeight}`)
+    }
   })
 })

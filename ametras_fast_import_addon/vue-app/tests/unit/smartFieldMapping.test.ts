@@ -21,138 +21,84 @@ const mockFields: OdooField[] = [
 ]
 
 describe('scoreFieldMatch', () => {
-  it('gives 100 for exact field name match', () => {
-    expect(scoreFieldMatch('name', mockFields[0])).toBe(100)
-    expect(scoreFieldMatch('email', mockFields[1])).toBe(100)
-  })
+  it('scores all match types correctly', () => {
+    const field = (name: string) => mockFields.find(f => f.name === name)!
 
-  it('gives 95 for exact field label match', () => {
-    expect(scoreFieldMatch('Name', mockFields[0])).toBe(100)  // lowercase match still exact
-  })
+    const exactCases: [string, string, number][] = [
+      ['name', 'name', 100],
+      ['email', 'email', 100],
+      ['Name', 'name', 100],
+      ['e_mail', 'email', 100],
+      ['e-mail', 'email', 100],
+    ]
+    for (const [header, fieldName, expected] of exactCases) {
+      expect(scoreFieldMatch(header, field(fieldName))).toBe(expected)
+    }
 
-  it('matches German aliases', () => {
-    const streetField = mockFields.find(f => f.name === 'street')!
-    expect(scoreFieldMatch('adresse', streetField)).toBe(70)
-    expect(scoreFieldMatch('strasse', streetField)).toBe(70)
-  })
+    const aliasCases: [string, string][] = [
+      ['adresse', 'street'], ['strasse', 'street'],
+      ['telefon', 'phone'], ['tel', 'phone'],
+      ['plz', 'zip'], ['postcode', 'zip'],
+      ['referenz', 'ref'],
+    ]
+    for (const [header, fieldName] of aliasCases) {
+      expect(scoreFieldMatch(header, field(fieldName))).toBe(70)
+    }
 
-  it('matches phone aliases', () => {
-    const phoneField = mockFields.find(f => f.name === 'phone')!
-    expect(scoreFieldMatch('telefon', phoneField)).toBe(70)
-    expect(scoreFieldMatch('tel', phoneField)).toBe(70)
-  })
-
-  it('matches zip aliases', () => {
-    const zipField = mockFields.find(f => f.name === 'zip')!
-    expect(scoreFieldMatch('plz', zipField)).toBe(70)
-    expect(scoreFieldMatch('postcode', zipField)).toBe(70)
-  })
-
-  it('matches reference aliases', () => {
-    const refField = mockFields.find(f => f.name === 'ref')!
-    expect(scoreFieldMatch('referenz', refField)).toBe(70)
-  })
-
-  it('gives partial match for contains (3+ chars)', () => {
-    const score = scoreFieldMatch('phone_number', mockFields[2])
-    expect(score).toBeGreaterThan(0)
-  })
-
-  it('does not match short headers via contains', () => {
-    // 'id' (2 chars) should not match 'country_id' via substring
-    const countryField = mockFields.find(f => f.name === 'country_id')!
-    expect(scoreFieldMatch('id', countryField)).toBe(0)
-  })
-
-  it('returns 0 for completely unrelated headers', () => {
-    expect(scoreFieldMatch('xyzabc', mockFields[0])).toBe(0)
-  })
-
-  it('handles hyphens and underscores', () => {
-    expect(scoreFieldMatch('e_mail', mockFields[1])).toBe(100)
-    expect(scoreFieldMatch('e-mail', mockFields[1])).toBe(100)
+    expect(scoreFieldMatch('xyzabc', field('name'))).toBe(0)
+    expect(scoreFieldMatch('id', field('country_id'))).toBe(0)
+    expect(scoreFieldMatch('phone_number', field('phone'))).toBeGreaterThan(0)
   })
 })
 
 describe('autoMapFields', () => {
   it('maps exact matching headers', () => {
-    const headers = ['name', 'email', 'phone']
-    const mapping = autoMapFields(headers, mockFields)
-
+    const mapping = autoMapFields(['name', 'email', 'phone'], mockFields)
     expect(mapping.name).toBe('name')
     expect(mapping.email).toBe('email')
     expect(mapping.phone).toBe('phone')
   })
 
-  it('skips readonly fields except id and .id', () => {
-    const headers = ['id', 'name', 'create_date']
-    const mapping = autoMapFields(headers, mockFields)
-
-    // id column is special (upsert key) - auto-mapped
+  it('skips readonly fields except id and maps German headers', () => {
+    const mapping = autoMapFields(['id', 'name', 'create_date'], mockFields)
     expect(mapping.id).toBe('id')
     expect(mapping.name).toBe('name')
-    // Other readonly fields are still skipped
     expect(mapping.create_date).toBeUndefined()
+
+    const germanMapping = autoMapFields(['telefon', 'strasse', 'plz'], mockFields)
+    expect(germanMapping.telefon).toBe('phone')
+    expect(germanMapping.strasse).toBe('street')
+    expect(germanMapping.plz).toBe('zip')
   })
 
-  it('does not double-assign fields', () => {
-    const headers = ['name', 'Name', 'NAME']
-    const mapping = autoMapFields(headers, mockFields)
-
+  it('does not double-assign fields and respects threshold', () => {
+    const mapping = autoMapFields(['name', 'Name', 'NAME'], mockFields)
     const assignedToName = Object.values(mapping).filter(v => v === 'name')
     expect(assignedToName.length).toBeLessThanOrEqual(1)
-  })
 
-  it('respects minimum score threshold', () => {
-    const headers = ['xyzabc', 'random_col']
-    const mapping = autoMapFields(headers, mockFields, 50)
-
-    expect(Object.keys(mapping)).toHaveLength(0)
-  })
-
-  it('maps German headers to correct fields', () => {
-    const headers = ['telefon', 'strasse', 'plz']
-    const mapping = autoMapFields(headers, mockFields)
-
-    expect(mapping.telefon).toBe('phone')
-    expect(mapping.strasse).toBe('street')
-    expect(mapping.plz).toBe('zip')
+    const emptyMapping = autoMapFields(['xyzabc', 'random_col'], mockFields, 50)
+    expect(Object.keys(emptyMapping)).toHaveLength(0)
   })
 
   it('handles mixed case and separators', () => {
-    const headers = ['E-Mail', 'Phone_Number']
-    const mapping = autoMapFields(headers, mockFields)
-
+    const mapping = autoMapFields(['E-Mail', 'Phone_Number'], mockFields)
     expect(mapping['E-Mail']).toBe('email')
   })
 })
 
-describe('autoMapFields with id and .id columns', () => {
-  it('auto-maps id column to id for upsert', () => {
-    const headers = ['id', 'name', 'email']
-    const mapping = autoMapFields(headers, mockFields)
-
-    expect(mapping['id']).toBe('id')
-    expect(mapping['name']).toBe('name')
-    expect(mapping['email']).toBe('email')
-  })
-
-  it('auto-maps .id column to .id for upsert', () => {
-    const headers = ['.id', 'name', 'email']
-    const mapping = autoMapFields(headers, mockFields)
-
-    expect(mapping['.id']).toBe('.id')
-    expect(mapping['name']).toBe('name')
-    expect(mapping['email']).toBe('email')
-  })
-
-  it('auto-maps both id and .id if present', () => {
-    const headers = ['id', '.id', 'name']
-    const mapping = autoMapFields(headers, mockFields)
-
-    expect(mapping['id']).toBe('id')
-    expect(mapping['.id']).toBe('.id')
-    expect(mapping['name']).toBe('name')
+describe('autoMapFields with id columns', () => {
+  it('auto-maps id and .id columns', () => {
+    const cases: [string[], Record<string, string>][] = [
+      [['id', 'name', 'email'], { id: 'id', name: 'name', email: 'email' }],
+      [['.id', 'name', 'email'], { '.id': '.id', name: 'name', email: 'email' }],
+      [['id', '.id', 'name'], { id: 'id', '.id': '.id', name: 'name' }],
+    ]
+    for (const [headers, expected] of cases) {
+      const mapping = autoMapFields(headers, mockFields)
+      for (const [key, value] of Object.entries(expected)) {
+        expect(mapping[key]).toBe(value)
+      }
+    }
   })
 })
 
@@ -165,52 +111,27 @@ describe('autoMapFields with /id and /.id headers', () => {
     { name: 'email', type: 'char', string: 'Email', required: false, readonly: false },
   ]
 
-  it('maps partner_id/id header to partner_id/id', () => {
-    const headers = ['name', 'partner_id/id', 'email']
-    const mapping = autoMapFields(headers, fieldsWithRelations)
-
-    expect(mapping['partner_id/id']).toBe('partner_id/id')
-    expect(mapping['name']).toBe('name')
-    expect(mapping['email']).toBe('email')
+  it('maps relational /id and /.id headers', () => {
+    const cases: [string[], Record<string, string>][] = [
+      [['name', 'partner_id/id', 'email'], { 'partner_id/id': 'partner_id/id', name: 'name', email: 'email' }],
+      [['name', 'partner_id/.id'], { 'partner_id/.id': 'partner_id/.id' }],
+      [['tag_ids/id'], { 'tag_ids/id': 'tag_ids/id' }],
+      [['partner_id/id', 'categ_id/id', 'name'], { 'partner_id/id': 'partner_id/id', 'categ_id/id': 'categ_id/id', name: 'name' }],
+    ]
+    for (const [headers, expected] of cases) {
+      const mapping = autoMapFields(headers, fieldsWithRelations)
+      for (const [key, value] of Object.entries(expected)) {
+        expect(mapping[key]).toBe(value)
+      }
+    }
   })
 
-  it('maps partner_id/.id header to partner_id/.id', () => {
-    const headers = ['name', 'partner_id/.id']
-    const mapping = autoMapFields(headers, fieldsWithRelations)
+  it('does not map /id for non-relational fields and avoids double-assign', () => {
+    expect(autoMapFields(['email/id'], fieldsWithRelations)['email/id']).toBeUndefined()
 
-    expect(mapping['partner_id/.id']).toBe('partner_id/.id')
-  })
-
-  it('maps many2many field with /id suffix', () => {
-    const headers = ['tag_ids/id']
-    const mapping = autoMapFields(headers, fieldsWithRelations)
-
-    expect(mapping['tag_ids/id']).toBe('tag_ids/id')
-  })
-
-  it('does not map /id suffix for non-relational fields', () => {
-    const headers = ['email/id']
-    const mapping = autoMapFields(headers, fieldsWithRelations)
-
-    expect(mapping['email/id']).toBeUndefined()
-  })
-
-  it('does not double-assign relational field via /id and base name', () => {
-    const headers = ['partner_id/id', 'partner_id']
-    const mapping = autoMapFields(headers, fieldsWithRelations)
-
-    // /id variant wins (pre-pass), base name should not also map
+    const mapping = autoMapFields(['partner_id/id', 'partner_id'], fieldsWithRelations)
     expect(mapping['partner_id/id']).toBe('partner_id/id')
     expect(mapping['partner_id']).toBeUndefined()
-  })
-
-  it('handles multiple relational fields with /id', () => {
-    const headers = ['partner_id/id', 'categ_id/id', 'name']
-    const mapping = autoMapFields(headers, fieldsWithRelations)
-
-    expect(mapping['partner_id/id']).toBe('partner_id/id')
-    expect(mapping['categ_id/id']).toBe('categ_id/id')
-    expect(mapping['name']).toBe('name')
   })
 })
 

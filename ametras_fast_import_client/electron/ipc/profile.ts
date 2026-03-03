@@ -1,7 +1,7 @@
 import { ipcMain, dialog } from 'electron'
 import fs from 'fs/promises'
 import path from 'path'
-import { getSession } from './odoo'
+import { getOrRefreshSession } from './odoo'
 
 export interface ProfileUploadResult {
   ok: boolean
@@ -77,7 +77,7 @@ ipcMain.handle('profile:upload', async (_event, payload: {
 
   try {
     const { baseUrl, filePath } = payload
-    const session = getSession(baseUrl, payload.db)
+    const session = await getOrRefreshSession(baseUrl, payload.db)
 
     if (!session) {
       return { ok: false, error: 'Not authenticated' }
@@ -133,7 +133,7 @@ ipcMain.handle('profile:export', async (_event, payload: {
 
   try {
     const { baseUrl, profileId, profileName } = payload
-    const session = getSession(baseUrl, payload.db)
+    const session = await getOrRefreshSession(baseUrl, payload.db)
 
     if (!session) {
       return { ok: false, error: 'Not authenticated' }

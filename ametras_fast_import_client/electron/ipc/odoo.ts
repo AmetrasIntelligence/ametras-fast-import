@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { ipcMain, safeStorage } from 'electron'
 
 interface OdooSession {
   baseUrl: string
@@ -24,6 +24,14 @@ const DB_LIST_TIMEOUT_MS = 10_000   // 10s for database listing
 const HEALTH_CHECK_TIMEOUT_MS = 5_000 // 5s for server ping (health check)
 
 const sessions = new Map<string, OdooSession>()
+const savedCredentials = new Map<string, { baseUrl: string; db: string; login: string; encryptedPassword: Buffer }>()
+const reauthInProgress = new Map<string, Promise<OdooSession | undefined>>()
+const reauthFailures = new Map<string, { count: number; lastAttempt: number }>()
+
+// Re-auth rate limiting: after 3 consecutive failures, cool down for 5 minutes
+// to avoid hammering the server (e.g. password was changed during an outage).
+const REAUTH_MAX_FAILURES = 3
+const REAUTH_COOLDOWN_MS = 5 * 60 * 1000
 
 /**
  * Clean up expired sessions.
@@ -133,6 +141,18 @@ function getSessionKey(baseUrl: string, db: string): string {
   return `${baseUrl}::${db}`
 }
 
+/**
+ * Touch all sessions for a given base URL.
+ * Used by health checks to prevent session expiry during server outages.
+ */
+function touchSessionsForBaseUrl(baseUrl: string): void {
+  for (const session of sessions.values()) {
+    if (session.baseUrl === baseUrl) {
+      touchSession(session)
+    }
+  }
+}
+
 // Fetch available databases from Odoo server
 ipcMain.handle('odoo:listDatabases', async (_event, baseUrl: string) => {
   const urlCheck = validateBaseUrl(baseUrl)
@@ -167,6 +187,68 @@ ipcMain.handle('odoo:listDatabases', async (_event, baseUrl: string) => {
   }
 })
 
+/**
+ * Core authentication logic shared by initial login and re-authentication.
+ * May throw on network errors — callers should handle exceptions.
+ */
+async function performAuthentication(
+  baseUrl: string,
+  db: string,
+  login: string,
+  password: string
+): Promise<{ ok: boolean; uid?: number; session_id?: string; server_version?: string; error?: string }> {
+  const response = await fetch(`${baseUrl}/web/session/authenticate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'call',
+      params: { db, login, password },
+      id: Date.now()
+    }),
+    signal: AbortSignal.timeout(AUTH_TIMEOUT_MS)
+  })
+
+  if (!response.ok) {
+    return { ok: false, error: `HTTP ${response.status}: ${response.statusText}` }
+  }
+
+  const data = await response.json()
+
+  if (data.error) {
+    return { ok: false, error: data.error.data?.message || 'Authentication failed' }
+  }
+
+  const result = data.result
+  if (!result.uid) {
+    return { ok: false, error: 'Invalid credentials' }
+  }
+
+  const cookies = response.headers.get('set-cookie')
+  const sessionMatch = cookies?.match(/session_id=([^;]+)/)
+  const sessionId = sessionMatch?.[1] || ''
+
+  const now = Date.now()
+  const session: OdooSession = {
+    baseUrl,
+    db,
+    uid: result.uid,
+    sessionId,
+    serverVersion: result.server_version,
+    lastActivity: now,
+    createdAt: now
+  }
+
+  sessions.set(getSessionKey(baseUrl, db), session)
+
+  return {
+    ok: true,
+    uid: result.uid,
+    session_id: sessionId,
+    server_version: result.server_version
+  }
+}
+
 ipcMain.handle('odoo:authenticate', async (_event, params: {
   baseUrl: string
   db: string
@@ -179,58 +261,21 @@ ipcMain.handle('odoo:authenticate', async (_event, params: {
   }
 
   try {
-    const { baseUrl, db, login, password } = params
+    const result = await performAuthentication(params.baseUrl, params.db, params.login, params.password)
 
-    const response = await fetch(`${baseUrl}/web/session/authenticate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'call',
-        params: { db, login, password },
-        id: Date.now()
-      }),
-      signal: AbortSignal.timeout(AUTH_TIMEOUT_MS)
-    })
-
-    if (!response.ok) {
-      return { ok: false, error: `HTTP ${response.status}: ${response.statusText}` }
+    if (result.ok && safeStorage.isEncryptionAvailable()) {
+      // Save credentials for automatic re-authentication after session expiry.
+      // Password is encrypted via OS keychain (macOS Keychain / Windows DPAPI)
+      // so it never sits in memory as plaintext beyond this scope.
+      savedCredentials.set(getSessionKey(params.baseUrl, params.db), {
+        baseUrl: params.baseUrl,
+        db: params.db,
+        login: params.login,
+        encryptedPassword: safeStorage.encryptString(params.password)
+      })
     }
 
-    const data = await response.json()
-
-    if (data.error) {
-      return { ok: false, error: data.error.data?.message || 'Authentication failed' }
-    }
-
-    const result = data.result
-    if (!result.uid) {
-      return { ok: false, error: 'Invalid credentials' }
-    }
-
-    const cookies = response.headers.get('set-cookie')
-    const sessionMatch = cookies?.match(/session_id=([^;]+)/)
-    const sessionId = sessionMatch?.[1] || ''
-
-    const now = Date.now()
-    const session: OdooSession = {
-      baseUrl,
-      db,
-      uid: result.uid,
-      sessionId,
-      serverVersion: result.server_version,
-      lastActivity: now,
-      createdAt: now
-    }
-
-    sessions.set(getSessionKey(baseUrl, db), session)
-
-    return {
-      ok: true,
-      uid: result.uid,
-      session_id: sessionId,
-      server_version: result.server_version
-    }
+    return result
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Connection failed'
     return { ok: false, error: message }
@@ -256,34 +301,10 @@ ipcMain.handle('odoo:call', async (_event, payload: {
   try {
     const { baseUrl, endpoint, params } = payload
 
-    let session = payload.db
-      ? sessions.get(getSessionKey(baseUrl, payload.db))
-      : undefined
+    const session = await getOrRefreshSession(baseUrl, payload.db)
     if (!session) {
-      // Fallback: find any session for this baseUrl
-      const candidates = Array.from(sessions.values()).filter(s => s.baseUrl === baseUrl)
-      if (candidates.length > 1) {
-        console.warn(
-          `[odoo:call] Ambiguous session fallback: ${candidates.length} sessions for ${baseUrl} ` +
-          `(dbs: ${candidates.map(s => s.db).join(', ')}). Pass 'db' parameter to avoid wrong-database auth.`
-        )
-      }
-      session = candidates[0]
+      return { ok: false, error: 'Not authenticated', errorCode: 'AUTH_ERROR' }
     }
-
-    if (!session) {
-      return { ok: false, error: 'Not authenticated' }
-    }
-
-    // Check if session is expired
-    if (!isSessionValid(session)) {
-      const key = getSessionKey(session.baseUrl, session.db)
-      sessions.delete(key)
-      return { ok: false, error: 'Session expired - please login again' }
-    }
-
-    // Update activity timestamp
-    touchSession(session)
 
     const response = await fetch(`${baseUrl}${endpoint}`, {
       method: 'POST',
@@ -362,6 +383,9 @@ ipcMain.handle('odoo:ping', async (_event, baseUrl: string) => {
       }),
       signal: AbortSignal.timeout(HEALTH_CHECK_TIMEOUT_MS)
     })
+    if (response.ok) {
+      touchSessionsForBaseUrl(baseUrl)
+    }
     return { ok: response.ok }
   } catch {
     return { ok: false }
@@ -398,8 +422,77 @@ export function getSession(baseUrl: string, db?: string): OdooSession | undefine
   return undefined
 }
 
+/**
+ * Get an existing valid session, or attempt re-authentication using saved credentials.
+ * Returns undefined only when no credentials are available or re-auth fails.
+ */
+export async function getOrRefreshSession(baseUrl: string, db?: string): Promise<OdooSession | undefined> {
+  // Try existing valid session first
+  const existing = getSession(baseUrl, db)
+  if (existing) return existing
+
+  // Look up saved credentials
+  let creds: { baseUrl: string; db: string; login: string; encryptedPassword: Buffer } | undefined
+  if (db) {
+    creds = savedCredentials.get(getSessionKey(baseUrl, db))
+  } else {
+    // Fallback: find any credentials for this baseUrl
+    const candidates = Array.from(savedCredentials.values()).filter(c => c.baseUrl === baseUrl)
+    creds = candidates[0]
+  }
+
+  if (!creds) return undefined
+
+  const key = getSessionKey(creds.baseUrl, creds.db)
+
+  // Rate-limit re-auth: back off after repeated failures to avoid
+  // hammering the server (e.g. password changed during an outage).
+  const failures = reauthFailures.get(key)
+  if (failures && failures.count >= REAUTH_MAX_FAILURES) {
+    const elapsed = Date.now() - failures.lastAttempt
+    if (elapsed < REAUTH_COOLDOWN_MS) {
+      return undefined
+    }
+    // Cooldown expired — allow another attempt
+    reauthFailures.delete(key)
+  }
+
+  // Deduplicate concurrent re-auth attempts for the same session
+  const inProgress = reauthInProgress.get(key)
+  if (inProgress) return inProgress
+
+  const { baseUrl: credBaseUrl, db: credDb, login, encryptedPassword } = creds
+  const promise = (async (): Promise<OdooSession | undefined> => {
+    try {
+      console.log(`[session] Re-authenticating for ${credBaseUrl} (db: ${credDb})`)
+      const password = safeStorage.decryptString(encryptedPassword)
+      const result = await performAuthentication(credBaseUrl, credDb, login, password)
+      if (result.ok) {
+        reauthFailures.delete(key)
+        return sessions.get(key)
+      }
+      console.error(`[session] Re-authentication failed: ${result.error}`)
+      const prev = reauthFailures.get(key)
+      reauthFailures.set(key, { count: (prev?.count ?? 0) + 1, lastAttempt: Date.now() })
+      return undefined
+    } catch (e) {
+      console.error('[session] Re-authentication error:', e)
+      const prev = reauthFailures.get(key)
+      reauthFailures.set(key, { count: (prev?.count ?? 0) + 1, lastAttempt: Date.now() })
+      return undefined
+    } finally {
+      reauthInProgress.delete(key)
+    }
+  })()
+
+  reauthInProgress.set(key, promise)
+  return promise
+}
+
 export function clearSessions(): void {
   sessions.clear()
+  savedCredentials.clear()
+  reauthFailures.clear()
 }
 
 /**
@@ -408,4 +501,7 @@ export function clearSessions(): void {
 export function shutdownSessions(): void {
   stopSessionCleanup()
   sessions.clear()
+  savedCredentials.clear()
+  reauthInProgress.clear()
+  reauthFailures.clear()
 }

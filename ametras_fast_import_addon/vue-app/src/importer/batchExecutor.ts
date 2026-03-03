@@ -104,7 +104,7 @@ export async function executeBatch(
 
   if (!response.ok || !response.result) {
     // Network/transient errors: throw so the engine can pause and retry
-    if (response.errorCode === 'NETWORK_ERROR' || response.errorCode === 'TIMEOUT') {
+    if (response.errorCode === 'NETWORK_ERROR' || response.errorCode === 'TIMEOUT' || response.errorCode === 'AUTH_ERROR') {
       throw new NetworkBatchError(response.error || 'Network error', rows)
     }
 

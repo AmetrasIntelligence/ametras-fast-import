@@ -235,7 +235,7 @@ async function executeLoadBatch(
     const errorCode: string | undefined = response.errorCode
 
     // Network/transient errors: throw so the engine can pause and retry
-    if (errorCode === 'NETWORK_ERROR' || errorCode === 'TIMEOUT') {
+    if (errorCode === 'NETWORK_ERROR' || errorCode === 'TIMEOUT' || errorCode === 'AUTH_ERROR') {
       throw new NetworkBatchError(response.error || 'Network error', rows)
     }
 

@@ -44,7 +44,7 @@ interface OdooCallResult<T> {
   ok: boolean
   result?: T
   error?: string
-  errorCode?: 'NETWORK_ERROR' | 'TIMEOUT' | 'DATA_ERROR' | 'UNKNOWN'
+  errorCode?: 'NETWORK_ERROR' | 'TIMEOUT' | 'DATA_ERROR' | 'AUTH_ERROR' | 'UNKNOWN'
 }
 
 interface ProfileUploadResult {
@@ -88,7 +88,7 @@ interface StandaloneLoadResult {
     field?: string
   }>
   error?: string
-  errorCode?: 'NETWORK_ERROR' | 'TIMEOUT' | 'DATA_ERROR' | 'UNKNOWN'
+  errorCode?: 'NETWORK_ERROR' | 'TIMEOUT' | 'DATA_ERROR' | 'AUTH_ERROR' | 'UNKNOWN'
 }
 
 interface ElectronAPI {

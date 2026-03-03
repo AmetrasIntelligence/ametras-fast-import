@@ -8,34 +8,15 @@ describe('NetworkBatchError', () => {
     { index: 2, data: { name: 'Bob' } },
   ]
 
-  it('is an instance of Error', () => {
-    const err = new NetworkBatchError('Server unavailable', mockRows)
-    expect(err).toBeInstanceOf(Error)
-  })
-
-  it('has the name NetworkBatchError', () => {
-    const err = new NetworkBatchError('Server unavailable', mockRows)
-    expect(err.name).toBe('NetworkBatchError')
-  })
-
-  it('stores the error message', () => {
+  it('is an Error with correct name, message, and rows', () => {
     const err = new NetworkBatchError('HTTP 502 Bad Gateway', mockRows)
+    expect(err).toBeInstanceOf(Error)
+    expect(err.name).toBe('NetworkBatchError')
     expect(err.message).toBe('HTTP 502 Bad Gateway')
-  })
-
-  it('stores the rows that were being processed', () => {
-    const err = new NetworkBatchError('timeout', mockRows)
     expect(err.rows).toBe(mockRows)
     expect(err.rows).toHaveLength(2)
     expect(err.rows[0].index).toBe(1)
     expect(err.rows[1].index).toBe(2)
-  })
-
-  it('rows property is readonly', () => {
-    const err = new NetworkBatchError('timeout', mockRows)
-    // TypeScript readonly prevents reassignment at compile time
-    // At runtime we can verify it holds the reference
-    expect(err.rows).toBe(mockRows)
   })
 
   it('can be caught as Error in try/catch', () => {

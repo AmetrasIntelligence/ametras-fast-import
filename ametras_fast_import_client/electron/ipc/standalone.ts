@@ -4,7 +4,7 @@
  */
 
 import { ipcMain } from 'electron'
-import { getSession } from './odoo'
+import { getOrRefreshSession } from './odoo'
 
 // ── Addon detection ──────────────────────────────────────────────────
 
@@ -21,7 +21,7 @@ ipcMain.handle('standalone:detectAddon', async (
 ): Promise<DetectAddonResult> => {
   const { baseUrl, db } = payload
 
-  const session = getSession(baseUrl, db)
+  const session = await getOrRefreshSession(baseUrl, db)
   if (!session) {
     console.error('[standalone:detectAddon] No active session for', baseUrl, db)
     return { available: false, error: 'No active session' }
@@ -100,7 +100,7 @@ interface LoadResult {
     field?: string
   }>
   error?: string
-  errorCode?: 'NETWORK_ERROR' | 'TIMEOUT' | 'DATA_ERROR' | 'CONCURRENCY_ERROR' | 'UNKNOWN'
+  errorCode?: 'NETWORK_ERROR' | 'TIMEOUT' | 'DATA_ERROR' | 'CONCURRENCY_ERROR' | 'AUTH_ERROR' | 'UNKNOWN'
 }
 
 /** Detect PostgreSQL concurrency/locking errors that are transient and safe to retry. */
@@ -129,10 +129,10 @@ ipcMain.handle('standalone:load', async (
     return { ok: false, error: `Invalid model name: ${model}` }
   }
 
-  const session = getSession(baseUrl, db)
+  const session = await getOrRefreshSession(baseUrl, db)
   if (!session) {
     console.error('[standalone:load] No active session for', baseUrl, db)
-    return { ok: false, error: 'No active session' }
+    return { ok: false, error: 'No active session', errorCode: 'AUTH_ERROR' }
   }
 
   try {
@@ -230,7 +230,7 @@ ipcMain.handle('standalone:getOdooVersion', async (
 ): Promise<{ version: string | null; error?: string }> => {
   const { baseUrl, db } = payload
 
-  const session = getSession(baseUrl, db)
+  const session = await getOrRefreshSession(baseUrl, db)
   if (!session) {
     return { version: null, error: 'No active session' }
   }
