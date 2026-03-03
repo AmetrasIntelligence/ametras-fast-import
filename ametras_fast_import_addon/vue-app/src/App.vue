@@ -2,16 +2,16 @@
 import { onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSessionStore } from '@/stores/session'
-import { usePlatformStore } from '@/stores/platform'
+
 import { useRunStore } from '@/stores/run'
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import LanguageSelector from '@/components/LanguageSelector.vue'
-import StandaloneBanner from '@/components/StandaloneBanner.vue'
+
 import { Button } from '@/ui'
 
 const session = useSessionStore()
-const platform = usePlatformStore()
+
 const run = useRunStore()
 const route = useRoute()
 const router = useRouter()
@@ -75,10 +75,6 @@ function logout() {
           </template>
         </div>
       </nav>
-      <StandaloneBanner
-        v-if="platform.limitations.length > 0"
-        :limitations="platform.limitations"
-      />
       <RouterView />
       <AppDialog />
     </div>

@@ -167,9 +167,12 @@
       "idle": "Ready",
       "validating": "Validating...",
       "running": "Importing...",
+      "initiating": "Starting Import...",
       "batch": "Processing Batch...",
       "retrying": "Retrying Failed Rows...",
+      "pausing": "Pausing...",
       "paused": "Paused",
+      "skipping": "Skipping File...",
       "completed": "Completed",
       "failed": "Failed"
     },

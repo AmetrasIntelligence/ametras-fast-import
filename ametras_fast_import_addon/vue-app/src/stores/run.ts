@@ -39,6 +39,11 @@ export const useRunStore = defineStore('run', () => {
   const logId = ref<number | null>(null)
   const connectionStatus = ref<ConnectionStatus>('online')
   const resumeLogId = ref<number | null>(null)
+
+  // Transitional UI flags — true while an action is draining in-flight work
+  const isInitiating = ref(false)
+  const isPausing = ref(false)
+  const isSkipping = ref(false)
   const progress = ref<RunProgress>({
     totalFiles: 0,
     completedFiles: 0,
@@ -181,6 +186,9 @@ export const useRunStore = defineStore('run', () => {
     logId.value = null
     connectionStatus.value = 'online'
     resumeLogId.value = null
+    isInitiating.value = false
+    isPausing.value = false
+    isSkipping.value = false
     progress.value = {
       totalFiles: 0,
       completedFiles: 0,
@@ -251,6 +259,9 @@ export const useRunStore = defineStore('run', () => {
     logId,
     connectionStatus,
     resumeLogId,
+    isInitiating,
+    isPausing,
+    isSkipping,
     progress,
     errors,
     runStartTime,

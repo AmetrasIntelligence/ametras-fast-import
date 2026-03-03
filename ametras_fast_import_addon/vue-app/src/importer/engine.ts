@@ -261,6 +261,7 @@ export class ImportEngine {
         // Check if file was skipped
         if (this.skipFileController?.signal.aborted) {
           logger.import.info(`Skipped file: ${filename}`)
+          run.isSkipping = false
           run.skipFile(filename)
           continue
         }
@@ -350,6 +351,7 @@ export class ImportEngine {
     const settings = { ...config.settings }
 
     run.startFile(file.name)
+    run.isInitiating = true
     this.retryQueue.clear()
     this.fileStartTime = Date.now()
     this.fileProcessedRows = 0
@@ -451,6 +453,7 @@ export class ImportEngine {
       await this.processRetries(file.name, mapping, settings)
     }
 
+    run.isInitiating = false
     if (!this.abortController?.signal.aborted && !this.skipFileController?.signal.aborted) {
       run.completeFile(file.name)
     }
@@ -567,6 +570,14 @@ export class ImportEngine {
     runStateLock.withLock(() => {
       const run = useRunStore()
       const batch = result.results
+
+      // Clear transitional UI flags
+      if (run.isInitiating) {
+        run.isInitiating = false
+      }
+      if (run.isPausing && (!this.workerPool || this.workerPool.activeWorkerCount === 0)) {
+        run.isPausing = false
+      }
 
       let successCount = 0
       let failedCount = 0
@@ -749,18 +760,23 @@ export class ImportEngine {
 
   pause(): void {
     if (this.stateMachine.canPause) {
+      const run = useRunStore()
       this.stateMachine.transition(ImportState.PAUSED)
-      useRunStore().setState(ImportState.PAUSED)
-      // Actually pause the worker pool
+      run.setState(ImportState.PAUSED)
       this.workerPool?.pause()
+      // Show "Pausing..." while in-flight batches drain
+      if (this.workerPool && this.workerPool.activeWorkerCount > 0) {
+        run.isPausing = true
+      }
     }
   }
 
   resume(): void {
     if (this.stateMachine.state === ImportState.PAUSED) {
+      const run = useRunStore()
       this.stateMachine.transition(ImportState.RUNNING_FILE)
-      useRunStore().setState(ImportState.RUNNING_FILE)
-      // Actually resume the worker pool
+      run.setState(ImportState.RUNNING_FILE)
+      run.isPausing = false
       this.workerPool?.resume()
     }
   }
@@ -774,6 +790,9 @@ export class ImportEngine {
     // Set to FAILED state instead of resetting, so results can be viewed
     this.stateMachine.reset()
     const run = useRunStore()
+    run.isInitiating = false
+    run.isPausing = false
+    run.isSkipping = false
     run.setState(ImportState.FAILED)
     this.finalizeLog()
   }
@@ -781,6 +800,7 @@ export class ImportEngine {
   skipCurrentFile(): void {
     if (this.skipFileController && !this.skipFileController.signal.aborted) {
       logger.import.info('Skipping current file...')
+      useRunStore().isSkipping = true
       this.skipFileController.abort()
       this.workerPool?.abort()
     }

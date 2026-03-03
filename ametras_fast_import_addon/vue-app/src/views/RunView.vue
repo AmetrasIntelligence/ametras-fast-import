@@ -50,6 +50,11 @@ watch(() => run.connectionStatus, (status) => {
 })
 
 const stateLabel = computed(() => {
+  // Transitional labels override the base state
+  if (run.isInitiating) return t('run.state.initiating')
+  if (run.isPausing) return t('run.state.pausing')
+  if (run.isSkipping) return t('run.state.skipping')
+
   const labels: Record<ImportState, string> = {
     [ImportState.IDLE]: t('run.state.idle'),
     [ImportState.VALIDATING]: t('run.state.validating'),
@@ -62,6 +67,9 @@ const stateLabel = computed(() => {
   }
   return labels[run.state]
 })
+
+// Disable pause/skip buttons while a transition is draining
+const isTransitioning = computed(() => run.isPausing || run.isSkipping)
 
 const etaDisplay = computed(() => {
   const seconds = run.estimatedTimeRemaining
@@ -242,6 +250,7 @@ function viewResults() {
       <div class="d-flex gap-3 mt-3">
         <Button
           v-if="run.state === ImportState.PAUSED"
+          :disabled="run.isPausing"
           @click="handleResume"
         >
           {{ $t('run.resume') }}
@@ -249,6 +258,7 @@ function viewResults() {
         <Button
           v-else-if="isRunning"
           variant="outline"
+          :disabled="isTransitioning"
           @click="handlePause"
         >
           {{ $t('run.pause') }}
@@ -256,6 +266,7 @@ function viewResults() {
         <Button
           v-if="isRunning"
           variant="outline"
+          :disabled="isTransitioning"
           @click="handleSkipFile"
         >
           {{ $t('run.skipFile') }}

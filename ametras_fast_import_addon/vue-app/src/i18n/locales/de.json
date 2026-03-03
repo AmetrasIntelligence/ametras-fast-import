@@ -167,9 +167,12 @@
       "idle": "Bereit",
       "validating": "Wird validiert...",
       "running": "Importiert...",
+      "initiating": "Import wird gestartet...",
       "batch": "Stapel wird verarbeitet...",
       "retrying": "Fehlgeschlagene Zeilen werden wiederholt...",
+      "pausing": "Wird pausiert...",
       "paused": "Pausiert",
+      "skipping": "Datei wird übersprungen...",
       "completed": "Abgeschlossen",
       "failed": "Fehlgeschlagen"
     },
