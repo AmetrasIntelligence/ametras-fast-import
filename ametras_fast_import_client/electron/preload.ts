@@ -53,6 +53,7 @@ interface ElectronAPI {
     authenticate: (params: AuthParams) => Promise<AuthResult>
     listDatabases: (baseUrl: string) => Promise<DatabaseListResult>
     ping: (baseUrl: string) => Promise<{ ok: boolean }>
+    getEncryptionInfo: () => Promise<{ available: boolean; platform: string }>
   }
   store: {
     get: (key: string) => Promise<unknown>
@@ -155,7 +156,8 @@ contextBridge.exposeInMainWorld('api', {
     call: (payload: OdooPayload) => ipcRenderer.invoke('odoo:call', payload),
     authenticate: (params: AuthParams) => ipcRenderer.invoke('odoo:authenticate', params),
     listDatabases: (baseUrl: string) => ipcRenderer.invoke('odoo:listDatabases', baseUrl),
-    ping: (baseUrl: string) => ipcRenderer.invoke('odoo:ping', baseUrl)
+    ping: (baseUrl: string) => ipcRenderer.invoke('odoo:ping', baseUrl),
+    getEncryptionInfo: () => ipcRenderer.invoke('odoo:getEncryptionInfo')
   },
   store: {
     get: (key: string) => ipcRenderer.invoke('store:get', key),

@@ -51,7 +51,14 @@
     "usernamePlaceholder": "admin{'@'}beispiel.de",
     "password": "Passwort",
     "connect": "Verbinden",
-    "loginFailed": "Anmeldung fehlgeschlagen"
+    "loginFailed": "Anmeldung fehlgeschlagen",
+    "credentialStorage": "Passwort für automatische Wiederverbindung speichern?",
+    "credentialStorageDesc": "Ihr Passwort kann gespeichert werden, um sich bei Sitzungsablauf automatisch neu zu verbinden.",
+    "credentialStorageMac": "Ihr System fragt möglicherweise nach der Schlüsselbund-Zugriffsberechtigung.",
+    "credentialStorageLinux": "Verwendet Ihren System-Schlüsselbund zur Verschlüsselung.",
+    "credentialStorageUnavailable": "Kein System-Schlüsselbund erkannt. Passwörter werden während dieser Sitzung unverschlüsselt im Arbeitsspeicher gespeichert.",
+    "enableSecureStorage": "Sicheren Speicher aktivieren",
+    "dontSave": "Nicht speichern"
   },
   "files": {
     "title": "CSV-Dateien auswählen",

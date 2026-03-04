@@ -337,6 +337,8 @@ export function classifyFetchError(error: unknown): ImportErrorCode {
     }
 
     if (
+      msg.includes('500') || msg.includes('internal server error') ||
+      msg.includes('429') || msg.includes('rate limit') || msg.includes('too many requests') ||
       msg.includes('502') || msg.includes('503') || msg.includes('504') ||
       msg.includes('bad gateway') || msg.includes('service unavailable') ||
       msg.includes('gateway timeout')

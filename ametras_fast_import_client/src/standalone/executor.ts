@@ -11,7 +11,7 @@
 import { useSessionStore } from '@/stores/session'
 import type { ParsedRow } from '@/importer/csvParser'
 import type { BatchResult, MappingConfig } from '@/importer/batchExecutor'
-import { detectIdColumn, NetworkBatchError } from '@/importer/batchExecutor'
+import { detectIdColumn, NetworkBatchError, AuthBatchError, TimeoutBatchError } from '@/importer/batchExecutor'
 import { logger } from '@/utils/logger'
 
 // Batch size constraints for standalone mode
@@ -234,8 +234,16 @@ async function executeLoadBatch(
     // Widen errorCode to avoid stale project-reference type narrowing
     const errorCode: string | undefined = response.errorCode
 
+    // Auth errors: stop the import immediately
+    if (errorCode === 'AUTH_ERROR') {
+      throw new AuthBatchError(response.error || 'Authentication failed', rows)
+    }
+    // Timeout errors: server may have committed — need idempotency check before retry
+    if (errorCode === 'TIMEOUT') {
+      throw new TimeoutBatchError(response.error || 'Request timed out', rows)
+    }
     // Network/transient errors: throw so the engine can pause and retry
-    if (errorCode === 'NETWORK_ERROR' || errorCode === 'TIMEOUT' || errorCode === 'AUTH_ERROR') {
+    if (errorCode === 'NETWORK_ERROR') {
       throw new NetworkBatchError(response.error || 'Network error', rows)
     }
 

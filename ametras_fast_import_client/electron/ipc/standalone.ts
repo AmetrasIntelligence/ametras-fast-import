@@ -166,6 +166,12 @@ ipcMain.handle('standalone:load', async (
       if (status === 409) {
         return { ok: false, error: `HTTP ${status}: Conflict`, errorCode: 'CONCURRENCY_ERROR' }
       }
+      if (status === 429) {
+        return { ok: false, error: `HTTP ${status}: Too many requests`, errorCode: 'NETWORK_ERROR' }
+      }
+      if (status === 500) {
+        return { ok: false, error: `HTTP ${status}: Internal server error`, errorCode: 'NETWORK_ERROR' }
+      }
       if (status === 502 || status === 503 || status === 504) {
         return { ok: false, error: `HTTP ${status}: Server unavailable`, errorCode: 'NETWORK_ERROR' }
       }

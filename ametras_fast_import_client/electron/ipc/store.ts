@@ -15,6 +15,10 @@ try {
   storeData = {}
 }
 
+export function getStoreValue(key: string): unknown {
+  return storeData[key] ?? null
+}
+
 async function saveStore() {
   await fs.writeFile(storePath, JSON.stringify(storeData, null, 2))
 }

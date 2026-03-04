@@ -1,4 +1,5 @@
 import { ipcMain, safeStorage } from 'electron'
+import { getStoreValue } from './store'
 
 interface OdooSession {
   baseUrl: string
@@ -24,7 +25,11 @@ const DB_LIST_TIMEOUT_MS = 10_000   // 10s for database listing
 const HEALTH_CHECK_TIMEOUT_MS = 5_000 // 5s for server ping (health check)
 
 const sessions = new Map<string, OdooSession>()
-const savedCredentials = new Map<string, { baseUrl: string; db: string; login: string; encryptedPassword: Buffer }>()
+const savedCredentials = new Map<string, {
+  baseUrl: string; db: string; login: string;
+  password: Buffer;
+  encrypted: boolean;
+}>()
 const reauthInProgress = new Map<string, Promise<OdooSession | undefined>>()
 const reauthFailures = new Map<string, { count: number; lastAttempt: number }>()
 
@@ -296,16 +301,24 @@ ipcMain.handle('odoo:authenticate', async (_event, params: {
   try {
     const result = await performAuthentication(params.baseUrl, params.db, params.login, params.password)
 
-    if (result.ok && safeStorage.isEncryptionAvailable()) {
+    if (result.ok) {
       // Save credentials for automatic re-authentication after session expiry.
-      // Password is encrypted via OS keychain (macOS Keychain / Windows DPAPI)
-      // so it never sits in memory as plaintext beyond this scope.
-      savedCredentials.set(getSessionKey(params.baseUrl, params.db), {
-        baseUrl: params.baseUrl,
-        db: params.db,
-        login: params.login,
-        encryptedPassword: safeStorage.encryptString(params.password)
-      })
+      // Decouple from IPC response so that a macOS Keychain dialog (triggered
+      // by the first safeStorage.encryptString call) never blocks the login.
+      const pref = getStoreValue('credentialEncryption') as string | null
+      if (pref === 'enabled' || pref === 'disabled') {
+        const { baseUrl, db, login, password } = params
+        setTimeout(() => {
+          const useEncryption = pref === 'enabled' && safeStorage.isEncryptionAvailable()
+          savedCredentials.set(getSessionKey(baseUrl, db), {
+            baseUrl, db, login,
+            password: useEncryption
+              ? safeStorage.encryptString(password)
+              : Buffer.from(password),
+            encrypted: useEncryption
+          })
+        }, 0)
+      }
     }
 
     return result
@@ -360,6 +373,12 @@ ipcMain.handle('odoo:call', async (_event, payload: {
       if (status === 401 || status === 403) {
         invalidateSession(baseUrl, payload.db)
         return { ok: false, error: `HTTP ${status}: Session expired`, errorCode: 'AUTH_ERROR' }
+      }
+      if (status === 429) {
+        return { ok: false, error: `HTTP ${status}: Too many requests`, errorCode: 'NETWORK_ERROR' }
+      }
+      if (status === 500) {
+        return { ok: false, error: `HTTP ${status}: Internal server error`, errorCode: 'NETWORK_ERROR' }
       }
       if (status === 502 || status === 503 || status === 504) {
         return { ok: false, error: `HTTP ${status}: Server unavailable`, errorCode: 'NETWORK_ERROR' }
@@ -430,6 +449,11 @@ ipcMain.handle('odoo:ping', async (_event, baseUrl: string) => {
   }
 })
 
+ipcMain.handle('odoo:getEncryptionInfo', () => ({
+  available: safeStorage.isEncryptionAvailable(),
+  platform: process.platform
+}))
+
 export function getSession(baseUrl: string, db?: string): OdooSession | undefined {
   let session: OdooSession | undefined
   if (db) {
@@ -470,7 +494,7 @@ export async function getOrRefreshSession(baseUrl: string, db?: string): Promise
   if (existing) return existing
 
   // Look up saved credentials
-  let creds: { baseUrl: string; db: string; login: string; encryptedPassword: Buffer } | undefined
+  let creds: { baseUrl: string; db: string; login: string; password: Buffer; encrypted: boolean } | undefined
   if (db) {
     creds = savedCredentials.get(getSessionKey(baseUrl, db))
   } else {
@@ -499,11 +523,13 @@ export async function getOrRefreshSession(baseUrl: string, db?: string): Promise
   const inProgress = reauthInProgress.get(key)
   if (inProgress) return inProgress
 
-  const { baseUrl: credBaseUrl, db: credDb, login, encryptedPassword } = creds
+  const { baseUrl: credBaseUrl, db: credDb, login, password: credPassword, encrypted } = creds
   const promise = (async (): Promise<OdooSession | undefined> => {
     try {
       console.log(`[session] Re-authenticating for ${credBaseUrl} (db: ${credDb})`)
-      const password = safeStorage.decryptString(encryptedPassword)
+      const password = encrypted
+        ? safeStorage.decryptString(credPassword)
+        : credPassword.toString('utf-8')
       const result = await performAuthentication(credBaseUrl, credDb, login, password)
       if (result.ok) {
         reauthFailures.delete(key)

@@ -22,6 +22,8 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const showAdvanced = ref(false)
 const selectedProfileId = ref('')
+const showEncryptionPrompt = ref(false)
+const encryptionInfo = ref<{ available: boolean; platform: string } | null>(null)
 
 const savedProfiles = computed(() => session.savedProfiles)
 
@@ -38,6 +40,15 @@ onMounted(async () => {
     return
   }
   await session.loadProfiles()
+  encryptionInfo.value = await window.api.odoo.getEncryptionInfo()
+
+  // Linux without keyring: auto-disable and skip prompt
+  if (encryptionInfo.value && !encryptionInfo.value.available) {
+    const pref = await window.api.store.get('credentialEncryption')
+    if (pref == null) {
+      await window.api.store.set('credentialEncryption', 'disabled')
+    }
+  }
 })
 
 // Build URL from components.
@@ -103,6 +114,13 @@ function parseUrl(url: string) {
 }
 
 async function handleLogin() {
+  // Check if user has made a credential storage choice yet
+  const pref = await window.api.store.get('credentialEncryption')
+  if (pref == null && encryptionInfo.value?.available) {
+    showEncryptionPrompt.value = true
+    return
+  }
+
   loading.value = true
   error.value = null
 
@@ -126,6 +144,12 @@ async function handleLogin() {
   } finally {
     loading.value = false
   }
+}
+
+async function onEncryptionChoice(enabled: boolean) {
+  await window.api.store.set('credentialEncryption', enabled ? 'enabled' : 'disabled')
+  showEncryptionPrompt.value = false
+  handleLogin()
 }
 
 function onProfileSelect(id: string) {
@@ -287,6 +311,34 @@ function removeSelectedProfile() {
             type="password"
             required
           />
+        </div>
+
+        <!-- One-time encryption prompt -->
+        <div v-if="showEncryptionPrompt" class="alert alert-info py-2 small mb-0">
+          <div class="fw-semibold mb-1">{{ $t('login.credentialStorage') }}</div>
+          <p class="mb-1">{{ $t('login.credentialStorageDesc') }}</p>
+          <p v-if="encryptionInfo?.platform === 'darwin'" class="mb-2 text-body-secondary">
+            {{ $t('login.credentialStorageMac') }}
+          </p>
+          <p v-else-if="encryptionInfo?.platform === 'linux'" class="mb-2 text-body-secondary">
+            {{ $t('login.credentialStorageLinux') }}
+          </p>
+          <div class="d-flex gap-2">
+            <Button size="sm" @click="onEncryptionChoice(true)">
+              {{ $t('login.enableSecureStorage') }}
+            </Button>
+            <Button size="sm" variant="secondary" @click="onEncryptionChoice(false)">
+              {{ $t('login.dontSave') }}
+            </Button>
+          </div>
+        </div>
+
+        <!-- Linux without keyring info -->
+        <div
+          v-if="encryptionInfo && !encryptionInfo.available && encryptionInfo.platform === 'linux'"
+          class="alert alert-warning py-2 small mb-0"
+        >
+          {{ $t('login.credentialStorageUnavailable') }}
         </div>
 
         <div

@@ -1,29 +1,10 @@
 import base64
 import logging
-import threading
-import time
-import uuid
 
 from odoo import http
 from odoo.http import request
 
 _logger = logging.getLogger(__name__)
-
-# In-memory stream state (single-worker only)
-_streams = {}
-_streams_lock = threading.Lock()
-_STREAM_TTL = 600  # 10 minutes
-
-
-def _cleanup_expired_streams():
-    """Remove streams older than TTL."""
-    now = time.time()
-    expired = [
-        sid for sid, s in _streams.items()
-        if now - s['created'] > _STREAM_TTL
-    ]
-    for sid in expired:
-        del _streams[sid]
 
 
 class FileController(http.Controller):
@@ -115,80 +96,63 @@ class FileController(http.Controller):
         return {'count': raw.count(b'\n')}
 
     # ------------------------------------------------------------------
-    # Streaming: start / next / close
+    # Streaming: stateless chunk endpoint
     # ------------------------------------------------------------------
     @http.route(
-        '/ametras_fast_import/file/stream_start',
+        '/ametras_fast_import/file/stream_chunk',
         type='json', auth='user', methods=['POST'],
     )
-    def stream_start(self, file_id, chunk_lines=1000, encoding='utf-8', **kwargs):
-        """Start a streaming read of an attachment, split into chunks."""
+    def stream_chunk(self, file_id, chunk_lines=1000, offset=0, encoding='utf-8', **kwargs):
+        """Return a specific chunk of lines from an attachment (stateless).
+
+        Each chunk includes the CSV header as the first line.
+        Stream state (position) is tracked client-side.
+
+        Uses byte-offset scanning (memchr via bytes.find) to locate line
+        boundaries, then decodes only the header + requested slice to text.
+        Avoids splitting the entire file into a line list per call.
+        """
         attachment = request.env['ir.attachment'].browse(int(file_id))
         if not attachment.exists():
-            return {'error': 'Attachment not found'}
+            return {'data': '', 'done': True, 'error': 'Attachment not found'}
 
         raw = base64.b64decode(attachment.datas)
-        text = self._decode(raw, encoding)
-        lines = text.split('\n')
-
-        # Build chunks: first chunk is header + chunk_lines data rows,
-        # subsequent chunks are header + chunk_lines data rows
-        header = lines[0] if lines else ''
-        data_lines = lines[1:]
         chunk_lines = int(chunk_lines)
+        offset = int(offset)
 
-        chunks = []
-        for i in range(0, max(len(data_lines), 1), chunk_lines):
-            batch = data_lines[i:i + chunk_lines]
-            chunk_text = header + '\n' + '\n'.join(batch)
-            chunks.append(chunk_text)
+        # Find header boundary
+        header_end = raw.find(b'\n')
+        if header_end == -1:
+            return {'data': self._decode(raw, encoding), 'done': True}
 
-        if not chunks:
-            chunks = [header]
-
-        stream_id = str(uuid.uuid4())
-        with _streams_lock:
-            _cleanup_expired_streams()
-            _streams[stream_id] = {
-                'chunks': chunks,
-                'pos': 0,
-                'created': time.time(),
-            }
-
-        return {'stream_id': stream_id}
-
-    @http.route(
-        '/ametras_fast_import/file/stream_next',
-        type='json', auth='user', methods=['POST'],
-    )
-    def stream_next(self, stream_id, **kwargs):
-        """Return the next chunk of a stream."""
-        with _streams_lock:
-            stream = _streams.get(stream_id)
-            if not stream:
-                return {'data': '', 'done': True, 'error': 'Stream not found'}
-
-            pos = stream['pos']
-            chunks = stream['chunks']
-
-            if pos >= len(chunks):
+        # Scan to byte offset of the target data line
+        pos = header_end + 1
+        for _ in range(offset):
+            nl = raw.find(b'\n', pos)
+            if nl == -1:
                 return {'data': '', 'done': True}
+            pos = nl + 1
 
-            data = chunks[pos]
-            stream['pos'] = pos + 1
-            done = (pos + 1) >= len(chunks)
+        # Scan chunk_lines more lines for end boundary
+        end = pos
+        lines_found = 0
+        while lines_found < chunk_lines:
+            nl = raw.find(b'\n', end)
+            if nl == -1:
+                end = len(raw)
+                break
+            end = nl + 1
+            lines_found += 1
 
-            return {'data': data, 'done': done}
+        done = end >= len(raw)
 
-    @http.route(
-        '/ametras_fast_import/file/stream_close',
-        type='json', auth='user', methods=['POST'],
-    )
-    def stream_close(self, stream_id, **kwargs):
-        """Clean up a stream."""
-        with _streams_lock:
-            _streams.pop(stream_id, None)
-        return {'ok': True}
+        # Decode only header + chunk slice
+        header_text = self._decode(raw[:header_end], encoding)
+        chunk_text = self._decode(raw[pos:end], encoding).rstrip('\n')
+
+        if not chunk_text:
+            return {'data': header_text, 'done': True}
+        return {'data': header_text + '\n' + chunk_text, 'done': done}
 
     # ------------------------------------------------------------------
     # Helpers

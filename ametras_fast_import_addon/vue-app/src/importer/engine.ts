@@ -1,6 +1,6 @@
 import { ImportStateMachine, ImportState } from './stateMachine'
 import { parseCSVBatched, analyzeCSV, extractRowsByIndex, type ParseOptions } from './csvParser'
-import { NetworkBatchError, type BatchResult } from './batchExecutor'
+import { NetworkBatchError, AuthBatchError, TimeoutBatchError, detectIdColumn, type BatchResult } from './batchExecutor'
 import { ConnectionMonitor, type HealthCheckFn } from './connectionMonitor'
 import { RetryQueue } from './retryQueue'
 import { WorkerPool, type Batch, type BatchProcessResult, calculateThroughput } from './workerPool'
@@ -504,6 +504,11 @@ export class ImportEngine {
     dryRun: boolean | undefined,
   ): Promise<BatchResult[]> {
     const platform = usePlatformStore()
+    const MAX_AUTH_RETRIES = 2
+    let authRetryCount = 0
+    const MAX_NETWORK_RETRIES = 3
+    let networkRetryCount = 0
+
     while (true) {
       // Check if file was skipped before retrying
       if (this.skipFileController?.signal.aborted) {
@@ -531,12 +536,64 @@ export class ImportEngine {
         this.connectionMonitor?.reportOnline()
         return results
       } catch (error) {
-        if (!(error instanceof NetworkBatchError)) {
+        // Auth error — pause and retry (re-auth may succeed after cooldown)
+        if (error instanceof AuthBatchError) {
+          authRetryCount++
+          if (authRetryCount > MAX_AUTH_RETRIES) {
+            logger.import.error('[engine] Authentication failed after retries — stopping import.')
+            this.abort()
+            return batch.rows.map(row => ({
+              ok: false,
+              error: 'Authentication failed: ' + error.message,
+              rowIndex: row.index,
+            }))
+          }
+          logger.import.warn(
+            `[engine] Auth error (attempt ${authRetryCount}/${MAX_AUTH_RETRIES}): ${error.message}. Pausing for reconnection...`
+          )
+          // Fall through to shared reconnection logic below
+        }
+
+        // Timeout error — check for idempotency keys before retrying
+        if (error instanceof TimeoutBatchError) {
+          const hasIdempotencyKey = !!(
+            mapping.searchKeys?.length ||
+            detectIdColumn(mapping.fieldMappings)
+          )
+          if (!hasIdempotencyKey) {
+            logger.import.warn(
+              '[engine] Timeout without idempotency key — failing batch to avoid duplicates'
+            )
+            return batch.rows.map(row => ({
+              ok: false,
+              error: 'Request timed out. Add external IDs or search keys to enable safe retry.',
+              rowIndex: row.index,
+            }))
+          }
+          // Has idempotency key — safe to retry (upsert semantics)
+          logger.import.warn('[engine] Timeout with idempotency key — retrying (upsert-safe)')
+          // Fall through to NetworkBatchError reconnection logic
+        }
+
+        if (
+          !(error instanceof NetworkBatchError) &&
+          !(error instanceof TimeoutBatchError) &&
+          !(error instanceof AuthBatchError)
+        ) {
           throw error
         }
 
-        // Network error — pause and wait for reconnection
-        logger.import.warn(`[engine] Network error during batch: ${error.message}. Pausing for reconnection...`)
+        // Network/auth/timeout error — pause and wait for reconnection
+        networkRetryCount++
+        if (networkRetryCount > MAX_NETWORK_RETRIES) {
+          logger.import.warn(`[engine] Batch failed after ${MAX_NETWORK_RETRIES} retries — giving up`)
+          return batch.rows.map(row => ({
+            ok: false,
+            error: `Network error after ${MAX_NETWORK_RETRIES} retries: ${error.message}`,
+            rowIndex: row.index,
+          }))
+        }
+        logger.import.warn(`[engine] Retryable error during batch: ${error.message}. Pausing for reconnection...`)
 
         const run = useRunStore()
         this.connectionMonitor?.reportOffline()
@@ -687,6 +744,11 @@ export class ImportEngine {
     // Wrapped with network error handling — same pattern as executeBatchWithMapping()
     const rows = retryable.map(r => r.row)
 
+    const MAX_AUTH_RETRIES = 2
+    let authRetryCount = 0
+    const MAX_NETWORK_RETRIES = 3
+    let networkRetryCount = 0
+
     let results: BatchResult[]
     while (true) {
       // Check if file was skipped before retrying
@@ -709,12 +771,51 @@ export class ImportEngine {
         this.connectionMonitor?.reportOnline()
         break
       } catch (error) {
-        if (!(error instanceof NetworkBatchError)) {
+        // Auth error — pause and retry (re-auth may succeed after cooldown)
+        if (error instanceof AuthBatchError) {
+          authRetryCount++
+          if (authRetryCount > MAX_AUTH_RETRIES) {
+            logger.import.error('[engine] Authentication failed during retries — stopping import.')
+            this.abort()
+            return
+          }
+          logger.import.warn(
+            `[engine] Auth error during retries (attempt ${authRetryCount}/${MAX_AUTH_RETRIES}): ${error.message}. Pausing for reconnection...`
+          )
+          // Fall through to shared reconnection logic below
+        }
+
+        // Timeout error — check for idempotency keys before retrying
+        if (error instanceof TimeoutBatchError) {
+          const hasIdempotencyKey = !!(
+            mapping.searchKeys?.length ||
+            detectIdColumn(mapping.fieldMappings)
+          )
+          if (!hasIdempotencyKey) {
+            logger.import.warn(
+              '[engine] Timeout during retries without idempotency key — failing batch to avoid duplicates'
+            )
+            return
+          }
+          logger.import.warn('[engine] Timeout during retries with idempotency key — retrying (upsert-safe)')
+          // Fall through to reconnection logic
+        }
+
+        if (
+          !(error instanceof NetworkBatchError) &&
+          !(error instanceof TimeoutBatchError) &&
+          !(error instanceof AuthBatchError)
+        ) {
           throw error
         }
 
-        // Network error during retries — pause and wait for reconnection
-        logger.import.warn(`[engine] Network error during retries: ${error.message}. Pausing for reconnection...`)
+        // Network/auth/timeout error during retries — pause and wait for reconnection
+        networkRetryCount++
+        if (networkRetryCount > MAX_NETWORK_RETRIES) {
+          logger.import.warn(`[engine] Retries failed after ${MAX_NETWORK_RETRIES} network retries — giving up`)
+          return
+        }
+        logger.import.warn(`[engine] Retryable error during retries: ${error.message}. Pausing for reconnection...`)
 
         const run = useRunStore()
         this.connectionMonitor?.reportOffline()
@@ -976,7 +1077,12 @@ export class ImportEngine {
         )
         const retryAdapter = platform.createBatchAdapter?.(effectiveSize) ?? undefined
 
-        let results!: BatchResult[]
+        const MAX_AUTH_RETRIES = 2
+        let authRetryCount = 0
+        const MAX_NETWORK_RETRIES = 3
+        let networkRetryCount = 0
+
+        let results: BatchResult[] | undefined
         while (true) {
           try {
             results = await platform.executeBatch(
@@ -996,12 +1102,66 @@ export class ImportEngine {
             this.connectionMonitor?.reportOnline()
             break
           } catch (error) {
-            if (!(error instanceof NetworkBatchError)) {
+            // Auth error — pause and retry (re-auth may succeed after cooldown)
+            if (error instanceof AuthBatchError) {
+              authRetryCount++
+              if (authRetryCount > MAX_AUTH_RETRIES) {
+                logger.import.error('[retry] Authentication failed after retries — stopping import.')
+                results = rows.map(row => ({
+                  ok: false,
+                  error: 'Authentication failed: ' + error.message,
+                  rowIndex: row.index,
+                }))
+                this.abort()
+                break
+              }
+              logger.import.warn(
+                `[retry] Auth error (attempt ${authRetryCount}/${MAX_AUTH_RETRIES}): ${error.message}. Pausing for reconnection...`
+              )
+              // Fall through to shared reconnection logic below
+            }
+
+            // Timeout error — check for idempotency keys before retrying
+            if (error instanceof TimeoutBatchError) {
+              const hasIdempotencyKey = !!(
+                mapping.searchKeys?.length ||
+                detectIdColumn(mapping.fieldMappings)
+              )
+              if (!hasIdempotencyKey) {
+                logger.import.warn(
+                  '[retry] Timeout without idempotency key — failing batch to avoid duplicates'
+                )
+                results = rows.map(row => ({
+                  ok: false,
+                  error: 'Request timed out. Add external IDs or search keys to enable safe retry.',
+                  rowIndex: row.index,
+                }))
+                break
+              }
+              logger.import.warn('[retry] Timeout with idempotency key — retrying (upsert-safe)')
+              // Fall through to reconnection logic
+            }
+
+            if (
+              !(error instanceof NetworkBatchError) &&
+              !(error instanceof TimeoutBatchError) &&
+              !(error instanceof AuthBatchError)
+            ) {
               throw error
             }
 
-            // Network error — pause and wait for reconnection
-            logger.import.warn(`[retry] Network error: ${error.message}. Waiting for reconnection...`)
+            // Network/auth/timeout error — pause and wait for reconnection
+            networkRetryCount++
+            if (networkRetryCount > MAX_NETWORK_RETRIES) {
+              logger.import.warn(`[retry] Batch failed after ${MAX_NETWORK_RETRIES} retries — giving up`)
+              results = rows.map(row => ({
+                ok: false,
+                error: `Network error after ${MAX_NETWORK_RETRIES} retries: ${error.message}`,
+                rowIndex: row.index,
+              }))
+              break
+            }
+            logger.import.warn(`[retry] Retryable error: ${error.message}. Waiting for reconnection...`)
             this.connectionMonitor?.reportOffline()
             run.connectionStatus = 'offline'
 
@@ -1028,6 +1188,7 @@ export class ImportEngine {
         }
 
         if (this.abortController?.signal.aborted) break
+        if (!results) continue
 
         // Process results
         let successCount = 0

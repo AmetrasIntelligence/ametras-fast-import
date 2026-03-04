@@ -7,6 +7,11 @@ import { classifyFetchError, ImportErrorCode } from '@/utils/errors'
 // Temp storage for File objects from drag-and-drop
 const _fileMap = new Map<string, File>()
 
+// Client-side stream state for stateless chunk endpoint
+const _streamState = new Map<string, {
+  fileId: string; chunkLines: number; encoding?: string; offset: number
+}>()
+
 let _idCounter = 0
 function nextEmbeddedId(): string {
   return `embedded:${++_idCounter}`
@@ -15,7 +20,11 @@ function nextEmbeddedId(): string {
 /**
  * JSON-RPC call to an Odoo controller (type='json').
  */
-async function jsonRpc<T = unknown>(endpoint: string, params: Record<string, unknown> = {}): Promise<T> {
+async function jsonRpc<T = unknown>(
+  endpoint: string,
+  params: Record<string, unknown> = {},
+  timeoutMs = 30_000,
+): Promise<T> {
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -26,7 +35,11 @@ async function jsonRpc<T = unknown>(endpoint: string, params: Record<string, unk
       params,
       id: Date.now(),
     }),
+    signal: AbortSignal.timeout(timeoutMs),
   })
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+  }
   const data = await response.json()
   if (data.error) {
     throw new Error(data.error.data?.message || data.error.message || 'RPC Error')
@@ -127,42 +140,44 @@ export function installOdooEmbeddedApi(): void {
       },
 
       streamChunks: async (id, chunkLines, onChunk) => {
-        const { stream_id } = await jsonRpc<{ stream_id: string }>(
-          '/ametras_fast_import/file/stream_start',
-          { file_id: id, chunk_lines: chunkLines },
-        )
+        let offset = 0
         let done = false
         while (!done) {
-          const chunk = await jsonRpc<{ data: string; done: boolean; error?: string }>(
-            '/ametras_fast_import/file/stream_next',
-            { stream_id },
+          const result = await jsonRpc<{ data: string; done: boolean; error?: string }>(
+            '/ametras_fast_import/file/stream_chunk',
+            { file_id: id, chunk_lines: chunkLines, offset },
           )
-          onChunk(chunk)
-          done = chunk.done
+          onChunk({ data: result.data, done: result.done, error: result.error })
+          done = result.done
+          offset += chunkLines
         }
-        await jsonRpc('/ametras_fast_import/file/stream_close', { stream_id })
       },
 
       streamStart: async (id, chunkLines, encoding) => {
-        const params: Record<string, unknown> = { file_id: id, chunk_lines: chunkLines }
-        if (encoding) params.encoding = encoding
-        const result = await jsonRpc<{ stream_id: string; error?: string }>(
-          '/ametras_fast_import/file/stream_start',
-          params,
-        )
-        if (result.error) throw new Error(result.error)
-        return result.stream_id
+        const streamId = `local:${++_idCounter}`
+        _streamState.set(streamId, { fileId: id, chunkLines, encoding, offset: 0 })
+        return streamId
       },
 
       streamNext: async (streamId) => {
-        return await jsonRpc<{ data: string; done: boolean; error?: string }>(
-          '/ametras_fast_import/file/stream_next',
-          { stream_id: streamId },
+        const state = _streamState.get(streamId)
+        if (!state) return { data: '', done: true, error: 'Stream not found' }
+        const result = await jsonRpc<{ data: string; done: boolean; error?: string }>(
+          '/ametras_fast_import/file/stream_chunk',
+          {
+            file_id: state.fileId,
+            chunk_lines: state.chunkLines,
+            offset: state.offset,
+            encoding: state.encoding,
+          },
         )
+        state.offset += state.chunkLines
+        if (result.done) _streamState.delete(streamId)
+        return { data: result.data, done: result.done, error: result.error }
       },
 
       streamClose: async (streamId) => {
-        await jsonRpc('/ametras_fast_import/file/stream_close', { stream_id: streamId })
+        _streamState.delete(streamId)
       },
 
       getPathForFile: (file) => {
@@ -190,6 +205,20 @@ export function installOdooEmbeddedApi(): void {
           // Check HTTP-level errors before parsing JSON
           if (!response.ok) {
             const status = response.status
+            if (status === 429) {
+              return {
+                ok: false as const,
+                error: `HTTP ${status}: Too many requests`,
+                errorCode: 'NETWORK_ERROR' as const,
+              }
+            }
+            if (status === 500) {
+              return {
+                ok: false as const,
+                error: `HTTP ${status}: Internal server error`,
+                errorCode: 'NETWORK_ERROR' as const,
+              }
+            }
             if (status === 502 || status === 503 || status === 504) {
               return {
                 ok: false as const,

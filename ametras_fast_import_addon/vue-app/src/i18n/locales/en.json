@@ -51,7 +51,14 @@
     "usernamePlaceholder": "admin{'@'}example.com",
     "password": "Password",
     "connect": "Connect",
-    "loginFailed": "Login failed"
+    "loginFailed": "Login failed",
+    "credentialStorage": "Save password for automatic reconnection?",
+    "credentialStorageDesc": "Your password can be saved to reconnect automatically when sessions expire.",
+    "credentialStorageMac": "Your system may ask for Keychain access permission.",
+    "credentialStorageLinux": "Uses your system keyring for encryption.",
+    "credentialStorageUnavailable": "No system keyring detected. Passwords will be stored in memory without encryption during this session.",
+    "enableSecureStorage": "Enable Secure Storage",
+    "dontSave": "Don't Save"
   },
   "files": {
     "title": "Select CSV Files",

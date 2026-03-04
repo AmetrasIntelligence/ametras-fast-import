@@ -15,6 +15,33 @@ export class NetworkBatchError extends Error {
   }
 }
 
+/**
+ * Error thrown when a batch fails due to an authentication issue.
+ * The import should STOP immediately — all subsequent batches would also fail.
+ */
+export class AuthBatchError extends Error {
+  readonly rows: ParsedRow[]
+  constructor(message: string, rows: ParsedRow[]) {
+    super(message)
+    this.name = 'AuthBatchError'
+    this.rows = rows
+  }
+}
+
+/**
+ * Error thrown when a batch times out.
+ * The server may have already committed the rows — retrying without
+ * idempotency keys (external IDs / search keys) risks creating duplicates.
+ */
+export class TimeoutBatchError extends Error {
+  readonly rows: ParsedRow[]
+  constructor(message: string, rows: ParsedRow[]) {
+    super(message)
+    this.name = 'TimeoutBatchError'
+    this.rows = rows
+  }
+}
+
 export interface BatchResult {
   ok: boolean
   error?: string
@@ -103,8 +130,16 @@ export async function executeBatch(
   })
 
   if (!response.ok || !response.result) {
+    // Auth errors: stop the import immediately — all subsequent batches would also fail
+    if (response.errorCode === 'AUTH_ERROR') {
+      throw new AuthBatchError(response.error || 'Authentication failed', rows)
+    }
+    // Timeout errors: server may have committed — need idempotency check before retry
+    if (response.errorCode === 'TIMEOUT') {
+      throw new TimeoutBatchError(response.error || 'Request timed out', rows)
+    }
     // Network/transient errors: throw so the engine can pause and retry
-    if (response.errorCode === 'NETWORK_ERROR' || response.errorCode === 'TIMEOUT' || response.errorCode === 'AUTH_ERROR') {
+    if (response.errorCode === 'NETWORK_ERROR') {
       throw new NetworkBatchError(response.error || 'Network error', rows)
     }
 
