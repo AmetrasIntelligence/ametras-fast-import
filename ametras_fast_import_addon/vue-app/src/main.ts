@@ -42,6 +42,7 @@ export interface OdooMountOptions {
   logId?: number | null
   profileId?: number | null
   inDialog?: boolean
+  closeDialog?: () => void
 }
 
 export function mountApp(el: HTMLElement, options: OdooMountOptions): () => void {
@@ -120,6 +121,7 @@ export function mountApp(el: HTMLElement, options: OdooMountOptions): () => void
 
   // Set dialog mode flag — reset on each mount since it depends on context
   session.setDialogMode(!!options.inDialog)
+  session.setCloseDialogCallback(options.closeDialog ?? null)
 
   // Store resume context if provided
   if (options.resumeLogId) {
@@ -140,6 +142,11 @@ export function mountApp(el: HTMLElement, options: OdooMountOptions): () => void
     // Viewing a specific profile — store ID so SavedProfilesView auto-expands it
     session.setExpandProfileId(options.profileId)
     targetRoute = '/profiles'
+  } else if (options.defaultView === 'import') {
+    // Explicit request for import view — reset stale run state so we don't
+    // get stuck on /results from a previous completed import
+    runStore.reset()
+    targetRoute = '/import'
   } else if (runStore.isActive) {
     // Import is still running — go straight to the run view
     targetRoute = '/run'

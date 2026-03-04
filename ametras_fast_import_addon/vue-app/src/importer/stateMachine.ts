@@ -12,7 +12,7 @@ export enum ImportState {
 const VALID_TRANSITIONS: Record<ImportState, ImportState[]> = {
   [ImportState.IDLE]: [ImportState.VALIDATING],
   [ImportState.VALIDATING]: [ImportState.RUNNING_FILE, ImportState.FAILED],
-  [ImportState.RUNNING_FILE]: [ImportState.RUNNING_BATCH, ImportState.COMPLETED, ImportState.FAILED, ImportState.PAUSED],
+  [ImportState.RUNNING_FILE]: [ImportState.RUNNING_BATCH, ImportState.RETRYING, ImportState.COMPLETED, ImportState.FAILED, ImportState.PAUSED],
   [ImportState.RUNNING_BATCH]: [ImportState.RUNNING_FILE, ImportState.RETRYING, ImportState.COMPLETED, ImportState.FAILED, ImportState.PAUSED],
   [ImportState.RETRYING]: [ImportState.RUNNING_BATCH, ImportState.RUNNING_FILE, ImportState.COMPLETED, ImportState.FAILED, ImportState.PAUSED],
   [ImportState.PAUSED]: [ImportState.RUNNING_FILE, ImportState.RETRYING, ImportState.IDLE],

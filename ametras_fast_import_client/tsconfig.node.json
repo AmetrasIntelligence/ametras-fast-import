@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "composite": true,
+    "outDir": "./dist-electron/types",
     "skipLibCheck": true,
     "module": "ESNext",
     "moduleResolution": "bundler",

@@ -4,7 +4,7 @@
  */
 
 import { ipcMain } from 'electron'
-import { getOrRefreshSession } from './odoo'
+import { getOrRefreshSession, isSessionExpiredError, invalidateSession } from './odoo'
 
 // ── Addon detection ──────────────────────────────────────────────────
 
@@ -160,6 +160,10 @@ ipcMain.handle('standalone:load', async (
     if (!response.ok) {
       const status = response.status
       console.error('[standalone:load] HTTP error:', status, response.statusText)
+      if (status === 401 || status === 403) {
+        invalidateSession(baseUrl, db)
+        return { ok: false, error: `HTTP ${status}: Session expired`, errorCode: 'AUTH_ERROR' }
+      }
       if (status === 409) {
         return { ok: false, error: `HTTP ${status}: Conflict`, errorCode: 'CONCURRENCY_ERROR' }
       }
@@ -176,6 +180,10 @@ ipcMain.handle('standalone:load', async (
         || data.error.message
         || 'Import failed'
       console.error('[standalone:load] JSON-RPC error:', errorMsg)
+      if (isSessionExpiredError(data.error)) {
+        invalidateSession(baseUrl, db)
+        return { ok: false, error: errorMsg, errorCode: 'AUTH_ERROR' }
+      }
       const errorCode = isConcurrencyError(errorMsg) ? 'CONCURRENCY_ERROR' : 'DATA_ERROR'
       return { ok: false, error: errorMsg, errorCode }
     }

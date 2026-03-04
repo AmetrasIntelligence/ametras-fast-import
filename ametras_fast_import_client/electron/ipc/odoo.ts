@@ -142,6 +142,39 @@ function getSessionKey(baseUrl: string, db: string): string {
 }
 
 /**
+ * Detect Odoo server-side session expiry from a JSON-RPC error payload.
+ * Odoo returns HTTP 200 with a JSON-RPC error when the session has expired
+ * (e.g. server-side GC), which is different from a client-side TTL expiry.
+ */
+export function isSessionExpiredError(
+  error: { code?: number; data?: { name?: string; message?: string }; message?: string }
+): boolean {
+  const name = (error.data?.name || '').toLowerCase()
+  const message = (error.data?.message || error.message || '').toLowerCase()
+  return (
+    name.includes('sessionexpiredexception') ||
+    message.includes('session expired') ||
+    message.includes('session invalid')
+  )
+}
+
+/**
+ * Remove a session from the in-memory store so that the next
+ * getOrRefreshSession() call triggers re-authentication.
+ */
+export function invalidateSession(baseUrl: string, db?: string): void {
+  if (db) {
+    sessions.delete(getSessionKey(baseUrl, db))
+  } else {
+    for (const [key, session] of sessions) {
+      if (session.baseUrl === baseUrl) {
+        sessions.delete(key)
+      }
+    }
+  }
+}
+
+/**
  * Touch all sessions for a given base URL.
  * Used by health checks to prevent session expiry during server outages.
  */
@@ -324,6 +357,10 @@ ipcMain.handle('odoo:call', async (_event, payload: {
     // Check HTTP-level errors before parsing JSON
     if (!response.ok) {
       const status = response.status
+      if (status === 401 || status === 403) {
+        invalidateSession(baseUrl, payload.db)
+        return { ok: false, error: `HTTP ${status}: Session expired`, errorCode: 'AUTH_ERROR' }
+      }
       if (status === 502 || status === 503 || status === 504) {
         return { ok: false, error: `HTTP ${status}: Server unavailable`, errorCode: 'NETWORK_ERROR' }
       }
@@ -333,11 +370,12 @@ ipcMain.handle('odoo:call', async (_event, payload: {
     const data = await response.json()
 
     if (data.error) {
-      return {
-        ok: false,
-        error: data.error.data?.message || data.error.message || 'RPC Error',
-        errorCode: 'DATA_ERROR'
+      const errorMsg = data.error.data?.message || data.error.message || 'RPC Error'
+      if (isSessionExpiredError(data.error)) {
+        invalidateSession(baseUrl, payload.db)
+        return { ok: false, error: errorMsg, errorCode: 'AUTH_ERROR' }
       }
+      return { ok: false, error: errorMsg, errorCode: 'DATA_ERROR' }
     }
 
     return { ok: true, result: data.result }

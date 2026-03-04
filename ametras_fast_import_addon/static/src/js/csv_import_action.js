@@ -60,6 +60,9 @@ class CsvImportVueApp extends Component {
                     logId: logId,
                     profileId: profileId,
                     inDialog: inDialog,
+                    closeDialog: () => {
+                        this.env.services.action.doAction({ type: 'ir.actions.act_window_close' });
+                    },
                 });
             } catch (err) {
                 console.error("[CsvImportVueApp] Failed to mount Vue app:", err);

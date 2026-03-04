@@ -112,6 +112,7 @@ export const useRunStore = defineStore('run', () => {
   }
 
   function initRun(filenames: string[], rowCounts: Map<string, number>, dryRun = false) {
+    isHistoricalLog.value = false
     isDryRun.value = dryRun
     const files: Record<string, FileProgress> = {}
     for (const f of filenames) {

@@ -283,6 +283,11 @@ export class ImportEngine {
         run.completeFile(filename)
       } finally {
         this.skipFileController = null
+        // Clear all per-file transitional UI flags so stale state
+        // never leaks into the next file or the completed screen.
+        run.isInitiating = false
+        run.isPausing = false
+        run.isSkipping = false
       }
     }
 
@@ -305,6 +310,12 @@ export class ImportEngine {
       }
       this.finalizeLog()
     }
+
+    // Clean up connection monitor so its health-check polling does not
+    // continue after the import finishes (leak would interfere with
+    // subsequent operations like profile loading).
+    this.connectionMonitor?.destroy()
+    this.connectionMonitor = null
   }
 
   /**
@@ -453,6 +464,23 @@ export class ImportEngine {
       await this.processRetries(file.name, mapping, settings)
     }
 
+    // processRetries may exit early (skip/abort during reconnection wait or
+    // delay) leaving state at RETRYING.  Normalize back to RUNNING_FILE so
+    // the next file's processRetries transition (RUNNING_FILE → RETRYING)
+    // doesn't fail due to an invalid RETRYING → RETRYING self-transition.
+    if (!this.abortController?.signal.aborted && this.stateMachine.state !== ImportState.RUNNING_FILE) {
+      if (this.stateMachine.tryTransition(ImportState.RUNNING_FILE)) {
+        run.setState(ImportState.RUNNING_FILE)
+      }
+    }
+
+    // If file was skipped during retries (e.g. while waiting for reconnection),
+    // processRetries returns normally without throwing, so the catch block in
+    // start() won't trigger skipFile(). Throw here so it gets handled properly.
+    if (this.skipFileController?.signal.aborted) {
+      throw new Error('File skipped')
+    }
+
     run.isInitiating = false
     if (!this.abortController?.signal.aborted && !this.skipFileController?.signal.aborted) {
       run.completeFile(file.name)
@@ -533,6 +561,7 @@ export class ImportEngine {
             this.workerPool?.resume()
           }
           run.connectionStatus = 'online'
+          this.connectionMonitor?.reportOnline()
           return batch.rows.map(row => ({
             ok: false,
             error: 'Import aborted during reconnection wait',
@@ -706,6 +735,7 @@ export class ImportEngine {
             run.setState(ImportState.RETRYING)
           }
           run.connectionStatus = 'online'
+          this.connectionMonitor?.reportOnline()
           return
         }
 

@@ -3,6 +3,7 @@ import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useRunStore } from '@/stores/run'
+import { useSessionStore } from '@/stores/session'
 import { useFilesStore } from '@/stores/files'
 import { ImportEngine } from '@/importer/engine'
 import { showAlert } from '@/composables/useDialog'
@@ -13,6 +14,7 @@ import { Button, Card, Table } from '@/ui'
 const { t } = useI18n()
 const router = useRouter()
 const run = useRunStore()
+const session = useSessionStore()
 const isRetrying = ref(false)
 const loading = ref(false)
 const loadError = ref<string | null>(null)
@@ -94,6 +96,7 @@ function retryFailedRows() {
   }
 
   isRetrying.value = true
+  run.isHistoricalLog = false
 
   // Create engine and start retry
   const engine = new ImportEngine()
@@ -106,6 +109,16 @@ function retryFailedRows() {
 
   // Navigate to run view immediately to show progress
   router.push('/run')
+}
+
+function closeDialog() {
+  run.reset()
+  const callback = session.closeDialogCallback
+  if (callback) {
+    callback()
+  } else {
+    router.push('/import')
+  }
 }
 
 function startNew() {
@@ -221,17 +234,35 @@ function startNew() {
       </Card>
 
       <div class="d-flex justify-content-end gap-3">
-        <Button
-          v-if="run.hasRetryableErrors && !run.isDryRun && !run.isHistoricalLog"
-          variant="outline"
-          :disabled="isRetrying || run.isActive"
-          @click="retryFailedRows"
-        >
-          {{ isRetrying ? $t('results.retrying') : $t('results.retryFailed') }}
-        </Button>
-        <Button @click="startNew">
-          {{ run.isHistoricalLog ? $t('results.close') : $t('results.startNew') }}
-        </Button>
+        <!-- Addon dialog mode -->
+        <template v-if="session.inDialog">
+          <Button
+            v-if="run.hasRetryableErrors && !run.isDryRun && !run.isHistoricalLog"
+            variant="outline"
+            :disabled="isRetrying || run.isActive"
+            @click="retryFailedRows"
+          >
+            {{ isRetrying ? $t('results.retrying') : $t('results.retryFailed') }}
+          </Button>
+          <Button @click="closeDialog">
+            {{ $t('common.ok') }}
+          </Button>
+        </template>
+
+        <!-- Standalone / non-dialog mode -->
+        <template v-else>
+          <Button
+            v-if="run.hasRetryableErrors && !run.isDryRun && !run.isHistoricalLog"
+            variant="outline"
+            :disabled="isRetrying || run.isActive"
+            @click="retryFailedRows"
+          >
+            {{ isRetrying ? $t('results.retrying') : $t('results.retryFailed') }}
+          </Button>
+          <Button @click="startNew">
+            {{ run.isHistoricalLog ? $t('results.close') : $t('results.startNew') }}
+          </Button>
+        </template>
       </div>
     </template>
   </div>

@@ -18,6 +18,7 @@ export const useSessionStore = defineStore('session', () => {
   const savedProfiles = ref<ServerProfile[]>([])
   const inDialog = ref(false)
   const expandProfileId = ref<number | null>(null)
+  const closeDialogCallback = ref<(() => void) | null>(null)
 
   const isAuthenticated = computed(() => uid.value !== null)
   const isEmbedded = computed(() => mode.value === 'embedded')
@@ -68,6 +69,10 @@ export const useSessionStore = defineStore('session', () => {
     expandProfileId.value = id
   }
 
+  function setCloseDialogCallback(callback: (() => void) | null) {
+    closeDialogCallback.value = callback
+  }
+
   return {
     mode,
     currentServer,
@@ -76,6 +81,7 @@ export const useSessionStore = defineStore('session', () => {
     savedProfiles,
     inDialog,
     expandProfileId,
+    closeDialogCallback,
     isAuthenticated,
     isEmbedded,
     baseUrl,
@@ -84,6 +90,7 @@ export const useSessionStore = defineStore('session', () => {
     loadProfiles,
     setEmbeddedMode,
     setDialogMode,
-    setExpandProfileId
+    setExpandProfileId,
+    setCloseDialogCallback
   }
 })

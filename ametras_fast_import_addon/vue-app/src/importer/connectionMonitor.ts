@@ -48,6 +48,8 @@ export class ConnectionMonitor {
   private waiters: Array<{ resolve: () => void; reject: (err: Error) => void }> = []
   private destroyed = false
   private healthCheckFn: HealthCheckFn
+  /** Timestamp of last reportOnline() — used to detect rapid offline→online→offline cycling. */
+  private lastOnlineAt = 0
 
   constructor(healthCheckFn?: HealthCheckFn) {
     this.healthCheckFn = healthCheckFn ?? defaultHealthCheck
@@ -61,7 +63,16 @@ export class ConnectionMonitor {
   reportOffline(): void {
     if (this.destroyed || this._status === 'offline') return
 
-    this.backoffIndex = 0
+    // Only reset backoff if we've been online for a meaningful duration (>5s).
+    // This prevents a livelock when auth is rate-limited: the server is
+    // reachable (health check passes) but batches fail immediately with
+    // AUTH_ERROR, causing rapid offline→online→offline cycling.  Without
+    // this guard, backoff resets to 0 each cycle, producing ~300 pings in
+    // 5 minutes.  With escalating backoff the load drops to ~25.
+    const onlineDuration = Date.now() - this.lastOnlineAt
+    if (onlineDuration > 5000) {
+      this.backoffIndex = 0
+    }
     this.setStatus('offline')
     this.scheduleHealthCheck()
   }
@@ -71,6 +82,7 @@ export class ConnectionMonitor {
     if (this.destroyed || this._status === 'online') return
 
     this.cancelPoll()
+    this.lastOnlineAt = Date.now()
     this.backoffIndex = 0
     this.setStatus('online')
     this.resolveAllWaiters()

@@ -299,3 +299,9 @@ coverage/
 
 # Demo data
 /demo-csvs/
+
+# Stale tsc emit artifacts in electron/ (source is .ts, build goes through Vite/Rollup)
+# These shadow .ts files during Rollup resolution if accidentally committed.
+ametras_fast_import_client/electron/ipc/*.js
+ametras_fast_import_client/electron/ipc/*.d.ts
+ametras_fast_import_client/electron/preload.js
