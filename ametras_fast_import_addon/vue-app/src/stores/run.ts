@@ -61,7 +61,7 @@ export const useRunStore = defineStore('run', () => {
   })
 
   const globalProgress = computed(() => {
-    const files = Object.values(progress.value.files)
+    const files = Object.values(progress.value.files).filter(f => !f.skipped)
     const total = files.reduce((sum, f) => sum + f.totalRows, 0)
     const processed = files.reduce((sum, f) => sum + f.processedRows, 0)
     return total > 0 ? processed / total : 0
@@ -100,7 +100,7 @@ export const useRunStore = defineStore('run', () => {
   const isWaitingForConnection = computed(() => connectionStatus.value === 'offline')
 
   const pendingRows = computed(() => {
-    const files = Object.values(progress.value.files)
+    const files = Object.values(progress.value.files).filter(f => !f.skipped)
     const total = files.reduce((sum, f) => sum + f.totalRows, 0)
     const success = files.reduce((sum, f) => sum + f.successCount, 0)
     const failed = files.reduce((sum, f) => sum + f.failedCount, 0)

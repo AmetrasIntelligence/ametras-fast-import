@@ -109,7 +109,6 @@ function isConcurrencyError(msg: string): boolean {
   return (
     lower.includes('deadlock detected') ||
     lower.includes('could not serialize access') ||
-    lower.includes('duplicate key value violates unique constraint') ||
     lower.includes('could not obtain lock') ||
     lower.includes('lock timeout') ||
     lower.includes('transactionrollbackerror') ||

@@ -23,7 +23,10 @@ export function transformRowData(
       continue
     }
     if (odooField === '.id') {
-      result['id'] = parseInt(value, 10)
+      const parsed = parseInt(value, 10)
+      if (!Number.isNaN(parsed)) {
+        result['id'] = parsed
+      }
       continue
     }
 
@@ -35,8 +38,11 @@ export function transformRowData(
 
     // Handle reference suffixes: /.id for database ID, /id for external ID
     if (odooField.endsWith('/.id')) {
-      const targetField = odooField.slice(0, -4)
-      result[targetField] = parseInt(value, 10)
+      const parsed = parseInt(value, 10)
+      if (!Number.isNaN(parsed)) {
+        const targetField = odooField.slice(0, -4)
+        result[targetField] = parsed
+      }
       continue
     }
     if (odooField.endsWith('/id')) {

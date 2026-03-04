@@ -907,6 +907,7 @@ export class ImportEngine {
     }
 
     run.initRun(filesToRetry.map(f => f.filename), rowCounts, config.settings.dryRun)
+    this.processedIndices.clear()
 
     if (this.abortController?.signal.aborted) return
 
@@ -1046,6 +1047,15 @@ export class ImportEngine {
               timestamp: Date.now()
             })
           }
+        }
+
+        // Track processed indices for log lifecycle
+        if (!this.processedIndices.has(filename)) {
+          this.processedIndices.set(filename, new Set())
+        }
+        const fileIndices = this.processedIndices.get(filename)!
+        for (const result of results) {
+          fileIndices.add(result.rowIndex)
         }
 
         // Update progress

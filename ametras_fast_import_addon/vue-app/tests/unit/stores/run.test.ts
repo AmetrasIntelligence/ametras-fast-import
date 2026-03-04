@@ -191,6 +191,58 @@ describe('RunStore', () => {
     })
   })
 
+  describe('skipFile', () => {
+    it('excludes skipped files from globalProgress', () => {
+      const store = useRunStore()
+      store.initRun(
+        ['file1.csv', 'file2.csv'],
+        new Map([['file1.csv', 100], ['file2.csv', 100]])
+      )
+
+      store.startFile('file1.csv')
+      store.updateFileProgress('file1.csv', { processedRows: 100, successCount: 100, failedCount: 0 })
+      store.completeFile('file1.csv')
+
+      // Skip file2 — globalProgress should be 100% (only file1 counts)
+      store.skipFile('file2.csv')
+
+      expect(store.globalProgress).toBe(1)
+    })
+
+    it('excludes skipped files from pendingRows', () => {
+      const store = useRunStore()
+      store.initRun(
+        ['file1.csv', 'file2.csv'],
+        new Map([['file1.csv', 50], ['file2.csv', 200]])
+      )
+
+      store.startFile('file1.csv')
+      store.updateFileProgress('file1.csv', { processedRows: 50, successCount: 40, failedCount: 10 })
+      store.completeFile('file1.csv')
+
+      // Skip file2 — pendingRows should only reflect file1
+      store.skipFile('file2.csv')
+
+      // file1: total=50, success=40, failed=10 → pending=0
+      expect(store.pendingRows).toBe(0)
+    })
+
+    it('reports correct progress when all files are skipped', () => {
+      const store = useRunStore()
+      store.initRun(
+        ['file1.csv', 'file2.csv'],
+        new Map([['file1.csv', 100], ['file2.csv', 100]])
+      )
+
+      store.skipFile('file1.csv')
+      store.skipFile('file2.csv')
+
+      // No non-skipped files → total is 0 → globalProgress returns 0
+      expect(store.globalProgress).toBe(0)
+      expect(store.pendingRows).toBe(0)
+    })
+  })
+
   describe('monitoring scenarios', () => {
     it('tracks progress through full import', () => {
       const store = useRunStore()

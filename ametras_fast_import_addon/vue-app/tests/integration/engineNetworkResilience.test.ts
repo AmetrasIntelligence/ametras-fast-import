@@ -28,7 +28,7 @@ interface Deferred<T> {
   reject: (reason?: unknown) => void
 }
 
-function createDeferred<T = void>(): Deferred<T> {
+function _createDeferred<T = void>(): Deferred<T> {
   let resolve!: (value: T) => void
   let reject!: (reason?: unknown) => void
   const promise = new Promise<T>((res, rej) => {
