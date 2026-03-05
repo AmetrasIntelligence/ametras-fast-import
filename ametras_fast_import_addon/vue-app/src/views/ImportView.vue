@@ -307,6 +307,20 @@ function getFieldLookup(filename: string): Map<string, OdooField> {
   return map
 }
 
+// Build set of all valid Odoo field values for a model (mirrors FieldSelect's allOptions)
+function buildValidFieldValues(fields: OdooField[]): Set<string> {
+  const valid = new Set<string>(['id', '.id'])
+  for (const f of fields) {
+    if (f.readonly) continue
+    valid.add(f.name)
+    if (f.type === 'many2one' || f.type === 'many2many') {
+      valid.add(`${f.name}/id`)
+      valid.add(`${f.name}/.id`)
+    }
+  }
+  return valid
+}
+
 async function selectModelForFile(filename: string, model: string) {
   // Reset field suggestions flag so auto-mapping runs for the new model
   fieldSuggestionsApplied.value.delete(filename)
@@ -610,6 +624,14 @@ async function handleProfileSelect(id: number) {
       for (const fm of profile.richFieldMappings) {
         if (!uploadedFilenames.has(fm.filename)) continue
 
+        // Validate: only apply if the target field exists on this server
+        const fileMapping = config.getFileMapping(fm.filename)
+        const modelFields = fileMapping?.model ? fieldsCache.value.get(fileMapping.model) : null
+        if (modelFields) {
+          const validFields = buildValidFieldValues(modelFields)
+          if (!validFields.has(fm.odooField)) continue
+        }
+
         // Also apply to config.fileMappings for the actual import
         const existing = config.getFileMapping(fm.filename)
         if (existing) {
@@ -632,6 +654,27 @@ async function handleProfileSelect(id: number) {
 
     richFieldMappings.value = newRichMappings
     transformOverrides.value = newTransformOverrides
+
+    // After profile mappings are applied, auto-map any remaining unmapped headers
+    for (const file of filesStore.files) {
+      const fileMapping = config.getFileMapping(file.name)
+      if (!fileMapping?.model) continue
+
+      const analysis = filesStore.getAnalysis(file.id)
+      if (!analysis?.headers) continue
+
+      const modelFields = fieldsCache.value.get(fileMapping.model)
+      if (!modelFields) continue
+
+      const unmappedHeaders = analysis.headers.filter(h => !fileMapping.fieldMappings[h])
+      if (unmappedHeaders.length === 0) continue
+
+      const autoMapped = autoMapFields(unmappedHeaders, modelFields)
+      if (Object.keys(autoMapped).length > 0) {
+        const merged = { ...fileMapping.fieldMappings, ...autoMapped }
+        config.setFileMapping(file.name, { ...fileMapping, fieldMappings: merged })
+      }
+    }
 
     // Apply sequence: use profile order for known files, append any
     // uploaded files not in the profile so they don't get silently skipped.

@@ -41,7 +41,7 @@ export const DEFAULT_RUN_SETTINGS: RunSettings = {
   skipHeader: true,
   dryRun: false,
   lang: 'de_DE',
-  workers: 1,
+  workers: 3,
   strict: true
 }
 
