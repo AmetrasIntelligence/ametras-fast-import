@@ -54,6 +54,7 @@ interface ElectronAPI {
     listDatabases: (baseUrl: string) => Promise<DatabaseListResult>
     ping: (baseUrl: string) => Promise<{ ok: boolean }>
     getEncryptionInfo: () => Promise<{ available: boolean; platform: string }>
+    pinSession: (payload: { baseUrl: string; db?: string; pinned: boolean }) => Promise<{ ok: boolean; error?: string }>
   }
   store: {
     get: (key: string) => Promise<unknown>
@@ -157,7 +158,9 @@ contextBridge.exposeInMainWorld('api', {
     authenticate: (params: AuthParams) => ipcRenderer.invoke('odoo:authenticate', params),
     listDatabases: (baseUrl: string) => ipcRenderer.invoke('odoo:listDatabases', baseUrl),
     ping: (baseUrl: string) => ipcRenderer.invoke('odoo:ping', baseUrl),
-    getEncryptionInfo: () => ipcRenderer.invoke('odoo:getEncryptionInfo')
+    getEncryptionInfo: () => ipcRenderer.invoke('odoo:getEncryptionInfo'),
+    pinSession: (payload: { baseUrl: string; db?: string; pinned: boolean }) =>
+      ipcRenderer.invoke('odoo:pinSession', payload)
   },
   store: {
     get: (key: string) => ipcRenderer.invoke('store:get', key),

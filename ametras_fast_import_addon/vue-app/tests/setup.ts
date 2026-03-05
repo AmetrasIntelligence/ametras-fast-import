@@ -47,7 +47,8 @@ const mockApi = {
     }),
     listDatabases: vi.fn().mockResolvedValue({ ok: true, databases: [] }),
     ping: vi.fn().mockResolvedValue({ ok: true }),
-    getEncryptionInfo: vi.fn().mockResolvedValue({ available: false, platform: 'test' })
+    getEncryptionInfo: vi.fn().mockResolvedValue({ available: false, platform: 'test' }),
+    pinSession: vi.fn().mockResolvedValue({ ok: true })
   },
   store: {
     get: vi.fn().mockResolvedValue(null),

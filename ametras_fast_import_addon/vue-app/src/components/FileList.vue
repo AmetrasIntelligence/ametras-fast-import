@@ -16,12 +16,14 @@ export interface FileListItem {
 
 const props = defineProps<{
   files: FileListItem[]
+  missingFiles?: string[]
 }>()
 
 const emit = defineEmits<{
   reorder: [filenames: string[]]
   remove: [fileId: string]
   expand: [fileId: string]
+  'dismiss-missing': [filename: string]
 }>()
 
 const config = useConfigStore()
@@ -193,6 +195,27 @@ function onDragEnd() {
         <slot name="expanded" :file="file" :readonly="isImportRunning" />
       </div>
     </div>
+
+    <!-- Missing profile files (greyed-out placeholders) -->
+    <div
+      v-for="name in missingFiles"
+      :key="'missing-' + name"
+      class="csv-file-list__item csv-file-list__item--missing"
+    >
+      <div class="csv-file-list__header">
+        <span class="csv-file-list__order">&mdash;</span>
+        <span class="csv-file-list__filename">{{ name }}</span>
+        <small class="text-body-secondary">{{ $t('files.notUploaded') }}</small>
+        <button
+          type="button"
+          class="csv-file-list__remove"
+          :title="$t('common.dismiss')"
+          @click.stop="emit('dismiss-missing', name)"
+        >
+          &times;
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -292,5 +315,12 @@ function onDragEnd() {
 .csv-file-list__expanded--readonly {
   opacity: 0.6;
   pointer-events: none;
+}
+.csv-file-list__item--missing {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.csv-file-list__item--missing .csv-file-list__remove {
+  pointer-events: auto;
 }
 </style>

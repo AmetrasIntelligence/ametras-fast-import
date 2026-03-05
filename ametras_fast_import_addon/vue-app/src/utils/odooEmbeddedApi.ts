@@ -271,6 +271,11 @@ export function installOdooEmbeddedApi(): void {
         return { available: false, platform: 'embedded' }
       },
 
+      pinSession: async () => {
+        // Not applicable in embedded mode
+        return { ok: true }
+      },
+
       ping: async () => {
         // Embedded mode: same-origin fetch to check server reachability
         try {

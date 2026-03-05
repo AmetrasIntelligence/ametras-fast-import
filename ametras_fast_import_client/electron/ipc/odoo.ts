@@ -25,6 +25,7 @@ const DB_LIST_TIMEOUT_MS = 10_000   // 10s for database listing
 const HEALTH_CHECK_TIMEOUT_MS = 5_000 // 5s for server ping (health check)
 
 const sessions = new Map<string, OdooSession>()
+const pinnedSessions = new Set<string>()
 const savedCredentials = new Map<string, {
   baseUrl: string; db: string; login: string;
   password: Buffer;
@@ -49,6 +50,7 @@ function cleanupExpiredSessions(): void {
   const expiredKeys: string[] = []
 
   for (const [key, session] of sessions) {
+    if (pinnedSessions.has(key)) continue
     const inactiveTime = now - session.lastActivity
     const sessionAge = now - session.createdAt
 
@@ -169,11 +171,14 @@ export function isSessionExpiredError(
  */
 export function invalidateSession(baseUrl: string, db?: string): void {
   if (db) {
-    sessions.delete(getSessionKey(baseUrl, db))
+    const key = getSessionKey(baseUrl, db)
+    sessions.delete(key)
+    pinnedSessions.delete(key)
   } else {
     for (const [key, session] of sessions) {
       if (session.baseUrl === baseUrl) {
         sessions.delete(key)
+        pinnedSessions.delete(key)
       }
     }
   }
@@ -409,7 +414,7 @@ ipcMain.handle('odoo:call', async (_event, payload: {
     if (e instanceof TypeError) {
       // TypeError from fetch = DNS failure, connection refused, offline
       errorCode = 'NETWORK_ERROR'
-    } else if (e instanceof DOMException && e.name === 'AbortError') {
+    } else if (e instanceof DOMException && (e.name === 'AbortError' || e.name === 'TimeoutError')) {
       errorCode = 'TIMEOUT'
     } else if (e instanceof Error) {
       const msg = e.message.toLowerCase()
@@ -458,6 +463,43 @@ ipcMain.handle('odoo:getEncryptionInfo', () => ({
   available: safeStorage.isEncryptionAvailable(),
   platform: process.platform
 }))
+
+ipcMain.handle('odoo:pinSession', async (_event, payload: {
+  baseUrl: string
+  db?: string
+  pinned: boolean
+}) => {
+  const urlCheck = validateBaseUrl(payload.baseUrl)
+  if (!urlCheck.valid) {
+    return { ok: false, error: urlCheck.error }
+  }
+
+  if (payload.db) {
+    const key = getSessionKey(payload.baseUrl, payload.db)
+    if (payload.pinned) {
+      pinnedSessions.add(key)
+    } else {
+      pinnedSessions.delete(key)
+    }
+    const session = sessions.get(key)
+    if (session) {
+      touchSession(session)
+    }
+    return { ok: true }
+  }
+
+  for (const [key, session] of sessions) {
+    if (session.baseUrl !== payload.baseUrl) continue
+    if (payload.pinned) {
+      pinnedSessions.add(key)
+    } else {
+      pinnedSessions.delete(key)
+    }
+    touchSession(session)
+  }
+
+  return { ok: true }
+})
 
 export function getSession(baseUrl: string, db?: string): OdooSession | undefined {
   let session: OdooSession | undefined
@@ -560,6 +602,7 @@ export async function getOrRefreshSession(baseUrl: string, db?: string): Promise
 
 export function clearSessions(): void {
   sessions.clear()
+  pinnedSessions.clear()
   savedCredentials.clear()
   reauthFailures.clear()
 }
@@ -570,6 +613,7 @@ export function clearSessions(): void {
 export function shutdownSessions(): void {
   stopSessionCleanup()
   sessions.clear()
+  pinnedSessions.clear()
   savedCredentials.clear()
   reauthInProgress.clear()
   reauthFailures.clear()

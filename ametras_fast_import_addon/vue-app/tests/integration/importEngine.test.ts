@@ -205,6 +205,20 @@ describe('ImportEngine Integration', () => {
     it('can abort running import', async () => {
       const config = useConfigStore()
       const run = useRunStore()
+      const platform = usePlatformStore()
+
+      // Use a slow mock so the abort signal lands before the batch completes
+      platform.configure({
+        ...platform.$state,
+        executeBatch: vi.fn<ExecuteBatchFn>(async (_model, rows) => {
+          await new Promise(resolve => setTimeout(resolve, 200))
+          return rows.map((row, idx) => ({
+            ok: true,
+            rowIndex: row.index ?? idx,
+            createdId: idx + 1,
+          }))
+        }),
+      })
 
       config.setSequence(['partners.csv'])
       config.setFileMapping('partners.csv', {
@@ -217,7 +231,9 @@ describe('ImportEngine Integration', () => {
       currentEngine = new ImportEngine()
       const importPromise = currentEngine!.start([{ id: 'file-1', name: 'partners.csv' }])
 
-      // Abort immediately
+      // Wait a tick so the engine enters the batch execution loop
+      await new Promise(resolve => setTimeout(resolve, 10))
+
       currentEngine!.abort()
 
       await importPromise

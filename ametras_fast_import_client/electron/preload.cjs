@@ -38,7 +38,8 @@ contextBridge.exposeInMainWorld('api', {
     authenticate: (params) => ipcRenderer.invoke('odoo:authenticate', params),
     listDatabases: (baseUrl) => ipcRenderer.invoke('odoo:listDatabases', baseUrl),
     ping: (baseUrl) => ipcRenderer.invoke('odoo:ping', baseUrl),
-    getEncryptionInfo: () => ipcRenderer.invoke('odoo:getEncryptionInfo')
+    getEncryptionInfo: () => ipcRenderer.invoke('odoo:getEncryptionInfo'),
+    pinSession: (payload) => ipcRenderer.invoke('odoo:pinSession', payload)
   },
   store: {
     get: (key) => ipcRenderer.invoke('store:get', key),

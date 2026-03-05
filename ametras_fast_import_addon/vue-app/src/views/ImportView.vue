@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRouter, onBeforeRouteLeave } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useFilesStore } from '@/stores/files'
@@ -63,6 +63,8 @@ const transformOverrides = ref<Map<string, FieldTransform>>(new Map())
 // Track if there are unsaved changes
 const profileLoadedAt = ref<number>(0)
 const lastEditAt = ref<number>(0)
+const isApplyingProfile = ref(false)
+const profileMissingFiles = ref<Set<string>>(new Set())
 
 // Mark as edited when config changes
 watch(
@@ -73,6 +75,7 @@ watch(
     transformOverrides.value.size
   ],
   () => {
+    if (isApplyingProfile.value) return
     if (profileLoadedAt.value > 0) {
       lastEditAt.value = Date.now()
     }
@@ -522,7 +525,12 @@ function removeFile(fileId: string) {
   const filename = file?.name
 
   filesStore.removeFile(fileId)
-  config.setSequence(filesStore.files.map(f => f.name))
+  // Preserve existing sequence order — only remove the deleted file
+  config.setSequence(
+    filename
+      ? config.importSequence.filter(f => f !== filename)
+      : filesStore.files.map(f => f.name)
+  )
 
   // Clean up mappings for removed file
   if (filename) {
@@ -562,6 +570,7 @@ async function handleProfileSelect(id: number) {
     return
   }
   profileLoading.value = true
+  isApplyingProfile.value = true
   try {
     const profile = await profiles.loadProfile(id)
     activeProfile.value = profile
@@ -637,13 +646,21 @@ async function handleProfileSelect(id: number) {
       config.setSequence([...profileFilenames, ...extraFiles])
     }
 
+    // Track files referenced by profile but not currently uploaded
+    const allProfileFilenames = new Set(profile.sequence.map(s => s.filename))
+    profileMissingFiles.value = new Set(
+      [...allProfileFilenames].filter(f => !uploadedFilenames.has(f))
+    )
+
     // Mark as freshly loaded (no unsaved changes yet)
     profileLoadedAt.value = Date.now()
     lastEditAt.value = 0
+    await nextTick() // flush queued watchers (guarded by isApplyingProfile)
   } catch (e) {
     showAlert(t('config.failedToLoadProfile', { error: (e as Error).message }))
     activeProfile.value = null
   } finally {
+    isApplyingProfile.value = false
     profileLoading.value = false
   }
 }
@@ -655,6 +672,7 @@ function clearProfile() {
   transformOverrides.value = new Map()
   profileLoadedAt.value = 0
   lastEditAt.value = 0
+  profileMissingFiles.value = new Set()
 }
 
 async function proceed() {
@@ -930,8 +948,10 @@ async function updateExistingProfile() {
 
       <FileList
         :files="fileListItems"
+        :missing-files="[...profileMissingFiles]"
         @reorder="handleReorder"
         @remove="removeFile"
+        @dismiss-missing="profileMissingFiles.delete($event)"
       >
         <template #expanded="{ file }">
           <div class="d-flex flex-column gap-3">

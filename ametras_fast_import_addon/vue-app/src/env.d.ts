@@ -111,6 +111,7 @@ interface ElectronAPI {
     listDatabases: (baseUrl: string) => Promise<DatabaseListResult>
     ping: (baseUrl: string) => Promise<{ ok: boolean }>
     getEncryptionInfo: () => Promise<{ available: boolean; platform: string }>
+    pinSession: (payload: { baseUrl: string; db?: string; pinned: boolean }) => Promise<{ ok: boolean; error?: string }>
   }
   store: {
     get: (key: string) => Promise<unknown>

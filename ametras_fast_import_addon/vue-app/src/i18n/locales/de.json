@@ -73,7 +73,8 @@
     },
     "removeFile": "Datei entfernen",
     "removeAll": "Alle entfernen",
-    "removeAllConfirm": "Alle Dateien entfernen und Zuordnungen zurücksetzen?"
+    "removeAllConfirm": "Alle Dateien entfernen und Zuordnungen zurücksetzen?",
+    "notUploaded": "nicht hochgeladen"
   },
   "config": {
     "title": "Import konfigurieren",

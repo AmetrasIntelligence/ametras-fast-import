@@ -216,7 +216,7 @@ ipcMain.handle('standalone:load', async (
     let errorCode: 'NETWORK_ERROR' | 'TIMEOUT' | 'UNKNOWN' = 'UNKNOWN'
     if (error instanceof TypeError) {
       errorCode = 'NETWORK_ERROR'
-    } else if (error instanceof DOMException && error.name === 'AbortError') {
+    } else if (error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
       errorCode = 'TIMEOUT'
     } else if (error instanceof Error) {
       const msg = error.message.toLowerCase()

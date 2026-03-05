@@ -67,6 +67,16 @@ export class BatchSizeAdapter {
       this.consecutiveFailures = 0
     }
   }
+
+  /** Immediately step down one level — used for timeouts where the batch is clearly too large. */
+  recordTimeout(): void {
+    this.successfulRows = 0
+    this.consecutiveFailures = 0
+    if (this.levelIndex > 0) {
+      this.levelIndex--
+      this.currentSize = this.levels[this.levelIndex]
+    }
+  }
 }
 
 // Concurrency retry settings
@@ -525,7 +535,10 @@ export async function executeStandaloneBatch(
         )
       } catch (err) {
         if (err instanceof TimeoutBatchError && adapter) {
-          adapter.recordFailure()
+          adapter.recordTimeout()
+          logger.import.warn(
+            `[standalone] Timeout — adapter stepped down to batch size ${adapter.currentSize}`
+          )
         }
         throw err
       }

@@ -103,6 +103,13 @@ export class ImportEngine {
   private skipFileController: AbortController | null = null
   private batchSizeAdapter: unknown = null
   private connectionMonitor: ConnectionMonitor | null = null
+  private combinedAbortSignal: {
+    signal: AbortSignal
+    run?: AbortSignal
+    skip?: AbortSignal
+    onAbort: () => void
+  } | null = null
+  private pinnedSession: { baseUrl: string; db: string } | null = null
 
   // Throughput tracking
   private fileStartTime = 0
@@ -122,7 +129,9 @@ export class ImportEngine {
     const config = useConfigStore()
     const run = useRunStore()
 
-    this.abortController = new AbortController()
+    await this.setSessionPinned(true)
+    try {
+      this.abortController = new AbortController()
 
     // Initialize connection monitor with appropriate health check for the current mode
     this.connectionMonitor = new ConnectionMonitor(this.createHealthCheckFn())
@@ -284,6 +293,7 @@ export class ImportEngine {
         })
         run.completeFile(filename)
       } finally {
+        this.clearCombinedAbortSignal()
         this.skipFileController = null
         // Clear all per-file transitional UI flags so stale state
         // never leaks into the next file or the completed screen.
@@ -318,6 +328,10 @@ export class ImportEngine {
     // subsequent operations like profile loading).
     this.connectionMonitor?.destroy()
     this.connectionMonitor = null
+    this.clearCombinedAbortSignal()
+    } finally {
+      await this.setSessionPinned(false)
+    }
   }
 
   /**
@@ -542,6 +556,20 @@ export class ImportEngine {
         this.connectionMonitor?.reportOnline()
         return results
       } catch (error) {
+        if (this.skipFileController?.signal.aborted) {
+          return batch.rows.map(row => ({
+            ok: false,
+            error: 'File skipped',
+            rowIndex: row.index,
+          }))
+        }
+        if (this.abortController?.signal.aborted) {
+          return batch.rows.map(row => ({
+            ok: false,
+            error: 'Import aborted',
+            rowIndex: row.index,
+          }))
+        }
         // Auth error — pause and retry (re-auth may succeed after cooldown)
         if (error instanceof AuthBatchError) {
           authRetryCount++
@@ -593,7 +621,7 @@ export class ImportEngine {
             `retrying in ${delay / 1000}s...`
           )
           await this.delay(delay)
-          continue // retry loop — adapter has already reduced batch size
+          continue // retry loop — adapter stepped down batch size on timeout
         }
 
         if (
@@ -639,9 +667,10 @@ export class ImportEngine {
           }
           run.connectionStatus = 'online'
           this.connectionMonitor?.reportOnline()
+          const wasSkipped = this.skipFileController?.signal.aborted
           return batch.rows.map(row => ({
             ok: false,
-            error: 'Import aborted during reconnection wait',
+            error: wasSkipped ? 'File skipped' : 'Import aborted during reconnection wait',
             rowIndex: row.index
           }))
         }
@@ -675,6 +704,15 @@ export class ImportEngine {
     // Use lock to serialize state updates from concurrent workers
     runStateLock.withLock(() => {
       const run = useRunStore()
+      const fileProgress = run.progress.files[filename]
+      if (!fileProgress) return
+
+      // Ignore late-arriving callbacks when a file was skipped.
+      // Without this, in-flight batches can still surface as network errors
+      // even though the user explicitly skipped the file.
+      if (run.isSkipping || fileProgress.skipped) {
+        return
+      }
       const batch = result.results
 
       // Clear transitional UI flags
@@ -793,6 +831,8 @@ export class ImportEngine {
         this.connectionMonitor?.reportOnline()
         break
       } catch (error) {
+        if (this.skipFileController?.signal.aborted) return
+        if (this.abortController?.signal.aborted) return
         // Auth error — pause and retry (re-auth may succeed after cooldown)
         if (error instanceof AuthBatchError) {
           authRetryCount++
@@ -832,7 +872,7 @@ export class ImportEngine {
             `retrying in ${delay / 1000}s...`
           )
           await this.delay(delay)
-          continue // retry loop — adapter has already reduced batch size
+          continue // retry loop — adapter stepped down batch size on timeout
         }
 
         if (
@@ -950,6 +990,8 @@ export class ImportEngine {
     this.skipFileController?.abort()
     this.workerPool?.abort()
     this.connectionMonitor?.destroy()
+    this.clearCombinedAbortSignal()
+    void this.setSessionPinned(false)
     this.stopHeartbeat()
     // Set to FAILED state instead of resetting, so results can be viewed
     this.stateMachine.reset()
@@ -982,6 +1024,8 @@ export class ImportEngine {
     const run = useRunStore()
     const filesStore = useFilesStore()
 
+    await this.setSessionPinned(true)
+    try {
     // Group errors by filename, collecting row numbers
     const errorsByFile = new Map<string, Set<number>>()
     for (const error of run.errors) {
@@ -1114,6 +1158,8 @@ export class ImportEngine {
         let authRetryCount = 0
         const MAX_NETWORK_RETRIES = 3
         let networkRetryCount = 0
+        const MAX_TIMEOUT_RETRIES = 2
+        let timeoutRetryCount = 0
 
         let results: BatchResult[] | undefined
         while (true) {
@@ -1154,7 +1200,8 @@ export class ImportEngine {
               // Fall through to shared reconnection logic below
             }
 
-            // Timeout error — check for idempotency keys before retrying
+            // Timeout error — server is slow, not down.
+            // Retry with backoff (adapter already reduced batch size).
             if (error instanceof TimeoutBatchError) {
               const hasIdempotencyKey = !!(
                 mapping.searchKeys?.length ||
@@ -1171,19 +1218,34 @@ export class ImportEngine {
                 }))
                 break
               }
-              logger.import.warn('[retry] Timeout with idempotency key — retrying (upsert-safe)')
-              // Fall through to reconnection logic
+
+              timeoutRetryCount++
+              if (timeoutRetryCount > MAX_TIMEOUT_RETRIES) {
+                logger.import.warn(`[retry] Timed out after ${MAX_TIMEOUT_RETRIES} retries — failing batch`)
+                results = rows.map(row => ({
+                  ok: false,
+                  error: `Timed out after ${MAX_TIMEOUT_RETRIES} retries: ${error.message}`,
+                  rowIndex: row.index,
+                }))
+                break
+              }
+              const delay = timeoutRetryCount === 1 ? 5_000 : 15_000
+              logger.import.warn(
+                `[retry] Timeout (attempt ${timeoutRetryCount}/${MAX_TIMEOUT_RETRIES}), ` +
+                `retrying in ${delay / 1000}s...`
+              )
+              await this.delay(delay)
+              continue // retry loop — adapter stepped down batch size on timeout
             }
 
             if (
               !(error instanceof NetworkBatchError) &&
-              !(error instanceof TimeoutBatchError) &&
               !(error instanceof AuthBatchError)
             ) {
               throw error
             }
 
-            // Network/auth/timeout error — pause and wait for reconnection
+            // Network/auth error — pause and wait for reconnection
             networkRetryCount++
             if (networkRetryCount > MAX_NETWORK_RETRIES) {
               logger.import.warn(`[retry] Batch failed after ${MAX_NETWORK_RETRIES} retries — giving up`)
@@ -1285,6 +1347,7 @@ export class ImportEngine {
     // Clean up connection monitor
     this.connectionMonitor?.destroy()
     this.connectionMonitor = null
+    this.clearCombinedAbortSignal()
 
     // Complete
     if (!this.abortController.signal.aborted) {
@@ -1300,6 +1363,9 @@ export class ImportEngine {
       }
       this.finalizeLog()
     }
+    } finally {
+      await this.setSessionPinned(false)
+    }
   }
 
   /**
@@ -1313,16 +1379,81 @@ export class ImportEngine {
     if (!run && !skip) return undefined
     if (!skip) return run
     if (!run) return skip
+
+    if (
+      this.combinedAbortSignal &&
+      this.combinedAbortSignal.run === run &&
+      this.combinedAbortSignal.skip === skip
+    ) {
+      return this.combinedAbortSignal.signal
+    }
+
+    this.clearCombinedAbortSignal()
+
     if (run.aborted || skip.aborted) {
       const c = new AbortController()
       c.abort()
       return c.signal
     }
     const combined = new AbortController()
-    const onAbort = () => combined.abort()
-    run.addEventListener('abort', onAbort, { once: true })
-    skip.addEventListener('abort', onAbort, { once: true })
+    const onAbort = () => {
+      if (!combined.signal.aborted) {
+        combined.abort()
+      }
+    }
+    run.addEventListener('abort', onAbort)
+    skip.addEventListener('abort', onAbort)
+    this.combinedAbortSignal = {
+      signal: combined.signal,
+      run,
+      skip,
+      onAbort,
+    }
     return combined.signal
+  }
+
+  private clearCombinedAbortSignal(): void {
+    if (!this.combinedAbortSignal) return
+    const { run, skip, onAbort } = this.combinedAbortSignal
+    run?.removeEventListener('abort', onAbort)
+    skip?.removeEventListener('abort', onAbort)
+    this.combinedAbortSignal = null
+  }
+
+  private async setSessionPinned(pinned: boolean): Promise<void> {
+    const session = useSessionStore()
+    const api = window.api?.odoo as { pinSession?: (payload: {
+      baseUrl: string
+      db?: string
+      pinned: boolean
+    }) => Promise<{ ok: boolean; error?: string }> } | undefined
+    if (!api?.pinSession) return
+
+    if (pinned) {
+      if (session.isEmbedded) return
+      const baseUrl = session.baseUrl
+      const db = session.currentServer?.db
+      if (!baseUrl || !db) return
+      this.pinnedSession = { baseUrl, db }
+      try {
+        await api.pinSession({ baseUrl, db, pinned: true })
+      } catch {
+        // Ignore pinning failures; import can still proceed
+      }
+      return
+    }
+
+    const target = this.pinnedSession || (session.baseUrl && session.currentServer?.db
+      ? { baseUrl: session.baseUrl, db: session.currentServer.db }
+      : null)
+    if (!target) return
+    try {
+      await api.pinSession({ baseUrl: target.baseUrl, db: target.db, pinned: false })
+    } catch {
+      // Ignore unpinning failures
+    } finally {
+      this.pinnedSession = null
+    }
   }
 
   private delay(ms: number): Promise<void> {

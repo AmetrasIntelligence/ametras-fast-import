@@ -327,6 +327,7 @@ export class WorkerPool {
           // Errors are NOT caught here — they propagate to finishFile's drain loop
           // so progress update failures are visible instead of silently lost.
           const callbackPromise = Promise.resolve().then(() => {
+            if (this.aborted) return
             this.onBatchComplete?.({
               batchId: batch.id,
               results,
@@ -346,6 +347,7 @@ export class WorkerPool {
           this.processedBatches++
           // Track error callback as pending
           const errorCallbackPromise = Promise.resolve().then(() => {
+            if (this.aborted) return
             this.onBatchComplete?.({
               batchId: batch.id,
               results: batch.rows.map(row => ({

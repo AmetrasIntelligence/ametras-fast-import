@@ -106,5 +106,8 @@ export default defineConfig(({ mode: _mode }) => ({
     ],
     dedupe: ['vue', 'vue-router', 'pinia']
   },
-  base: './'
+  base: './',
+  test: {
+    exclude: ['tests/e2e/**', 'node_modules/**'],
+  },
 }))

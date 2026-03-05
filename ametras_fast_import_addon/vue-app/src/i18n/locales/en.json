@@ -73,7 +73,8 @@
     },
     "removeFile": "Remove file",
     "removeAll": "Remove All",
-    "removeAllConfirm": "Remove all files and reset mappings?"
+    "removeAllConfirm": "Remove all files and reset mappings?",
+    "notUploaded": "not uploaded"
   },
   "config": {
     "title": "Configure Import",

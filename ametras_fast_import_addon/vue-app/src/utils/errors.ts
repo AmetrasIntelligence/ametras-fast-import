@@ -320,7 +320,7 @@ export function isNetworkError(error: ImportError): boolean {
  * Inspects the error type, name, and message to determine the cause.
  */
 export function classifyFetchError(error: unknown): ImportErrorCode {
-  if (error instanceof DOMException && error.name === 'AbortError') {
+  if (error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
     return ImportErrorCode.TIMEOUT
   }
 
