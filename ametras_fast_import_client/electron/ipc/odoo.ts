@@ -302,6 +302,11 @@ ipcMain.handle('odoo:authenticate', async (_event, params: {
     const result = await performAuthentication(params.baseUrl, params.db, params.login, params.password)
 
     if (result.ok) {
+      // Clear any reauth rate-limit so the session is immediately usable.
+      // Without this, zombie timeouts from a skipped file can lock out all
+      // calls for 5 minutes even after a successful explicit re-login.
+      reauthFailures.delete(getSessionKey(params.baseUrl, params.db))
+
       // Save credentials for automatic re-authentication after session expiry.
       // Decouple from IPC response so that a macOS Keychain dialog (triggered
       // by the first safeStorage.encryptString call) never blocks the login.

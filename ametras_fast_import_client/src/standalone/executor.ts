@@ -518,9 +518,17 @@ export async function executeStandaloneBatch(
       const chunkSize = adapter.currentSize
       const chunk = rows.slice(offset, offset + chunkSize)
 
-      const chunkResults = await executeWithAdaptiveRetry(
-        session.baseUrl, db, model, header, chunk, mapping, 0, chunkSize, retryDepth, signal
-      )
+      let chunkResults: BatchResult[]
+      try {
+        chunkResults = await executeWithAdaptiveRetry(
+          session.baseUrl, db, model, header, chunk, mapping, 0, chunkSize, retryDepth, signal
+        )
+      } catch (err) {
+        if (err instanceof TimeoutBatchError && adapter) {
+          adapter.recordFailure()
+        }
+        throw err
+      }
 
       // Update adapter based on outcome
       const hadFailure = chunkResults.some(r => !r.ok)

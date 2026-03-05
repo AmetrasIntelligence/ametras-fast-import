@@ -263,6 +263,8 @@ export class ImportEngine {
           logger.import.info(`Skipped file: ${filename}`)
           run.isSkipping = false
           run.skipFile(filename)
+          run.connectionStatus = 'online'
+          this.connectionMonitor?.reportOnline()
           continue
         }
 
@@ -446,6 +448,7 @@ export class ImportEngine {
     // Completion flow (shared for both sources)
     if (this.skipFileController?.signal.aborted) {
       this.workerPool?.abort()
+      await this.workerPool?.drain()
       this.workerPool = null
       throw new Error('File skipped')
     }
@@ -455,6 +458,7 @@ export class ImportEngine {
     }
 
     if (this.skipFileController?.signal.aborted) {
+      await this.workerPool?.drain()
       this.workerPool = null
       throw new Error('File skipped')
     }
@@ -508,6 +512,8 @@ export class ImportEngine {
     let authRetryCount = 0
     const MAX_NETWORK_RETRIES = 3
     let networkRetryCount = 0
+    const MAX_TIMEOUT_RETRIES = 2
+    let timeoutRetryCount = 0
 
     while (true) {
       // Check if file was skipped before retrying
@@ -527,7 +533,7 @@ export class ImportEngine {
           },
           {
             dryRun,
-            signal: this.abortController?.signal,
+            signal: this.fileOrRunSignal(),
             batchAdapter: this.batchSizeAdapter,
           }
         )
@@ -554,7 +560,8 @@ export class ImportEngine {
           // Fall through to shared reconnection logic below
         }
 
-        // Timeout error — check for idempotency keys before retrying
+        // Timeout error — server is slow, not down.
+        // Retry with backoff (adapter already reduced batch size).
         if (error instanceof TimeoutBatchError) {
           const hasIdempotencyKey = !!(
             mapping.searchKeys?.length ||
@@ -570,20 +577,33 @@ export class ImportEngine {
               rowIndex: row.index,
             }))
           }
-          // Has idempotency key — safe to retry (upsert semantics)
-          logger.import.warn('[engine] Timeout with idempotency key — retrying (upsert-safe)')
-          // Fall through to NetworkBatchError reconnection logic
+
+          timeoutRetryCount++
+          if (timeoutRetryCount > MAX_TIMEOUT_RETRIES) {
+            logger.import.warn(`[engine] Batch timed out after ${MAX_TIMEOUT_RETRIES} retries — failing batch`)
+            return batch.rows.map(row => ({
+              ok: false,
+              error: `Timed out after ${MAX_TIMEOUT_RETRIES} retries: ${error.message}`,
+              rowIndex: row.index,
+            }))
+          }
+          const delay = timeoutRetryCount === 1 ? 5_000 : 15_000
+          logger.import.warn(
+            `[engine] Timeout (attempt ${timeoutRetryCount}/${MAX_TIMEOUT_RETRIES}), ` +
+            `retrying in ${delay / 1000}s...`
+          )
+          await this.delay(delay)
+          continue // retry loop — adapter has already reduced batch size
         }
 
         if (
           !(error instanceof NetworkBatchError) &&
-          !(error instanceof TimeoutBatchError) &&
           !(error instanceof AuthBatchError)
         ) {
           throw error
         }
 
-        // Network/auth/timeout error — pause and wait for reconnection
+        // Network/auth error — pause and wait for reconnection
         networkRetryCount++
         if (networkRetryCount > MAX_NETWORK_RETRIES) {
           logger.import.warn(`[engine] Batch failed after ${MAX_NETWORK_RETRIES} retries — giving up`)
@@ -748,6 +768,8 @@ export class ImportEngine {
     let authRetryCount = 0
     const MAX_NETWORK_RETRIES = 3
     let networkRetryCount = 0
+    const MAX_TIMEOUT_RETRIES = 2
+    let timeoutRetryCount = 0
 
     let results: BatchResult[]
     while (true) {
@@ -764,7 +786,7 @@ export class ImportEngine {
           },
           {
             dryRun: settings.dryRun,
-            signal: this.abortController?.signal,
+            signal: this.fileOrRunSignal(),
             batchAdapter: this.batchSizeAdapter,
           }
         )
@@ -785,7 +807,8 @@ export class ImportEngine {
           // Fall through to shared reconnection logic below
         }
 
-        // Timeout error — check for idempotency keys before retrying
+        // Timeout error — server is slow, not down.
+        // Retry with backoff (adapter already reduced batch size).
         if (error instanceof TimeoutBatchError) {
           const hasIdempotencyKey = !!(
             mapping.searchKeys?.length ||
@@ -797,19 +820,29 @@ export class ImportEngine {
             )
             return
           }
-          logger.import.warn('[engine] Timeout during retries with idempotency key — retrying (upsert-safe)')
-          // Fall through to reconnection logic
+
+          timeoutRetryCount++
+          if (timeoutRetryCount > MAX_TIMEOUT_RETRIES) {
+            logger.import.warn(`[engine] Retries timed out after ${MAX_TIMEOUT_RETRIES} retries — giving up`)
+            return
+          }
+          const delay = timeoutRetryCount === 1 ? 5_000 : 15_000
+          logger.import.warn(
+            `[engine] Timeout during retries (attempt ${timeoutRetryCount}/${MAX_TIMEOUT_RETRIES}), ` +
+            `retrying in ${delay / 1000}s...`
+          )
+          await this.delay(delay)
+          continue // retry loop — adapter has already reduced batch size
         }
 
         if (
           !(error instanceof NetworkBatchError) &&
-          !(error instanceof TimeoutBatchError) &&
           !(error instanceof AuthBatchError)
         ) {
           throw error
         }
 
-        // Network/auth/timeout error during retries — pause and wait for reconnection
+        // Network/auth error during retries — pause and wait for reconnection
         networkRetryCount++
         if (networkRetryCount > MAX_NETWORK_RETRIES) {
           logger.import.warn(`[engine] Retries failed after ${MAX_NETWORK_RETRIES} network retries — giving up`)

@@ -200,6 +200,14 @@ export class WorkerPool {
   }
 
   /**
+   * Wait for all worker loops to settle after abort.
+   * Call after abort() to ensure no orphaned workers remain in-flight.
+   */
+  async drain(): Promise<void> {
+    await Promise.allSettled(this.workers)
+  }
+
+  /**
    * Abort all processing immediately.
    */
   abort(): void {
