@@ -422,7 +422,7 @@ describe('ImportEngine Integration', () => {
     it('processes batches sequentially not concurrently', async () => {
       const config = useConfigStore()
 
-      config.setSettings({ batchSize: 2 })
+      config.setSettings({ batchSize: 2, workers: 1 })
       config.setSequence(['partners.csv'])
       config.setFileMapping('partners.csv', {
         filename: 'partners.csv',
