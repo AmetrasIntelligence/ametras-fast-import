@@ -266,6 +266,11 @@ export function installOdooEmbeddedApi(): void {
         return { ok: true as const, databases: [] as string[] }
       },
 
+      getEncryptionInfo: async () => {
+        // Not applicable in embedded mode
+        return { available: false, platform: 'embedded' }
+      },
+
       ping: async () => {
         // Embedded mode: same-origin fetch to check server reachability
         try {

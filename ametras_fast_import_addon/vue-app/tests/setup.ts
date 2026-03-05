@@ -45,7 +45,9 @@ const mockApi = {
       session_id: 'test-session',
       server_version: '16.0'
     }),
-    listDatabases: vi.fn().mockResolvedValue({ ok: true, databases: [] })
+    listDatabases: vi.fn().mockResolvedValue({ ok: true, databases: [] }),
+    ping: vi.fn().mockResolvedValue({ ok: true }),
+    getEncryptionInfo: vi.fn().mockResolvedValue({ available: false, platform: 'test' })
   },
   store: {
     get: vi.fn().mockResolvedValue(null),

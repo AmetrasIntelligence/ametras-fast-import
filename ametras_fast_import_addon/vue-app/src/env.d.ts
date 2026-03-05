@@ -110,6 +110,7 @@ interface ElectronAPI {
     authenticate: (params: AuthParams) => Promise<AuthResult>
     listDatabases: (baseUrl: string) => Promise<DatabaseListResult>
     ping: (baseUrl: string) => Promise<{ ok: boolean }>
+    getEncryptionInfo: () => Promise<{ available: boolean; platform: string }>
   }
   store: {
     get: (key: string) => Promise<unknown>
