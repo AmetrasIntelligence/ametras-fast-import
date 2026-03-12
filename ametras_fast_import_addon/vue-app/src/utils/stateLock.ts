@@ -73,12 +73,20 @@ export class StateLock {
   }
 
   /**
-   * Forcefully reset the lock, clearing all waiters.
+   * Forcefully reset the lock, draining all waiters.
    * Use between import runs to prevent deadlocks from stale locks.
+   *
+   * Grants the lock to every queued waiter so their promises resolve
+   * (each immediately calls release(), which is a no-op once locked=false).
+   * Without this, waiters would hang forever on an unresolved promise.
    */
   reset(): void {
-    this.locked = false
+    const waiters = this.queue
     this.queue = []
+    this.locked = false
+    for (const grant of waiters) {
+      grant()
+    }
   }
 
   /**

@@ -6,6 +6,7 @@ import { useRunStore } from '@/stores/run'
 import { useSessionStore } from '@/stores/session'
 import { useFilesStore } from '@/stores/files'
 import { ImportEngine } from '@/importer/engine'
+import { ImportState } from '@/importer/stateMachine'
 import { showAlert } from '@/composables/useDialog'
 import { downloadCSV, downloadJSON } from '@/utils/formatters'
 import { logger } from '@/utils/logger'
@@ -98,9 +99,12 @@ function retryFailedRows() {
   isRetrying.value = true
   run.isHistoricalLog = false
 
-  // Create engine and start retry
+  // Create engine and mark run as active BEFORE navigating.
+  // This prevents RunView.onMounted from creating a second engine
+  // (it early-returns when run.isActive is true).
   const engine = new ImportEngine()
   run.setEngine(engine)
+  run.setState(ImportState.VALIDATING)
 
   // Start retry in background (don't await - let RunView display progress)
   engine.retryFailedRows().catch(e => {

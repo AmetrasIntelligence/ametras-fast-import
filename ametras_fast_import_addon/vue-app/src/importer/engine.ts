@@ -1046,6 +1046,7 @@ export class ImportEngine {
 
     if (errorsByFile.size === 0) {
       logger.import.warn('No failed rows to retry')
+      run.setState(ImportState.COMPLETED)
       return
     }
 
@@ -1073,6 +1074,7 @@ export class ImportEngine {
 
     if (filesToRetry.length === 0) {
       logger.import.warn('No retryable files found (files removed or missing mappings)')
+      run.setState(ImportState.COMPLETED)
       return
     }
 

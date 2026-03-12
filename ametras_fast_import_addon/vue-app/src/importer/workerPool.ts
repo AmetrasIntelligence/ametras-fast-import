@@ -146,6 +146,7 @@ export class WorkerPool {
     this.aborted = false
     this.processedBatches = 0
     this.pendingCallbacks = []
+    this.workers = []
 
     // Spawn workers
     for (let i = 0; i < this.workerCount; i++) {
