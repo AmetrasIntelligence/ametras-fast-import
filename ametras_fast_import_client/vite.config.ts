@@ -25,6 +25,15 @@ const isElectron = process.env.npm_lifecycle_event?.includes('electron') ||
 // Shared source lives in the addon's vue-app
 const sharedSrc = path.resolve(__dirname, '../ametras_fast_import_addon/vue-app/src')
 
+// Extract version from the Odoo addon manifest (single source of truth)
+function getManifestVersion(): string {
+  const manifest = fs.readFileSync(
+    path.resolve(__dirname, '../ametras_fast_import_addon/__manifest__.py'), 'utf-8'
+  )
+  const match = manifest.match(/'version'\s*:\s*'([^']+)'/)
+  return match?.[1] ?? 'unknown'
+}
+
 // Force all shared dependency imports to resolve to the client's
 // node_modules.  Without this, addon source files (imported via the
 // @ alias) resolve vue/pinia/vue-router from the addon's own
@@ -73,6 +82,9 @@ function dedupeSharedDeps(): Plugin {
 }
 
 export default defineConfig(({ mode: _mode }) => ({
+  define: {
+    '__APP_VERSION__': JSON.stringify(getManifestVersion()),
+  },
   plugins: [
     dedupeSharedDeps(),
     vue(),

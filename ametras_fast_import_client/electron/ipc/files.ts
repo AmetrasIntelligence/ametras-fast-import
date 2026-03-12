@@ -385,6 +385,14 @@ ipcMain.handle('files:streamClose', async (_event, streamId: string) => {
   }
 })
 
+// Close all active streams to release file handles (prevents locked files on Windows)
+ipcMain.handle('files:cleanupStreams', async () => {
+  for (const [id, state] of activeStreams) {
+    state.rl.close()
+    activeStreams.delete(id)
+  }
+})
+
 export function clearFileRegistry() {
   fileRegistry.clear()
   // Clean up any active streams

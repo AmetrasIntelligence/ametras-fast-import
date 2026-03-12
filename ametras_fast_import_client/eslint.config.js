@@ -23,7 +23,10 @@ export default tseslint.config(
   },
   {
     languageOptions: {
-      globals: globals.browser,
+      globals: {
+        ...globals.browser,
+        __APP_VERSION__: 'readonly',
+      },
     },
     rules: {
       // Vue template formatting — match project style (compact, 2-space indent)

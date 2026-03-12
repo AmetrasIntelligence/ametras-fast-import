@@ -47,6 +47,8 @@ export const useFilesStore = defineStore('files', () => {
   function clearAll() {
     files.value = []
     analyses.value = {}
+    // Release file handles in Electron to prevent locked files on Windows
+    window.api?.files?.cleanupStreams?.()
   }
 
   return {

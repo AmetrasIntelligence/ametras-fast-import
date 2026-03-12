@@ -46,6 +46,7 @@ interface ElectronAPI {
     streamStart: (id: string, chunkLines: number, encoding?: string) => Promise<string>
     streamNext: (streamId: string) => Promise<ChunkData>
     streamClose: (streamId: string) => Promise<void>
+    cleanupStreams: () => Promise<void>
     getPathForFile: (file: File) => string
   }
   odoo: {
@@ -151,7 +152,9 @@ contextBridge.exposeInMainWorld('api', {
     streamNext: (streamId: string) =>
       ipcRenderer.invoke('files:streamNext', streamId),
     streamClose: (streamId: string) =>
-      ipcRenderer.invoke('files:streamClose', streamId)
+      ipcRenderer.invoke('files:streamClose', streamId),
+    cleanupStreams: () =>
+      ipcRenderer.invoke('files:cleanupStreams')
   },
   odoo: {
     call: (payload: OdooPayload) => ipcRenderer.invoke('odoo:call', payload),

@@ -2,6 +2,14 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import VueI18nPlugin from '@intlify/unplugin-vue-i18n/vite'
 import path from 'path'
+import fs from 'fs'
+
+// Extract version from the Odoo addon manifest (single source of truth)
+function getManifestVersion(): string {
+  const manifest = fs.readFileSync(path.resolve(__dirname, '../__manifest__.py'), 'utf-8')
+  const match = manifest.match(/'version'\s*:\s*'([^']+)'/)
+  return match?.[1] ?? 'unknown'
+}
 
 export default defineConfig({
   plugins: [
@@ -15,6 +23,7 @@ export default defineConfig({
   ],
   define: {
     'process.env.NODE_ENV': JSON.stringify('production'),
+    '__APP_VERSION__': JSON.stringify(getManifestVersion()),
   },
   resolve: {
     alias: {

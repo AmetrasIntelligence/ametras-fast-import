@@ -105,9 +105,14 @@ onMounted(async () => {
   // Start throughput update interval
   throughputInterval = setInterval(updateThroughput, 500)
 
-  // If already running or completed, just show the current state
-  if (run.isActive || run.isCompleted) {
+  // If already running, just show the current state
+  if (run.isActive) {
     return
+  }
+
+  // If completed from a previous run, reset so a new engine can be created
+  if (run.isCompleted) {
+    run.reset()
   }
 
   const files = filesStore.files.map(f => ({

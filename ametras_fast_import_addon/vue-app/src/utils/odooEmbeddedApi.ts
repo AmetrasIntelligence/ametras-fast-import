@@ -180,6 +180,10 @@ export function installOdooEmbeddedApi(): void {
         _streamState.delete(streamId)
       },
 
+      cleanupStreams: async () => {
+        _streamState.clear()
+      },
+
       getPathForFile: (file) => {
         const id = nextEmbeddedId()
         _fileMap.set(id, file)

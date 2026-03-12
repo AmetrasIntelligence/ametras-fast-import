@@ -97,6 +97,13 @@ export const useConfigStore = defineStore('config', () => {
     importSequence.value = arr
   }
 
+  function reset() {
+    settings.value = { ...DEFAULT_RUN_SETTINGS }
+    fileMappings.value = {}
+    importSequence.value = []
+    activeProfileId.value = null
+  }
+
   return {
     settings,
     fileMappings,
@@ -109,6 +116,7 @@ export const useConfigStore = defineStore('config', () => {
     removeFileMapping,
     clearFileMappings,
     setSequence,
-    moveInSequence
+    moveInSequence,
+    reset
   }
 })

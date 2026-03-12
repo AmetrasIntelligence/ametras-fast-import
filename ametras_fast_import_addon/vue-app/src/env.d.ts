@@ -1,5 +1,9 @@
 /// <reference types="vite/client" />
 
+declare global {
+  const __APP_VERSION__: string
+}
+
 interface FileHandle {
   id: string
   name: string
@@ -103,6 +107,7 @@ interface ElectronAPI {
     streamStart: (id: string, chunkLines: number, encoding?: string) => Promise<string>
     streamNext: (streamId: string) => Promise<ChunkData>
     streamClose: (streamId: string) => Promise<void>
+    cleanupStreams: () => Promise<void>
     getPathForFile: (file: File) => string
   }
   odoo: {

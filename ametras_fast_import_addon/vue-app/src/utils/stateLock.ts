@@ -73,6 +73,15 @@ export class StateLock {
   }
 
   /**
+   * Forcefully reset the lock, clearing all waiters.
+   * Use between import runs to prevent deadlocks from stale locks.
+   */
+  reset(): void {
+    this.locked = false
+    this.queue = []
+  }
+
+  /**
    * Check if lock is currently held.
    */
   get isLocked(): boolean {

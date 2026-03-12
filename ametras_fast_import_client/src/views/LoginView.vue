@@ -12,6 +12,8 @@ const router = useRouter()
 const session = useSessionStore()
 const clientSession = useClientSession()
 
+const appVersion = __APP_VERSION__
+
 const host = ref('')
 const port = ref('')
 const useSSL = ref(true)
@@ -182,9 +184,12 @@ function removeSelectedProfile() {
 <template>
   <div class="min-vh-100 d-flex align-items-center justify-content-center p-3">
     <Card class="w-100 p-4" style="max-width: 28rem;">
-      <h1 class="fs-4 fw-semibold mb-4">
-        {{ $t('login.title') }}
-      </h1>
+      <div class="d-flex justify-content-between align-items-baseline mb-4">
+        <h1 class="fs-4 fw-semibold mb-0">
+          {{ $t('login.title') }}
+        </h1>
+        <small v-if="appVersion" class="text-body-tertiary" style="font-size: 0.675rem;">v{{ appVersion }}</small>
+      </div>
 
       <div v-if="savedProfiles.length > 0" class="mb-3">
         <label class="form-label small text-body-secondary">

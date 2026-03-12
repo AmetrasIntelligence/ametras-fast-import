@@ -2,7 +2,8 @@
 import { onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSessionStore } from '@/stores/session'
-
+import { useFilesStore } from '@/stores/files'
+import { useConfigStore } from '@/stores/config'
 import { useRunStore } from '@/stores/run'
 import ErrorBoundary from '@/components/ErrorBoundary.vue'
 import AppDialog from '@/components/AppDialog.vue'
@@ -11,16 +12,24 @@ import LanguageSelector from '@/components/LanguageSelector.vue'
 import { Button } from '@/ui'
 
 const session = useSessionStore()
-
+const filesStore = useFilesStore()
+const configStore = useConfigStore()
 const run = useRunStore()
 const route = useRoute()
 const router = useRouter()
+
+const appVersion = __APP_VERSION__
 
 onMounted(async () => {
   await session.loadProfiles()
 })
 
 function logout() {
+  // Abort any running import engine before clearing state
+  run.engine?.abort()
+  run.reset()
+  filesStore.clearAll()
+  configStore.reset()
   session.logout()
   router.push('/login')
 }
@@ -69,6 +78,7 @@ function logout() {
             <small class="text-body-secondary">
               {{ session.currentServer?.baseUrl }}
             </small>
+            <small v-if="appVersion" class="csv-nav__version">v{{ appVersion }}</small>
             <Button variant="outline" size="sm" class="csv-nav__logout" @click="logout">
               {{ $t('nav.logout') }}
             </Button>
@@ -98,6 +108,12 @@ function logout() {
   min-height: auto;
   max-height: 80vh;
   overflow-y: auto;
+}
+
+.csv-nav__version {
+  color: var(--bs-secondary-color);
+  font-size: 0.675rem;
+  opacity: 0.6;
 }
 
 .csv-nav__logout {

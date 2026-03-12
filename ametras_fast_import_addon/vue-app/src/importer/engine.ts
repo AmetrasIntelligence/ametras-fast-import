@@ -129,6 +129,9 @@ export class ImportEngine {
     const config = useConfigStore()
     const run = useRunStore()
 
+    // Clear any stale lock from a previous import to prevent deadlocks
+    runStateLock.reset()
+
     await this.setSessionPinned(true)
     try {
       this.abortController = new AbortController()
@@ -1023,6 +1026,9 @@ export class ImportEngine {
     const config = useConfigStore()
     const run = useRunStore()
     const filesStore = useFilesStore()
+
+    // Clear any stale lock from a previous import to prevent deadlocks
+    runStateLock.reset()
 
     await this.setSessionPinned(true)
     try {
