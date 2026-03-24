@@ -18,6 +18,9 @@ const router = useRouter()
 const run = useRunStore()
 const filesStore = useFilesStore()
 
+// Engine initialization error
+const initError = ref<string | null>(null)
+
 // Throughput display - updated periodically
 const throughputDisplay = ref('-- rows/sec')
 let throughputInterval: ReturnType<typeof setInterval> | null = null
@@ -120,7 +123,10 @@ onMounted(async () => {
     name: f.name
   }))
 
-  if (files.length === 0) return
+  if (files.length === 0) {
+    router.replace('/import')
+    return
+  }
 
   try {
     const newEngine = new ImportEngine()
@@ -143,7 +149,9 @@ onMounted(async () => {
 
     await newEngine.start(files, resumeState)
   } catch (e) {
-    logger.import.error('Import engine error', { error: e instanceof Error ? e.message : String(e) })
+    const message = e instanceof Error ? e.message : String(e)
+    logger.import.error('Import engine error', { error: message })
+    initError.value = message
   }
 })
 
@@ -216,6 +224,19 @@ function viewResults() {
         </div>
       </div>
     </div>
+
+    <!-- Init Error -->
+    <Card v-if="initError" class="p-4">
+      <div class="alert alert-danger mb-0">
+        <strong>{{ $t('run.state.failed') }}</strong>
+        <div class="small mt-1">{{ initError }}</div>
+      </div>
+      <div class="mt-3">
+        <Button @click="router.push('/import')">
+          {{ $t('nav.import') }}
+        </Button>
+      </div>
+    </Card>
 
     <!-- Global Progress -->
     <Card class="p-4">

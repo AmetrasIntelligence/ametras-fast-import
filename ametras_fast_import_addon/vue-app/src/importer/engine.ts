@@ -701,11 +701,11 @@ export class ImportEngine {
   private handleBatchResult(
     filename: string,
     result: BatchProcessResult
-  ): void {
-    if (this.abortController?.signal.aborted) return
+  ): Promise<void> {
+    if (this.abortController?.signal.aborted) return Promise.resolve()
 
     // Use lock to serialize state updates from concurrent workers
-    runStateLock.withLock(() => {
+    return runStateLock.withLock(() => {
       const run = useRunStore()
       const fileProgress = run.progress.files[filename]
       if (!fileProgress) return

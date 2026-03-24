@@ -123,7 +123,7 @@ export class WorkerPool {
   private pauseResolvers: Array<() => void> = []
   private pendingCallbacks: Promise<void>[] = []
 
-  private onBatchComplete?: (result: BatchProcessResult) => void
+  private onBatchComplete?: (result: BatchProcessResult) => void | Promise<void>
   private processBatch?: (batch: Batch) => Promise<BatchResult[]>
 
   constructor(workerCount: number) {
@@ -139,7 +139,7 @@ export class WorkerPool {
    */
   start(
     processBatch: (batch: Batch) => Promise<BatchResult[]>,
-    onBatchComplete: (result: BatchProcessResult) => void
+    onBatchComplete: (result: BatchProcessResult) => void | Promise<void>
   ): void {
     this.processBatch = processBatch
     this.onBatchComplete = onBatchComplete
@@ -329,7 +329,7 @@ export class WorkerPool {
           // so progress update failures are visible instead of silently lost.
           const callbackPromise = Promise.resolve().then(() => {
             if (this.aborted) return
-            this.onBatchComplete?.({
+            return this.onBatchComplete?.({
               batchId: batch.id,
               results,
               rows: batch.rows,
@@ -349,7 +349,7 @@ export class WorkerPool {
           // Track error callback as pending
           const errorCallbackPromise = Promise.resolve().then(() => {
             if (this.aborted) return
-            this.onBatchComplete?.({
+            return this.onBatchComplete?.({
               batchId: batch.id,
               results: batch.rows.map(row => ({
                 ok: false,

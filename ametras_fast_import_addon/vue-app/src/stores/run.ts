@@ -181,6 +181,11 @@ export const useRunStore = defineStore('run', () => {
   }
 
   function reset() {
+    // Abort any running engine before clearing state to prevent leaked
+    // timers, connection monitors, and worker pools from interfering
+    // with subsequent imports.
+    try { engine.value?.abort() } catch { /* best-effort */ }
+
     state.value = ImportState.IDLE
     isDryRun.value = false
     engine.value = null
