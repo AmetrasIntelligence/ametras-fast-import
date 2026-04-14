@@ -21,6 +21,10 @@ const filesStore = useFilesStore()
 // Engine initialization error
 const initError = ref<string | null>(null)
 
+// Startup watchdog — cleared once import moves past VALIDATING
+let startupWatchdogId: ReturnType<typeof setTimeout> | null = null
+const STARTUP_TIMEOUT_MS = 90_000
+
 // Throughput display - updated periodically
 const throughputDisplay = ref('-- rows/sec')
 let throughputInterval: ReturnType<typeof setInterval> | null = null
@@ -91,8 +95,15 @@ const isRunning = computed(() =>
   [ImportState.VALIDATING, ImportState.RUNNING_FILE, ImportState.RUNNING_BATCH, ImportState.RETRYING].includes(run.state)
 )
 
-// Auto-navigate to results when import completes or fails
+// Auto-navigate to results when import completes or fails.
+// Also clears the startup watchdog once the import is past VALIDATING.
 watch(() => run.state, (newState) => {
+  if ([ImportState.RUNNING_FILE, ImportState.RUNNING_BATCH, ImportState.RETRYING].includes(newState)) {
+    if (startupWatchdogId !== null) {
+      clearTimeout(startupWatchdogId)
+      startupWatchdogId = null
+    }
+  }
   if (newState === ImportState.COMPLETED || newState === ImportState.FAILED) {
     router.push('/results')
   }
@@ -104,19 +115,13 @@ function updateThroughput() {
   }
 }
 
-onMounted(async () => {
-  // Start throughput update interval
-  throughputInterval = setInterval(updateThroughput, 500)
+async function startImport() {
+  initError.value = null
 
-  // If already running, just show the current state
-  if (run.isActive) {
-    return
-  }
-
-  // If completed from a previous run, reset so a new engine can be created
-  if (run.isCompleted) {
-    run.reset()
-  }
+  // Always reset before starting: clears stuck, completed, or failed state
+  // from a previous attempt. The live-import guard in onMounted ensures this
+  // is not called when an import is genuinely running.
+  run.reset()
 
   const files = filesStore.files.map(f => ({
     id: f.id,
@@ -147,12 +152,44 @@ onMounted(async () => {
       run.resumeLogId = null // Clear after use
     }
 
+    // Watchdog: if still stuck in VALIDATING/IDLE after the timeout, the
+    // engine has hung somewhere (network call, stream, lock). Abort it and
+    // surface an actionable error so the user can retry.
+    startupWatchdogId = setTimeout(() => {
+      startupWatchdogId = null
+      if (run.state === ImportState.VALIDATING || run.state === ImportState.IDLE) {
+        logger.import.error('[watchdog] Import startup timed out — aborting')
+        newEngine.abort()
+        initError.value = t('run.startupTimeout')
+      }
+    }, STARTUP_TIMEOUT_MS)
+
     await newEngine.start(files, resumeState)
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     logger.import.error('Import engine error', { error: message })
+    // Reset to IDLE so the error card is shown cleanly (state may be
+    // VALIDATING if start() threw mid-way through initialisation).
+    run.reset()
     initError.value = message
+  } finally {
+    if (startupWatchdogId !== null) {
+      clearTimeout(startupWatchdogId)
+      startupWatchdogId = null
+    }
   }
+}
+
+onMounted(async () => {
+  // Start throughput update interval
+  throughputInterval = setInterval(updateThroughput, 500)
+
+  // If a live engine is already running, just show its current state
+  if (run.isActive && run.engine) {
+    return
+  }
+
+  await startImport()
 })
 
 onUnmounted(() => {
@@ -231,8 +268,11 @@ function viewResults() {
         <strong>{{ $t('run.state.failed') }}</strong>
         <div class="small mt-1">{{ initError }}</div>
       </div>
-      <div class="mt-3">
-        <Button @click="router.push('/import')">
+      <div class="d-flex gap-2 mt-3">
+        <Button @click="startImport">
+          {{ $t('run.tryAgain') }}
+        </Button>
+        <Button variant="outline" @click="router.push('/import')">
           {{ $t('nav.import') }}
         </Button>
       </div>

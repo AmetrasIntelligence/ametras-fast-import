@@ -183,8 +183,10 @@ export const useRunStore = defineStore('run', () => {
   function reset() {
     // Abort any running engine before clearing state to prevent leaked
     // timers, connection monitors, and worker pools from interfering
-    // with subsequent imports.
-    try { engine.value?.abort() } catch { /* best-effort */ }
+    // with subsequent imports. Silent=true so abort() does not call
+    // setState(FAILED), which would fire the RunView watcher and redirect
+    // to /results while a new import is being initialised.
+    try { engine.value?.abort(true) } catch { /* best-effort */ }
 
     state.value = ImportState.IDLE
     isDryRun.value = false

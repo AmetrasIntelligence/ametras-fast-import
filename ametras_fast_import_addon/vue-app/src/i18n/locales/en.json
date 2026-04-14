@@ -205,7 +205,9 @@
     "connectionLost": "Waiting for server connection...",
     "connectionLostDetail": "The server is unreachable. Import will resume automatically when the connection is restored.",
     "reconnecting": "Checking connection...",
-    "fileProgress": "{completed} / {total} files"
+    "fileProgress": "{completed} / {total} files",
+    "tryAgain": "Try Again",
+    "startupTimeout": "Import startup timed out (90s). The server may be slow or a network call hung. Please try again."
   },
   "results": {
     "dryRunComplete": "Dry Run Complete",

@@ -25,9 +25,7 @@ onMounted(async () => {
 })
 
 function logout() {
-  // Abort any running import engine before clearing state.
-  // try/catch ensures cleanup always completes even if abort() throws.
-  try { run.engine?.abort() } catch { /* best-effort */ }
+  // run.reset() aborts the engine silently and clears all state.
   run.reset()
   filesStore.clearAll()
   configStore.reset()

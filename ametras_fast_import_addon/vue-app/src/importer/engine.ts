@@ -238,7 +238,9 @@ export class ImportEngine {
     }
 
     if (!this.stateMachine.tryTransition(ImportState.RUNNING_FILE)) {
-      return
+      const reason = `Import cannot start: state machine stuck at ${this.stateMachine.state}`
+      logger.import.error(reason)
+      throw new Error(reason)
     }
     run.setState(ImportState.RUNNING_FILE)
 
@@ -378,7 +380,13 @@ export class ImportEngine {
 
     // Snapshot config settings for this file so they remain consistent
     // even if the store is mutated during processing (e.g. navigation).
-    const settings = { ...config.settings }
+    // Clamp dryRun: a loaded profile may have dryRun=true even though the
+    // current platform doesn't support it — never send dry_run=true unless
+    // the platform explicitly declares the capability.
+    const settings = {
+      ...config.settings,
+      dryRun: config.settings.dryRun && platform.capabilities.dryRun,
+    }
 
     run.startFile(file.name)
     run.isInitiating = true
@@ -706,6 +714,10 @@ export class ImportEngine {
 
     // Use lock to serialize state updates from concurrent workers
     return runStateLock.withLock(() => {
+      // Re-check inside the lock: runStateLock.reset() grants stale waiters
+      // from a previous import without re-running the guard above, so we
+      // must check again to avoid mutating state for a new run.
+      if (this.abortController?.signal.aborted) return
       const run = useRunStore()
       const fileProgress = run.progress.files[filename]
       if (!fileProgress) return
@@ -988,7 +1000,7 @@ export class ImportEngine {
     }
   }
 
-  abort(): void {
+  abort(silent = false): void {
     this.abortController?.abort()
     this.skipFileController?.abort()
     this.workerPool?.abort()
@@ -996,13 +1008,17 @@ export class ImportEngine {
     this.clearCombinedAbortSignal()
     void this.setSessionPinned(false)
     this.stopHeartbeat()
-    // Set to FAILED state instead of resetting, so results can be viewed
     this.stateMachine.reset()
     const run = useRunStore()
     run.isInitiating = false
     run.isPausing = false
     run.isSkipping = false
-    run.setState(ImportState.FAILED)
+    // Silent mode: called from reset()/logout — the caller will clear state.
+    // Skip setState(FAILED) to avoid the RunView watcher routing to /results
+    // while a new import is being initialised in the same navigation cycle.
+    if (!silent) {
+      run.setState(ImportState.FAILED)
+    }
     this.finalizeLog()
   }
 
@@ -1121,7 +1137,9 @@ export class ImportEngine {
     }
 
     if (!this.stateMachine.tryTransition(ImportState.RUNNING_FILE)) {
-      return
+      const reason = `Retry cannot start: state machine stuck at ${this.stateMachine.state}`
+      logger.import.error(reason)
+      throw new Error(reason)
     }
     run.setState(ImportState.RUNNING_FILE)
 
@@ -1565,7 +1583,14 @@ export class ImportEngine {
    * Finalize the log record on the server (fire-and-forget).
    */
   private finalizeLog(): void {
+    // Consume logId immediately to prevent double-finalize if abort() is called
+    // after normal completion (e.g. reset() calling abort(true) for cleanup).
+    const logId = this.logId
+    this.logId = null
     this.stopHeartbeat()
+
+    if (!logId) return
+
     const run = useRunStore()
 
     const files = Object.values(run.progress.files)
@@ -1583,18 +1608,16 @@ export class ImportEngine {
 
     const state = failedRows > 0 ? 'failed' as const : 'completed' as const
 
-    if (this.logId) {
-      finalizeImportLog({
-        log_id: this.logId,
-        state,
-        finished_at: finishedAt,
-        total_rows: totalRows,
-        success_rows: successRows,
-        failed_rows: failedRows,
-        error_log: errorLog,
-        file_progress: this.buildFileProgress(),
-      }).catch(err => logger.import.error('Failed to finalize log', { error: (err as Error).message }))
-    }
+    finalizeImportLog({
+      log_id: logId,
+      state,
+      finished_at: finishedAt,
+      total_rows: totalRows,
+      success_rows: successRows,
+      failed_rows: failedRows,
+      error_log: errorLog,
+      file_progress: this.buildFileProgress(),
+    }).catch(err => logger.import.error('Failed to finalize log', { error: (err as Error).message }))
   }
 
   get state(): ImportState {
