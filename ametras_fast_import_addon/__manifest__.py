@@ -13,7 +13,7 @@
         - ACL checks before import
     """,
     "author": "Ametras",
-    "depends": ["base", "web"],
+    "depends": ["base", "web", "queue_job"],
     "data": [
         "security/ir.model.access.csv",
         "views/actions.xml",

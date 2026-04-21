@@ -1,8 +1,6 @@
 import { defineStore } from 'pinia'
-import { ref, computed, shallowRef } from 'vue'
-import { ImportState } from '@/importer/stateMachine'
-import type { ImportEngine } from '@/importer/engine'
-import type { ConnectionStatus } from '@/importer/connectionMonitor'
+import { ref, computed } from 'vue'
+import { ImportState, type ConnectionStatus } from '@/importer/types'
 import { getImportLog } from '@/api/odooClient'
 
 export interface FileProgress {
@@ -45,17 +43,12 @@ export interface TimeoutMitigationStatus {
 export const useRunStore = defineStore('run', () => {
   const state = ref<ImportState>(ImportState.IDLE)
   const isDryRun = ref(false)
-  const engine = shallowRef<ImportEngine | null>(null)
   const logId = ref<number | null>(null)
   const connectionStatus = ref<ConnectionStatus>('online')
   const timeoutMitigationActive = ref(false)
   const timeoutMitigationStatus = ref<TimeoutMitigationStatus | null>(null)
   const resumeLogId = ref<number | null>(null)
 
-  // Transitional UI flags — true while an action is draining in-flight work
-  const isInitiating = ref(false)
-  const isPausing = ref(false)
-  const isSkipping = ref(false)
   const progress = ref<RunProgress>({
     totalFiles: 0,
     completedFiles: 0,
@@ -93,8 +86,6 @@ export const useRunStore = defineStore('run', () => {
     return [
       ImportState.VALIDATING,
       ImportState.RUNNING_FILE,
-      ImportState.RUNNING_BATCH,
-      ImportState.RETRYING,
       ImportState.PAUSED
     ].includes(state.value)
   })
@@ -103,9 +94,7 @@ export const useRunStore = defineStore('run', () => {
     return state.value === ImportState.COMPLETED || state.value === ImportState.FAILED
   })
 
-  /** Check if there are row-level errors that can potentially be retried */
   const hasRetryableErrors = computed(() => {
-    // Row-level errors have rowNumber > 0 (rowNumber 0 is used for file-level errors)
     return errors.value.some(e => e.rowNumber > 0)
   })
 
@@ -118,10 +107,6 @@ export const useRunStore = defineStore('run', () => {
     const failed = files.reduce((sum, f) => sum + f.failedCount, 0)
     return Math.max(0, total - success - failed)
   })
-
-  function setEngine(eng: ImportEngine | null) {
-    engine.value = eng
-  }
 
   function initRun(filenames: string[], rowCounts: Map<string, number>, dryRun = false) {
     isHistoricalLog.value = false
@@ -214,24 +199,13 @@ export const useRunStore = defineStore('run', () => {
   }
 
   function reset() {
-    // Abort any running engine before clearing state to prevent leaked
-    // timers, connection monitors, and worker pools from interfering
-    // with subsequent imports. Silent=true so abort() does not call
-    // setState(FAILED), which would fire the RunView watcher and redirect
-    // to /results while a new import is being initialised.
-    try { engine.value?.abort(true) } catch { /* best-effort */ }
-
     state.value = ImportState.IDLE
     isDryRun.value = false
-    engine.value = null
     logId.value = null
     connectionStatus.value = 'online'
     timeoutMitigationActive.value = false
     timeoutMitigationStatus.value = null
     resumeLogId.value = null
-    isInitiating.value = false
-    isPausing.value = false
-    isSkipping.value = false
     progress.value = {
       totalFiles: 0,
       completedFiles: 0,
@@ -243,13 +217,78 @@ export const useRunStore = defineStore('run', () => {
     isHistoricalLog.value = false
   }
 
+  /**
+   * Update store from server polling response.
+   * Called by RunView every 500ms during import.
+   */
+  function updateFromServer(data: {
+    state: string
+    progress: Record<string, { totalRows: number; successCount: number; failedCount: number; processedRanges?: [number, number][]; skipped?: boolean }>
+    success_rows: number
+    failed_rows: number
+    total_rows: number
+    current_file: string
+    errors: Array<{ filename: string; rowNumber: number; error: string }>
+    is_dry_run: boolean
+  }) {
+    // Map server state to ImportState enum
+    const stateMap: Record<string, ImportState> = {
+      'draft': ImportState.IDLE,
+      'pending': ImportState.VALIDATING,
+      'running': ImportState.RUNNING_FILE,
+      'paused': ImportState.PAUSED,
+      'completed': ImportState.COMPLETED,
+      'failed': ImportState.FAILED,
+      'interrupted': ImportState.INTERRUPTED,
+    }
+    state.value = stateMap[data.state] || ImportState.RUNNING_FILE
+    isDryRun.value = data.is_dry_run
+
+    // Update file progress
+    const filenames = Object.keys(data.progress)
+    const files: Record<string, FileProgress> = {}
+    for (const filename of filenames) {
+      const fp = data.progress[filename]
+      files[filename] = {
+        filename,
+        totalRows: fp.totalRows,
+        processedRows: fp.successCount + fp.failedCount,
+        successCount: fp.successCount,
+        failedCount: fp.failedCount,
+        retryingCount: 0,
+        skipped: fp.skipped,
+      }
+    }
+
+    const currentFileIdx = data.current_file ? filenames.indexOf(data.current_file) : -1
+    const completedCount = filenames.filter(f => {
+      const fp = data.progress[f]
+      return fp.skipped || (fp.successCount + fp.failedCount >= fp.totalRows && fp.totalRows > 0)
+    }).length
+
+    progress.value = {
+      totalFiles: filenames.length,
+      completedFiles: completedCount,
+      currentFileIndex: currentFileIdx >= 0 ? currentFileIdx : filenames.length - 1,
+      files,
+    }
+
+    // Update errors
+    errors.value = data.errors.map(e => ({
+      filename: e.filename,
+      rowNumber: e.rowNumber,
+      rawData: {},
+      error: e.error,
+      timestamp: 0,
+    }))
+  }
+
   async function loadFromServerLog(id: number): Promise<boolean> {
     const log = await getImportLog(id)
     if (!log) return false
     timeoutMitigationActive.value = false
     timeoutMitigationStatus.value = null
 
-    // Populate file progress
     const files: Record<string, FileProgress> = {}
     const filenames = Object.keys(log.file_progress)
     for (const filename of filenames) {
@@ -270,8 +309,7 @@ export const useRunStore = defineStore('run', () => {
       files,
     }
 
-    // Populate errors
-    errors.value = log.error_log.map(e => ({
+    errors.value = log.error_log.map((e: { filename: string; rowNumber: number; error: string }) => ({
       filename: e.filename,
       rowNumber: e.rowNumber,
       rawData: {},
@@ -279,12 +317,10 @@ export const useRunStore = defineStore('run', () => {
       timestamp: 0,
     }))
 
-    // Set state
     state.value = log.state === 'failed' ? ImportState.FAILED : ImportState.COMPLETED
     isDryRun.value = log.is_dry_run
     runStartTime.value = log.started_at ? new Date(log.started_at).getTime() : null
 
-    // If we have both started_at and finished_at, compute synthetic endTimes for duration display
     if (log.started_at && log.finished_at) {
       const endEpoch = new Date(log.finished_at).getTime()
       for (const fp of Object.values(files)) {
@@ -300,15 +336,11 @@ export const useRunStore = defineStore('run', () => {
   return {
     state,
     isDryRun,
-    engine,
     logId,
     connectionStatus,
     timeoutMitigationActive,
     timeoutMitigationStatus,
     resumeLogId,
-    isInitiating,
-    isPausing,
-    isSkipping,
     progress,
     errors,
     runStartTime,
@@ -328,10 +360,8 @@ export const useRunStore = defineStore('run', () => {
     skipFile,
     addError,
     setState,
-    setTimeoutMitigationActive,
-    updateTimeoutMitigationStatus,
-    setEngine,
     reset,
+    updateFromServer,
     loadFromServerLog
   }
 })

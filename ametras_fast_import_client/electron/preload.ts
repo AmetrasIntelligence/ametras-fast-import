@@ -35,6 +35,19 @@ interface StandaloneDetectResult {
   error?: string
 }
 
+interface PythonDetectResult {
+  available: boolean
+  pythonPath?: string
+}
+
+interface PythonImportResult {
+  type: 'done' | 'error'
+  success?: number
+  failed?: number
+  errors?: Array<{ row: number; error: string; file: string }>
+  message?: string
+}
+
 interface ElectronAPI {
   files: {
     select: () => Promise<FileHandle[]>
@@ -71,6 +84,16 @@ interface ElectronAPI {
     detectAddon: (payload: { baseUrl: string; db: string }) => Promise<StandaloneDetectResult>
     load: (payload: StandaloneLoadParams) => Promise<StandaloneLoadResult>
     getOdooVersion: (payload: { baseUrl: string; db: string }) => Promise<{ version: string | null; error?: string }>
+  }
+  python: {
+    detect: () => Promise<PythonDetectResult>
+    start: (payload?: { pythonPath?: string }) => Promise<{ ok: boolean; error?: string }>
+    stop: () => Promise<{ ok: boolean }>
+    authenticate: (params: { url: string; db: string; login: string; password: string }) => Promise<Record<string, unknown>>
+    import: (payload: Record<string, unknown>) => Promise<PythonImportResult>
+    models: (payload: { url: string; db: string; uid: number; password: string }) => Promise<Record<string, unknown>>
+    fields: (payload: { url: string; db: string; uid: number; password: string; model: string }) => Promise<Record<string, unknown>>
+    progress: () => Promise<Record<string, unknown>[]>
   }
 }
 
@@ -186,6 +209,19 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('standalone:load', payload),
     getOdooVersion: (payload: { baseUrl: string; db: string }) =>
       ipcRenderer.invoke('standalone:getOdooVersion', payload)
+  },
+  python: {
+    detect: () => ipcRenderer.invoke('python:detect'),
+    start: (payload?: { pythonPath?: string }) => ipcRenderer.invoke('python:start', payload),
+    stop: () => ipcRenderer.invoke('python:stop'),
+    authenticate: (params: { url: string; db: string; login: string; password: string }) =>
+      ipcRenderer.invoke('python:authenticate', params),
+    import: (payload: Record<string, unknown>) => ipcRenderer.invoke('python:import', payload),
+    models: (payload: { url: string; db: string; uid: number; password: string }) =>
+      ipcRenderer.invoke('python:models', payload),
+    fields: (payload: { url: string; db: string; uid: number; password: string; model: string }) =>
+      ipcRenderer.invoke('python:fields', payload),
+    progress: () => ipcRenderer.invoke('python:progress'),
   }
 } as ElectronAPI)
 

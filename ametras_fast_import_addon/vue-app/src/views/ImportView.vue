@@ -17,11 +17,11 @@ import { createRunConfig, type RunConfig } from '@/types/runConfig'
 import type { FieldMapping, FieldTransform } from '@/types/fieldMapping'
 import { useSavedMappingsStore } from '@/stores/savedMappings'
 import { fetchModels, fetchModelFields, type OdooModel, type OdooField } from '@/api/odooClient'
-import { analyzeCSV } from '@/importer/csvParser'
+// analyzeCSV now calls backend endpoint instead of client-side PapaParse
 import { suggestModel } from '@/utils/smartMapping'
 import { autoMapFields } from '@/utils/smartFieldMapping'
 import { showAlert, showConfirm, showPrompt } from '@/composables/useDialog'
-import { transformRowData } from '@/utils/rowTransform'
+// transformRowData removed — server handles transformation
 import { Button, Card } from '@/ui'
 import FileDropZone from '@/components/FileDropZone.vue'
 import ModelSelect from '@/components/ModelSelect.vue'
@@ -233,7 +233,50 @@ async function addAndAnalyze(selected: Array<{ id: string; name: string; size: n
   filesStore.addFiles(selected)
 
   for (const file of selected) {
-    const analysis = await analyzeCSV(file.id)
+    // Analyze CSV: use Python subprocess if available (Electron),
+    // otherwise fall back to Odoo endpoint (addon mode).
+    let analysis: {
+      headers: string[]; rowCount: number; sampleRows: Record<string, string>[];
+      delimiter: string; hasIdColumn: boolean; hasDotIdColumn: boolean;
+    } = { headers: [], rowCount: 0, sampleRows: [], delimiter: ',', hasIdColumn: false, hasDotIdColumn: false }
+
+    if (window.api?.python?.analyze) {
+      // Electron mode: analyze via Python subprocess (reads local file)
+      try {
+        const pyResp = await window.api.python.analyze({
+          fileId: file.id,
+          encoding: config.settings.encoding || 'utf-8',
+        }) as { ok: boolean; result?: Record<string, unknown>; error?: string }
+        if (pyResp.ok && pyResp.result) {
+          const r = pyResp.result as Record<string, unknown>
+          analysis = {
+            headers: (r.headers as string[]) || [],
+            rowCount: (r.rowCount as number) || 0,
+            sampleRows: (r.sampleRows as Record<string, string>[]) || [],
+            delimiter: (r.delimiter as string) || ',',
+            hasIdColumn: !!(r.hasIdColumn),
+            hasDotIdColumn: !!(r.hasDotIdColumn),
+          }
+        }
+      } catch {
+        // Fall through to Odoo endpoint
+      }
+    }
+
+    if (analysis.headers.length === 0) {
+      // Addon mode or Python analyze failed: use Odoo endpoint
+      const analyzeResp = await window.api.odoo.call<{
+        headers: string[]; rowCount: number; sampleRows: Record<string, string>[];
+        delimiter: string; hasIdColumn: boolean; hasDotIdColumn: boolean;
+      }>({
+        baseUrl: '',
+        endpoint: '/ametras_fast_import/file/analyze',
+        params: { file_id: file.id, encoding: config.settings.encoding || 'utf-8' }
+      })
+      if (analyzeResp.ok && analyzeResp.result) {
+        analysis = analyzeResp.result
+      }
+    }
     filesStore.setAnalysis(file.id, analysis)
 
     // Initialize mapping and generate suggestions for new files
@@ -464,19 +507,20 @@ async function validateRowForFile(filename: string) {
     // Pick a random row from sample rows
     const randomIndex = Math.floor(Math.random() * analysis.sampleRows.length)
     const row = analysis.sampleRows[randomIndex]
-    const mappedData = transformRowData(row, mapping.fieldMappings)
 
     // Detect if using external ID for upsert
-    const useExternalId = '__external_id__' in mappedData
+    const hasIdMapping = Object.values(mapping.fieldMappings).includes('id')
 
+    // Send raw row + field_mappings — Python handles transformation
     const result = await window.api.odoo.call<{ results: Array<{ ok: boolean; action?: string; error?: string }> }>({
       baseUrl: session.baseUrl,
       db: session.currentServer?.db,
       endpoint: '/ametras_fast_import/run',
       params: {
         model: mapping.model,
-        rows: [mappedData],
-        use_external_id: useExternalId,
+        raw_rows: [row],
+        field_mappings: mapping.fieldMappings,
+        use_external_id: hasIdMapping,
         dry_run: true
       }
     })
@@ -489,12 +533,12 @@ async function validateRowForFile(filename: string) {
         message: rowResult.ok
           ? t('config.validationRowSuccess', { row: rowNum, action: rowResult.action || 'processed' })
           : t('config.validationRowError', { row: rowNum, error: rowResult.error || t('config.validationFailed') }),
-        data: mappedData
+        data: row
       })
     } else if (result.ok) {
-      validationResults.value.set(filename, { ok: true, message: t('config.validationDryRunOk', { row: rowNum }), data: mappedData })
+      validationResults.value.set(filename, { ok: true, message: t('config.validationDryRunOk', { row: rowNum }), data: row })
     } else {
-      validationResults.value.set(filename, { ok: false, message: t('config.validationRequestFailed', { row: rowNum, error: result.error || t('config.validationFailed') }), data: mappedData })
+      validationResults.value.set(filename, { ok: false, message: t('config.validationRequestFailed', { row: rowNum, error: result.error || t('config.validationFailed') }), data: row })
     }
   } catch (e) {
     validationResults.value.set(filename, {

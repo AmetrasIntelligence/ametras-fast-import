@@ -601,6 +601,32 @@ export async function getOrRefreshSession(baseUrl: string, db?: string): Promise
   return promise
 }
 
+/**
+ * Get stored credentials for a session (used by Python subprocess IPC).
+ * Returns decrypted password or null if no credentials saved.
+ */
+export function getCredentials(baseUrl: string, db?: string): {
+  login: string; password: string; uid: number
+} | null {
+  let creds: typeof savedCredentials extends Map<string, infer V> ? V : never
+  if (db) {
+    creds = savedCredentials.get(getSessionKey(baseUrl, db)) as typeof creds
+  } else {
+    const candidates = Array.from(savedCredentials.values()).filter(c => c.baseUrl === baseUrl)
+    creds = candidates[0] as typeof creds
+  }
+  if (!creds) return null
+
+  const session = getSession(baseUrl, db)
+  if (!session) return null
+
+  const password = creds.encrypted
+    ? safeStorage.decryptString(creds.password)
+    : creds.password.toString('utf-8')
+
+  return { login: creds.login, password, uid: session.uid }
+}
+
 export function clearSessions(): void {
   sessions.clear()
   pinnedSessions.clear()

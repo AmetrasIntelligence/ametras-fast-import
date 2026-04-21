@@ -175,7 +175,8 @@
       "paused": "Paused",
       "skipping": "Skipping File...",
       "completed": "Completed",
-      "failed": "Failed"
+      "failed": "Failed",
+      "interrupted": "Interrupted"
     },
     "dryRun": "Dry Run",
     "eta": "ETA",

@@ -36,39 +36,19 @@ const pinia = createPinia()
 // Import session store for navigation guard
 import { useSessionStore } from '@/stores/session'
 import { usePlatformStore } from '@/stores/platform'
-import { useConfigStore } from '@/stores/config'
-import {
-  executeStandaloneBatch,
-  BatchSizeAdapter,
-  STANDALONE_MIN_BATCH_SIZE,
-  STANDALONE_MAX_BATCH_SIZE,
-  STANDALONE_DEFAULT_BATCH_SIZE,
-} from './standalone/executor'
+import { isPythonAvailable } from './standalone/pythonExecutor'
 
-// Configure platform for standalone/client mode
+// Configure platform capabilities
 const platform = usePlatformStore(pinia)
+
+// Default: standalone mode (limited features)
 platform.configure({
-  executeBatch: (model, rows, options, context) =>
-    executeStandaloneBatch(
-      model,
-      rows,
-      { fieldMappings: options.fieldMappings },
-      context.dryRun,
-      context.signal,
-      context.batchAdapter as BatchSizeAdapter | undefined,
-      undefined,
-      context.timeoutEscalationLevel ?? 0,
-    ),
-  maxWorkers: 4,
-  batchSizeRange: { min: STANDALONE_MIN_BATCH_SIZE, max: STANDALONE_MAX_BATCH_SIZE },
-  createBatchAdapter: (maxBatchSize: number) => new BatchSizeAdapter(maxBatchSize),
   capabilities: {
     dryRun: false,
     rowValidation: false,
     searchKeys: false,
     serverLogs: false,
     serverProfiles: false,
-    multipleWorkers: true,
     lang: false,
   },
   limitations: [
@@ -81,16 +61,29 @@ platform.configure({
   ],
 })
 
-const config = useConfigStore(pinia)
-if (config.settings.workers < 1 || config.settings.workers > platform.maxWorkers) {
-  config.setSettings({ workers: Math.max(1, Math.min(platform.maxWorkers, config.settings.workers)) })
-}
-if (
-  config.settings.batchSize < STANDALONE_MIN_BATCH_SIZE ||
-  config.settings.batchSize > STANDALONE_MAX_BATCH_SIZE
-) {
-  config.setSettings({ batchSize: STANDALONE_DEFAULT_BATCH_SIZE })
-}
+// Detect Python in background and upgrade capabilities if available
+isPythonAvailable().then((available) => {
+  if (available) {
+    console.log('[platform] Python import engine detected — enabling full features')
+    platform.configure({
+      capabilities: {
+        dryRun: true,
+        rowValidation: true,
+        searchKeys: true,
+        serverLogs: false,
+        serverProfiles: false,
+        lang: false,
+      },
+      limitations: [
+        'Server-side import logs not available',
+      ],
+    })
+  } else {
+    console.log('[platform] Python not available — using standalone mode (model.load)')
+  }
+}).catch(() => {
+  // Keep default standalone config
+})
 
 // Navigation guard: redirect to login if not authenticated
 router.beforeEach((to, _from, next) => {

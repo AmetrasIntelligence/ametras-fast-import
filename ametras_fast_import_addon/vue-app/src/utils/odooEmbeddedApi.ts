@@ -392,5 +392,18 @@ export function installOdooEmbeddedApi(): void {
         return { version: null }
       },
     },
+
+    python: {
+      detect: async () => ({ available: false }),
+      start: async () => ({ ok: false, error: 'Not available in embedded mode' }),
+      stop: async () => ({ ok: true }),
+      cancel: async () => ({ ok: true }),
+      authenticate: async () => ({ type: 'error', message: 'Not available in embedded mode' }),
+      import: async () => ({ type: 'error' as const, message: 'Not available in embedded mode' }),
+      analyze: async () => ({ ok: false, error: 'Not available in embedded mode' }),
+      models: async () => ({ type: 'error', message: 'Not available in embedded mode' }),
+      fields: async () => ({ type: 'error', message: 'Not available in embedded mode' }),
+      progress: async () => ([]),
+    },
   }
 }

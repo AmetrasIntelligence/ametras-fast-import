@@ -175,7 +175,8 @@
       "paused": "Pausiert",
       "skipping": "Datei wird übersprungen...",
       "completed": "Abgeschlossen",
-      "failed": "Fehlgeschlagen"
+      "failed": "Fehlgeschlagen",
+      "interrupted": "Unterbrochen"
     },
     "dryRun": "Probelauf",
     "eta": "Geschätzt",
