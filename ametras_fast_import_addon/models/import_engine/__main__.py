@@ -105,7 +105,12 @@ def _handle_import(cmd: dict) -> None:
         # Mode 1: raw_rows (batch from Vue via IPC)
         raw_rows = cmd.get('raw_rows')
         if raw_rows is not None:
-            parsed = [ParsedRow(index=i + 1, data=row) for i, row in enumerate(raw_rows)]
+            # Use original row indices if provided (retry mode), else 1-based
+            row_indices = cmd.get('row_indices')
+            if row_indices and len(row_indices) == len(raw_rows):
+                parsed = [ParsedRow(index=idx, data=row) for idx, row in zip(row_indices, raw_rows)]
+            else:
+                parsed = [ParsedRow(index=i + 1, data=row) for i, row in enumerate(raw_rows)]
             results = importer.import_rows(parsed)
 
             all_success = sum(1 for r in results if r.ok)
@@ -114,7 +119,7 @@ def _handle_import(cmd: dict) -> None:
                 {'row': r.row_index, 'error': r.error}
                 for r in results if not r.ok
             ]
-            MAX_ERRORS_IN_RESPONSE = 500
+            MAX_ERRORS_IN_RESPONSE = 10_000
             reporter.import_completed({
                 'success': all_success,
                 'failed': all_failed,
