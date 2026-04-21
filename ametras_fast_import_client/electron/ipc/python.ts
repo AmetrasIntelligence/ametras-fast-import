@@ -7,7 +7,7 @@
  * the Odoo addon to be installed.
  *
  * Python detection priority:
- * 1. Bundled executable in app resources
+ * 1. Bundled runtime (packaged app resources, or downloaded dev runtime)
  * 2. System python3 on PATH
  * 3. Falls back to model.load() standalone mode (handled by caller)
  */
@@ -23,14 +23,62 @@ import { getFilePath } from './files'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-// Path to the import_engine package relative to the addon
-const ENGINE_RELATIVE_PATH = '../../ametras_fast_import_addon/models'
+// Path to the import_engine package:
+// - Dev: relative to electron/ dir → ../../ametras_fast_import_addon/models
+// - Packaged: extraResources → <app>/Contents/Resources/import_engine
+const ENGINE_DEV_PATH = '../../ametras_fast_import_addon/models'
 
 let pythonProcess: ChildProcess | null = null
 let rl: readline.Interface | null = null
 let pendingResolve: ((msg: Record<string, unknown>) => void) | null = null
 let pendingTimeoutReset: (() => void) | null = null
 let messageQueue: Record<string, unknown>[] = []
+
+function getRuntimeArch(): 'x64' | 'arm64' | null {
+  switch (process.arch) {
+    case 'x64':
+    case 'arm64':
+      return process.arch
+    default:
+      return null
+  }
+}
+
+function getBundledPythonCandidates(): string[] {
+  const candidates: string[] = []
+
+  if (app.isPackaged) {
+    if (process.platform === 'win32') {
+      candidates.push(path.join(process.resourcesPath, 'python-runtime', 'python.exe'))
+    } else {
+      candidates.push(
+        path.join(process.resourcesPath, 'python-runtime', 'bin', 'python3'),
+        path.join(process.resourcesPath, 'python-runtime', 'bin', 'python'),
+        path.join(process.resourcesPath, 'python-runtime', 'bin', 'python3.12'),
+      )
+    }
+
+    return candidates
+  }
+
+  const runtimeArch = getRuntimeArch()
+  if (!runtimeArch) {
+    return candidates
+  }
+
+  const runtimeRoot = path.resolve(__dirname, `../../python-runtime/${process.platform}-${runtimeArch}`)
+  if (process.platform === 'win32') {
+    candidates.push(path.join(runtimeRoot, 'python.exe'))
+  } else {
+    candidates.push(
+      path.join(runtimeRoot, 'bin', 'python3'),
+      path.join(runtimeRoot, 'bin', 'python'),
+      path.join(runtimeRoot, 'bin', 'python3.12'),
+    )
+  }
+
+  return candidates
+}
 
 /**
  * Detect available Python executable.
@@ -42,18 +90,21 @@ let messageQueue: Record<string, unknown>[] = []
  */
 function findPythonViaShell(cmd: string): Promise<string | null> {
   return new Promise((resolve) => {
-    // On Windows use 'where', on Unix use 'which'
-    const findCmd = process.platform === 'win32'
-      ? `where ${cmd}`
-      : `which ${cmd}`
+    try {
+      const findCmd = process.platform === 'win32'
+        ? `where ${cmd}`
+        : `which ${cmd}`
 
-    exec(findCmd, { timeout: 5000 }, (err, stdout) => {
-      if (err || !stdout.trim()) {
-        resolve(null)
-      } else {
-        resolve(stdout.trim().split('\n')[0].trim())
-      }
-    })
+      exec(findCmd, { timeout: 5000 }, (err, stdout) => {
+        if (err || !stdout.trim()) {
+          resolve(null)
+        } else {
+          resolve(stdout.trim().split('\n')[0].trim())
+        }
+      })
+    } catch {
+      resolve(null)
+    }
   })
 }
 
@@ -62,31 +113,32 @@ function findPythonViaShell(cmd: string): Promise<string | null> {
  */
 function verifyPython(pythonPath: string): Promise<boolean> {
   return new Promise((resolve) => {
-    execFile(pythonPath, ['--version'], { timeout: 5000 }, (err, stdout) => {
-      if (err) {
-        resolve(false)
-      } else {
-        // Check version >= 3.8
-        const match = (stdout || '').match(/Python (\d+)\.(\d+)/)
-        if (match) {
-          const major = parseInt(match[1])
-          const minor = parseInt(match[2])
-          resolve(major >= 3 && (major > 3 || minor >= 8))
-        } else {
+    try {
+      execFile(pythonPath, ['--version'], { timeout: 5000 }, (err, stdout, stderr) => {
+        if (err) {
           resolve(false)
+        } else {
+          const output = stdout || stderr || ''
+          const match = output.match(/Python (\d+)\.(\d+)/)
+          if (match) {
+            const major = parseInt(match[1])
+            const minor = parseInt(match[2])
+            resolve(major >= 3 && (major > 3 || minor >= 8))
+          } else {
+            resolve(false)
+          }
         }
-      }
-    })
+      })
+    } catch {
+      // execFile can throw synchronously (ENOTDIR, EACCES) in sandboxed environments
+      resolve(false)
+    }
   })
 }
 
 async function detectPython(): Promise<string | null> {
-  // 1. Check for bundled Python in app resources
-  const bundledPaths = [
-    path.join(app.getAppPath(), 'resources', 'python', 'import_engine'),
-    path.join(app.getAppPath(), '..', 'resources', 'python', 'import_engine'),
-  ]
-  for (const bundled of bundledPaths) {
+  // 1. Check for bundled Python runtime
+  for (const bundled of getBundledPythonCandidates()) {
     if (await verifyPython(bundled)) {
       console.log(`[python] Found bundled Python at: ${bundled}`)
       return bundled
@@ -142,12 +194,17 @@ async function detectPython(): Promise<string | null> {
 }
 
 /**
- * Get the path to the import_engine package.
+ * Get the parent directory containing the import_engine package.
+ * The subprocess runs as `python -m import_engine` with cwd set to this path.
  */
 function getEnginePath(): string {
-  // In development: relative to the electron dir
-  const devPath = path.resolve(__dirname, ENGINE_RELATIVE_PATH)
-  return devPath
+  // Packaged app: extraResources puts import_engine/ under Resources/
+  if (app.isPackaged) {
+    // process.resourcesPath = <app>/Contents/Resources (macOS) or resources/ (Win/Linux)
+    return process.resourcesPath
+  }
+  // Development: relative to the compiled electron dir
+  return path.resolve(__dirname, ENGINE_DEV_PATH)
 }
 
 /**
@@ -316,13 +373,16 @@ async function ensurePythonStarted(): Promise<void> {
 // ---- IPC Handlers ----
 
 ipcMain.handle('python:detect', async () => {
-  console.log('[python:detect] Starting Python detection...')
-  console.log('[python:detect] process.env.PATH:', process.env.PATH)
-  console.log('[python:detect] process.env.VIRTUAL_ENV:', process.env.VIRTUAL_ENV || '(not set)')
-  console.log('[python:detect] process.platform:', process.platform)
-  const pythonPath = await detectPython()
-  console.log('[python:detect] Result:', pythonPath || 'NOT FOUND')
-  return { available: !!pythonPath, pythonPath }
+  try {
+    console.log('[python:detect] Starting Python detection...')
+    console.log('[python:detect] process.platform:', process.platform)
+    const pythonPath = await detectPython()
+    console.log('[python:detect] Result:', pythonPath || 'NOT FOUND')
+    return { available: !!pythonPath, pythonPath }
+  } catch (e) {
+    console.error('[python:detect] Detection failed:', e)
+    return { available: false, error: e instanceof Error ? e.message : 'Detection failed' }
+  }
 })
 
 ipcMain.handle('python:start', async (_event, payload?: { pythonPath?: string }) => {

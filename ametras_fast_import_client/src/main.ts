@@ -41,47 +41,25 @@ import { isPythonAvailable } from './standalone/pythonExecutor'
 // Configure platform capabilities
 const platform = usePlatformStore(pinia)
 
-// Default: standalone mode (limited features)
+// Python is required for the standalone client. Detect it before allowing login.
+// Configure platform with full capabilities — downgraded only if Python is missing.
 platform.configure({
   capabilities: {
-    dryRun: false,
+    dryRun: true,
     rowValidation: true,
-    searchKeys: false,
+    searchKeys: true,
     serverLogs: false,
     serverProfiles: false,
     lang: false,
   },
   limitations: [
-    'Search key upsert not available',
-    'Per-row error isolation not available',
-    'Explicit operation column (__op__) not supported',
     'Server-side import logs not available',
-    'Resume interrupted imports not available',
   ],
 })
 
-// Detect Python in background and upgrade capabilities if available
-isPythonAvailable().then((available) => {
-  if (available) {
-    console.warn('[platform] Python import engine detected — enabling full features')
-    platform.configure({
-      capabilities: {
-        dryRun: true,
-        rowValidation: true,
-        searchKeys: true,
-        serverLogs: false,
-        serverProfiles: false,
-        lang: false,
-      },
-      limitations: [
-        'Server-side import logs not available',
-      ],
-    })
-  } else {
-    console.warn('[platform] Python not available — using standalone mode (model.load)')
-  }
-}).catch(() => {
-  // Keep default standalone config
+// Python check runs eagerly so it's cached when LoginView reads it
+isPythonAvailable().catch(() => {
+  // Detection failed — LoginView will show the error
 })
 
 // Navigation guard: redirect to login if not authenticated

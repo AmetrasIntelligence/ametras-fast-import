@@ -277,6 +277,9 @@ dist-electron/
 # electron-builder packaged apps
 release/
 
+# Bundled Python runtime (downloaded by scripts/download-python.sh)
+ametras_fast_import_client/python-runtime/
+
 # Playwright test output
 test-results/
 playwright-report/
