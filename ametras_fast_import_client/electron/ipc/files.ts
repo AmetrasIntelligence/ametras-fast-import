@@ -439,6 +439,14 @@ ipcMain.handle('files:cleanupStreams', async () => {
   }
 })
 
+/**
+ * Resolve a file UUID to its real filesystem path.
+ * Used by the Python IPC handler for file analysis and import.
+ */
+export function getFilePath(id: string): string | undefined {
+  return fileRegistry.get(id)
+}
+
 export function clearFileRegistry() {
   fileRegistry.clear()
   // Clean up any active streams

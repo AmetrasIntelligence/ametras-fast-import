@@ -1,23 +1,13 @@
 <script setup lang="ts">
-import JSZip from 'jszip'
 import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useRunStore } from '@/stores/run'
 import { useSessionStore } from '@/stores/session'
 import { useFilesStore } from '@/stores/files'
-import { useConfigStore } from '@/stores/config'
-import { ImportEngine } from '@/importer/engine'
-import { ImportState } from '@/importer/stateMachine'
-import { extractRowsByIndex } from '@/importer/csvParser'
+import { ImportState } from '@/importer/types'
 import { showAlert } from '@/composables/useDialog'
-import { downloadCSV } from '@/utils/formatters'
-import { downloadBlob } from '@/utils/profileUtils'
-import {
-  buildFailedRowsCsv,
-  buildUnifiedErrorLogCsv,
-  groupRowErrorsByFile,
-} from '@/utils/errorExport'
+import { downloadCSV, downloadJSON } from '@/utils/formatters'
 import { logger } from '@/utils/logger'
 import { Button, Card, Table } from '@/ui'
 
@@ -25,10 +15,7 @@ const { t } = useI18n()
 const router = useRouter()
 const run = useRunStore()
 const session = useSessionStore()
-const filesStore = useFilesStore()
-const config = useConfigStore()
 const isRetrying = ref(false)
-const isExportingFailedRows = ref(false)
 const loading = ref(false)
 const loadError = ref<string | null>(null)
 
@@ -62,8 +49,6 @@ const summary = computed(() => {
   }
 })
 
-const hasRowErrors = computed(() => run.errors.some((error) => error.rowNumber > 0))
-
 function calculateDuration(): string {
   if (!run.runStartTime) return '--'
   const files = Object.values(run.progress.files)
@@ -73,78 +58,37 @@ function calculateDuration(): string {
   return `${Math.round(duration / 1000)}s`
 }
 
-function exportUnifiedErrorsCSV() {
-  const csv = buildUnifiedErrorLogCsv(run.errors)
-  downloadCSV(csv, 'import-errors-unified.csv')
-}
+function exportErrorsCSV() {
+  const headers = ['filename', 'row_number', 'error', 'timestamp']
+  const lines = [headers.join(',')]
 
-async function exportFailedRowsZip() {
-  if (isExportingFailedRows.value) return
-
-  const grouped = groupRowErrorsByFile(run.errors)
-  if (grouped.size === 0) {
-    showAlert(t('results.noFailedRowsToExport'))
-    return
+  for (const error of run.errors) {
+    lines.push([
+      error.filename,
+      error.rowNumber,
+      `"${error.error.replace(/"/g, '""')}"`,
+      new Date(error.timestamp).toISOString()
+    ].join(','))
   }
 
-  isExportingFailedRows.value = true
-  try {
-    const parseOptions = {
-      delimiter: config.settings.delimiter || undefined,
-      encoding: config.settings.encoding,
-      hasHeader: config.settings.skipHeader,
-    }
-
-    const zip = new JSZip()
-    const missingFiles: string[] = []
-
-    for (const [filename, rowErrors] of grouped.entries()) {
-      const file = filesStore.files.find((entry) => entry.name === filename)
-      if (!file) {
-        missingFiles.push(filename)
-        continue
-      }
-
-      const rowIndices = new Set<number>(rowErrors.keys())
-      const rows = await extractRowsByIndex(file.id, rowIndices, parseOptions)
-      const headerOrder = filesStore.getAnalysis(file.id)?.headers ?? []
-      const failedRows = rows.map((row) => ({
-        rowNumber: row.index,
-        data: row.data,
-        error: (rowErrors.get(row.index) ?? []).join(' | '),
-      }))
-
-      if (failedRows.length === 0) continue
-      const exportName = filename.toLowerCase().endsWith('.csv') ? filename : `${filename}.csv`
-      zip.file(exportName, buildFailedRowsCsv(headerOrder, failedRows))
-    }
-
-    if (Object.keys(zip.files).length === 0) {
-      if (missingFiles.length > 0) {
-        showAlert(t('results.failedRowsExportNoFiles', { files: missingFiles.join(', ') }))
-      } else {
-        showAlert(t('results.noFailedRowsToExport'))
-      }
-      return
-    }
-
-    const blob = await zip.generateAsync({ type: 'blob' })
-    downloadBlob(blob, 'import-failed-rows.zip')
-
-    if (missingFiles.length > 0) {
-      showAlert(t('results.failedRowsExportPartial', { files: missingFiles.join(', ') }))
-    }
-  } catch (error) {
-    showAlert(t('results.failedRowsExportError', { error: error instanceof Error ? error.message : String(error) }))
-  } finally {
-    isExportingFailedRows.value = false
-  }
+  downloadCSV(lines.join('\n'), 'import-errors.csv')
 }
 
-function retryFailedRows() {
+function exportFullReport() {
+  const report = {
+    summary: summary.value,
+    files: Object.values(run.progress.files),
+    errors: run.errors
+  }
+
+  downloadJSON(report, 'import-report.json')
+}
+
+async function retryFailedRows() {
   if (isRetrying.value) return
 
   // Check if files are still available before retrying
+  const filesStore = useFilesStore()
   const hasFiles = filesStore.files.length > 0
   if (!hasFiles) {
     showAlert(t('results.retryNoFiles'))
@@ -154,20 +98,28 @@ function retryFailedRows() {
   isRetrying.value = true
   run.isHistoricalLog = false
 
-  // Create engine and mark run as active BEFORE navigating.
-  // This prevents RunView.onMounted from creating a second engine
-  // (it early-returns when run.isActive is true).
-  const engine = new ImportEngine()
-  run.setEngine(engine)
-  run.setState(ImportState.VALIDATING)
+  try {
+    // Call server retry endpoint — creates new log and starts background job
+    const resp = await window.api.odoo.call<{ logId: number; state: string }>({
+      baseUrl: '',
+      endpoint: '/ametras_fast_import/import/retry',
+      params: { log_id: run.logId }
+    })
 
-  // Start retry in background (don't await - let RunView display progress)
-  engine.retryFailedRows().catch(e => {
+    if (resp.ok && resp.result) {
+      run.reset()
+      run.logId = resp.result.logId
+      run.setState(ImportState.RUNNING_FILE)
+      router.push('/run')
+    } else {
+      showAlert(resp.error || t('results.retryFailed'))
+      isRetrying.value = false
+    }
+  } catch (e) {
     logger.import.error('Retry failed', { error: e instanceof Error ? e.message : String(e) })
-  })
-
-  // Navigate to run view immediately to show progress
-  router.push('/run')
+    showAlert(t('results.retryFailed'))
+    isRetrying.value = false
+  }
 }
 
 function closeDialog() {
@@ -252,18 +204,16 @@ function startNew() {
           <Button
             v-if="run.errors.length > 0"
             variant="outline"
-            @click="exportUnifiedErrorsCSV"
+            @click="exportErrorsCSV"
           >
             {{ $t('results.downloadErrors') }}
           </Button>
 
           <Button
-            v-if="hasRowErrors"
             variant="outline"
-            :disabled="isExportingFailedRows"
-            @click="exportFailedRowsZip"
+            @click="exportFullReport"
           >
-            {{ $t('results.downloadFailedRowsZip') }}
+            {{ $t('results.downloadReport') }}
           </Button>
         </div>
       </Card>

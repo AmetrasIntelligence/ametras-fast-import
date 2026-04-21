@@ -3,35 +3,45 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfigStore, type RunSettings } from '@/stores/config'
 import { usePlatformStore } from '@/stores/platform'
-import { validateWorkerConfig } from '@/importer/workerPool'
 
 const { t } = useI18n()
 const config = useConfigStore()
 const platform = usePlatformStore()
+
+function validateWorkerConfig(workers: number, batchSize: number): { valid: boolean; warning?: string } {
+  if (workers > 2 && batchSize < 50) {
+    return { valid: true, warning: 'Workers may be inefficient with small batch sizes (< 50 rows)' }
+  }
+  if (workers > 4) {
+    return { valid: false, warning: 'Maximum 4 workers allowed' }
+  }
+  return { valid: true }
+}
+
+// Server-side import: batch size and workers are hints for the backend
+const BATCH_SIZE_MIN = 10
+const BATCH_SIZE_MAX = 1000
+const MAX_WORKERS = 4
 
 const workerWarning = computed(() => {
   const { warning } = validateWorkerConfig(config.settings.workers, config.settings.batchSize)
   return warning
 })
 
-const batchSizeMin = computed(() => platform.batchSizeRange.min)
-const batchSizeMax = computed(() => platform.batchSizeRange.max)
+const batchSizeMin = computed(() => BATCH_SIZE_MIN)
+const batchSizeMax = computed(() => BATCH_SIZE_MAX)
 
 const batchSizeError = computed(() => {
   const size = config.settings.batchSize
-  if (size < batchSizeMin.value) return !platform.capabilities.multipleWorkers
-    ? t('settings.validation.batchSizeStandaloneRange')
-    : t('settings.validation.batchSizeMin')
-  if (size > batchSizeMax.value) return !platform.capabilities.multipleWorkers
-    ? t('settings.validation.batchSizeStandaloneRange')
-    : t('settings.validation.batchSizeMax')
+  if (size < BATCH_SIZE_MIN) return t('settings.validation.batchSizeMin')
+  if (size > BATCH_SIZE_MAX) return t('settings.validation.batchSizeMax')
   return null
 })
 
 const workersError = computed(() => {
   const workers = config.settings.workers
   if (workers < 1) return t('settings.validation.workersMin')
-  if (workers > platform.maxWorkers) return t('settings.validation.workersMax')
+  if (workers > MAX_WORKERS) return t('settings.validation.workersMax')
   return null
 })
 
@@ -56,7 +66,7 @@ const encodingOptions = computed(() => [
       <div>
         <label class="form-label small text-body-secondary mb-1">
           {{ $t('settings.batchSize') }}
-          <span v-if="!platform.capabilities.multipleWorkers" class="text-body-secondary">({{ batchSizeMin }}-{{ batchSizeMax }})</span>
+          <span v-if="!true" class="text-body-secondary">({{ batchSizeMin }}-{{ batchSizeMax }})</span>
         </label>
         <input
           :value="config.settings.batchSize"
@@ -74,16 +84,16 @@ const encodingOptions = computed(() => [
       <div>
         <label class="form-label small text-body-secondary mb-1">
           {{ $t('settings.workers') }}
-          <span class="text-body-secondary">(1-{{ platform.maxWorkers }})</span>
+          <span class="text-body-secondary">(1-{{ MAX_WORKERS }})</span>
         </label>
         <input
           :value="config.settings.workers"
           type="number"
           min="1"
-          :max="platform.maxWorkers"
+          :max="MAX_WORKERS"
           class="form-control form-control-sm"
           :class="{ 'is-invalid': workersError }"
-          @input="{ const v = parseInt(($event.target as HTMLInputElement).value); if (!isNaN(v)) config.setSettings({ workers: Math.max(1, Math.min(platform.maxWorkers, v)) }) }"
+          @input="config.setSettings({ workers: Math.max(1, Math.min(MAX_WORKERS, parseInt(($event.target as HTMLInputElement).value) || 1)) })"
         />
         <div v-if="workersError" class="invalid-feedback">
           {{ workersError }}

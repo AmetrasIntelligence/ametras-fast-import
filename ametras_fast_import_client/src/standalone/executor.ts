@@ -5,44 +5,78 @@
  *
  * Features:
  * - Adaptive retry: splits failed batches to isolate failing rows
- * - Batch size restricted to 1-100 for stability
+ * - Batch size restricted to 10-200 for stability
  */
 
 import { useSessionStore } from '@/stores/session'
-import type { ParsedRow } from '@/importer/csvParser'
-import type { BatchResult, MappingConfig } from '@/importer/batchExecutor'
-import { detectIdColumn, NetworkBatchError, AuthBatchError, TimeoutBatchError } from '@/importer/batchExecutor'
-import { BatchSizeAdapter } from '@/importer/batchSizeAdapter'
+import type { ParsedRow, BatchResult, MappingConfig } from '@/importer/types'
+import { detectIdColumn, NetworkBatchError, AuthBatchError, TimeoutBatchError } from '@/importer/types'
 import { logger } from '@/utils/logger'
 
 // Batch size constraints for standalone mode
-export const STANDALONE_MIN_BATCH_SIZE = 1
+export const STANDALONE_MIN_BATCH_SIZE = 10
 export const STANDALONE_MAX_BATCH_SIZE = 100
-export const STANDALONE_DEFAULT_BATCH_SIZE = 20
+export const STANDALONE_DEFAULT_BATCH_SIZE = 50
 
-// Standalone request timeout model (must stay aligned with IPC defaults)
-const STANDALONE_TIMEOUT_BASE_MS = 10_000
-const STANDALONE_TIMEOUT_PER_ROW_MS = 1_000
-const STANDALONE_TIMEOUT_MIN_MS = 15_000
-const STANDALONE_TIMEOUT_MAX_MS = 300_000
-const STANDALONE_TIMEOUT_ESCALATED_MAX_MS = 900_000
+/**
+ * Warmup-based adaptive batch size controller.
+ * Starts at size 1 (single rows) to learn data quality, then steps up
+ * through fixed levels: 1 → 10 → maxSize.
+ *
+ * Increase: after 100 consecutive successful rows, step up one level.
+ * Decrease: after 3 consecutive failed batches, step down one level.
+ * Each file starts fresh at level 0 (size 1).
+ */
+export class BatchSizeAdapter {
+  currentSize: number
+  private levels: number[]
+  private levelIndex: number = 0
+  private successfulRows: number = 0
+  private consecutiveFailures: number = 0
 
-function computeStandaloneTimeoutMs(rowCount: number, timeoutEscalationLevel: number): number {
-  const baseRaw = STANDALONE_TIMEOUT_BASE_MS + STANDALONE_TIMEOUT_PER_ROW_MS * rowCount
-  const baseTimeout = Math.max(
-    STANDALONE_TIMEOUT_MIN_MS,
-    Math.min(STANDALONE_TIMEOUT_MAX_MS, baseRaw)
-  )
-  if (timeoutEscalationLevel <= 0) return baseTimeout
-  const multiplier = Math.min(2 ** timeoutEscalationLevel, 32)
-  return Math.max(
-    STANDALONE_TIMEOUT_MIN_MS,
-    Math.min(STANDALONE_TIMEOUT_ESCALATED_MAX_MS, Math.round(baseTimeout * multiplier))
-  )
+  static readonly SUCCESS_THRESHOLD = 30
+  static readonly FAILURE_THRESHOLD = 3
+
+  constructor(maxSize: number = STANDALONE_MAX_BATCH_SIZE) {
+    // Build levels: [1, min(10, max), max] deduplicated
+    const raw = [1, Math.min(10, maxSize), maxSize]
+    this.levels = [...new Set(raw)].sort((a, b) => a - b)
+    this.levelIndex = 0
+    this.currentSize = this.levels[0]
+  }
+
+  /** Record successful rows and step up after enough consecutive successes. */
+  recordSuccess(rowCount: number): void {
+    this.consecutiveFailures = 0
+    this.successfulRows += rowCount
+    if (this.successfulRows >= BatchSizeAdapter.SUCCESS_THRESHOLD && this.levelIndex < this.levels.length - 1) {
+      this.levelIndex++
+      this.currentSize = this.levels[this.levelIndex]
+      this.successfulRows = 0
+    }
+  }
+
+  /** Record a batch failure and step down after enough consecutive failures. */
+  recordFailure(): void {
+    this.successfulRows = 0
+    this.consecutiveFailures++
+    if (this.consecutiveFailures >= BatchSizeAdapter.FAILURE_THRESHOLD && this.levelIndex > 0) {
+      this.levelIndex--
+      this.currentSize = this.levels[this.levelIndex]
+      this.consecutiveFailures = 0
+    }
+  }
+
+  /** Immediately step down one level — used for timeouts where the batch is clearly too large. */
+  recordTimeout(): void {
+    this.successfulRows = 0
+    this.consecutiveFailures = 0
+    if (this.levelIndex > 0) {
+      this.levelIndex--
+      this.currentSize = this.levels[this.levelIndex]
+    }
+  }
 }
-
-// Re-export for backward compatibility
-export { BatchSizeAdapter } from '@/importer/batchSizeAdapter'
 
 // Concurrency retry settings
 export const CONCURRENCY_MAX_RETRIES = 3
@@ -186,7 +220,6 @@ async function executeLoadBatch(
   header: string[],
   rows: ParsedRow[],
   mapping: MappingConfig,
-  timeoutEscalationLevel: number,
   signal?: AbortSignal
 ): Promise<{ ok: boolean; results: BatchResult[]; errorRowIndices?: Set<number> }> {
   if (signal?.aborted) {
@@ -203,8 +236,7 @@ async function executeLoadBatch(
     db,
     model,
     header,
-    rows: loadRows,
-    timeoutMs: computeStandaloneTimeoutMs(rows.length, timeoutEscalationLevel),
+    rows: loadRows
   })
 
   if (!response.ok) {
@@ -254,6 +286,7 @@ async function executeLoadBatch(
   }
 
   // Process results
+  const results: BatchResult[] = []
   const ids = response.ids || []
   const messages = response.messages || []
 
@@ -276,27 +309,13 @@ async function executeLoadBatch(
     )
   }
 
-  if (!idsAligned) {
-    const ambiguousError =
-      `Ambiguous model.load response: received ${ids.length} ids for ${rows.length} rows. ` +
-      'Retrying with smaller chunks to isolate row outcomes.'
-    return {
-      ok: false,
-      results: rows.map((row, idx) => ({
-        ok: false,
-        error: errorMap.get(idx) || ambiguousError,
-        rowIndex: row.index
-      })),
-      errorRowIndices: errorMap.size > 0 ? new Set(errorMap.keys()) : undefined
-    }
-  }
-
-  const results: BatchResult[] = []
   for (let i = 0; i < rows.length; i++) {
     const hasError = errorMap.has(i)
-    const createdId = i < ids.length ? ids[i] : undefined
+    const createdId = idsAligned && i < ids.length ? ids[i] : undefined
+    const ok = !hasError && (idsAligned ? createdId !== undefined : ids.length > 0)
+
     results.push({
-      ok: !hasError && createdId !== undefined,
+      ok,
       error: errorMap.get(i),
       rowIndex: rows[i].index,
       createdId
@@ -337,11 +356,6 @@ function computeRetryChunkSize(initialSize: number, depth: number, retryDepth: n
  *
  * The bottom level is always single rows — no "max depth exceeded" errors.
  */
-/** Mutable hints passed back to the caller for adapter decisions. */
-interface AdaptiveRetryHints {
-  hadConcurrency: boolean
-}
-
 async function executeWithAdaptiveRetry(
   baseUrl: string,
   db: string,
@@ -352,9 +366,7 @@ async function executeWithAdaptiveRetry(
   depth: number = 0,
   initialBatchSize: number,
   retryDepth: number = DEFAULT_RETRY_DEPTH,
-  timeoutEscalationLevel: number = 0,
-  signal?: AbortSignal,
-  hints?: AdaptiveRetryHints
+  signal?: AbortSignal
 ): Promise<BatchResult[]> {
   // Check abort before doing any work
   if (signal?.aborted) {
@@ -365,20 +377,10 @@ async function executeWithAdaptiveRetry(
   let result: Awaited<ReturnType<typeof executeLoadBatch>>
   for (let attempt = 0; ; attempt++) {
     try {
-      result = await executeLoadBatch(
-        baseUrl,
-        db,
-        model,
-        header,
-        rows,
-        mapping,
-        timeoutEscalationLevel,
-        signal
-      )
+      result = await executeLoadBatch(baseUrl, db, model, header, rows, mapping, signal)
       break // no concurrency error — proceed
     } catch (err) {
       if (err instanceof ConcurrencyBatchError) {
-        if (hints) hints.hadConcurrency = true
         if (attempt < CONCURRENCY_MAX_RETRIES - 1) {
           const delay = concurrencyBackoffDelay(attempt)
           logger.import.warn(
@@ -429,24 +431,8 @@ async function executeWithAdaptiveRetry(
   let rowsToRetry: ParsedRow[]
   const immediateFailResults: BatchResult[] = []
 
-  // All rows known-bad — no point splitting further
-  if (result.errorRowIndices && result.errorRowIndices.size >= rows.length) {
-    return result.results
-  }
-
-  // Error-guided exclusion: when Odoo flags a meaningful number of
-  // specific rows as bad, exclude them and retry the rest.
-  // model.load() is transactional — the "good" rows were rolled back too
-  // and may succeed without the bad rows poisoning the batch.
-  //
-  // However, model.load() often only reports the FIRST error before
-  // rolling back. A single flagged row out of a large batch doesn't
-  // justify retrying N-1 rows — just split the whole batch instead.
-  // Threshold: at least 2 flagged rows AND >10% of the batch, so
-  // the exclusion actually removes a meaningful portion.
-  const minExcludeCount = Math.max(2, Math.ceil(rows.length * 0.1))
-  if (result.errorRowIndices && result.errorRowIndices.size >= minExcludeCount
-      && result.errorRowIndices.size < rows.length) {
+  // Error-guided: if Odoo told us which rows are bad, skip them
+  if (result.errorRowIndices && result.errorRowIndices.size > 0 && result.errorRowIndices.size < rows.length) {
     const goodRows: ParsedRow[] = []
     for (let i = 0; i < rows.length; i++) {
       if (result.errorRowIndices.has(i)) {
@@ -483,14 +469,11 @@ async function executeWithAdaptiveRetry(
       break
     }
 
-    // Throttle between chunks (skip before the first one)
-    if (i > 0) {
-      await abortableDelay(RETRY_SPLIT_DELAY_MS, signal)
-    }
+    await abortableDelay(RETRY_SPLIT_DELAY_MS, signal)
     const chunk = rowsToRetry.slice(i, i + nextChunkSize)
     const chunkResults = await executeWithAdaptiveRetry(
       baseUrl, db, model, header, chunk, mapping,
-      depth + 1, initialBatchSize, retryDepth, timeoutEscalationLevel, signal, hints
+      depth + 1, initialBatchSize, retryDepth, signal
     )
     retryResults.push(...chunkResults)
   }
@@ -509,8 +492,7 @@ export async function executeStandaloneBatch(
   dryRun?: boolean,
   signal?: AbortSignal,
   adapter?: BatchSizeAdapter,
-  retryDepth: number = DEFAULT_RETRY_DEPTH,
-  timeoutEscalationLevel: number = 0
+  retryDepth: number = DEFAULT_RETRY_DEPTH
 ): Promise<BatchResult[]> {
   if (dryRun) {
     throw new Error('Dry-run is not supported in standalone mode. Disable dry-run or install the ametras_fast_import addon.')
@@ -545,33 +527,25 @@ export async function executeStandaloneBatch(
       const chunkSize = adapter.currentSize
       const chunk = rows.slice(offset, offset + chunkSize)
 
-      const hints: AdaptiveRetryHints = { hadConcurrency: false }
-      const chunkResults = await executeWithAdaptiveRetry(
-        session.baseUrl,
-        db,
-        model,
-        header,
-        chunk,
-        mapping,
-        0,
-        chunkSize,
-        retryDepth,
-        timeoutEscalationLevel,
-        signal,
-        hints
-      )
-
-      // Update adapter based on server capacity, not data quality.
-      // Concurrency errors (deadlocks/lock contention) → immediate step
-      // down, same as timeout. The batch size is causing too much lock
-      // pressure on the database right now.
-      // Data errors (validation, constraints) are row-level issues that
-      // don't reflect server capacity → don't affect batch sizing.
-      if (hints.hadConcurrency) {
-        adapter.recordTimeout()
-        logger.import.warn(
-          `[standalone] Concurrency — adapter stepped down to batch size ${adapter.currentSize}`
+      let chunkResults: BatchResult[]
+      try {
+        chunkResults = await executeWithAdaptiveRetry(
+          session.baseUrl, db, model, header, chunk, mapping, 0, chunkSize, retryDepth, signal
         )
+      } catch (err) {
+        if (err instanceof TimeoutBatchError && adapter) {
+          adapter.recordTimeout()
+          logger.import.warn(
+            `[standalone] Timeout — adapter stepped down to batch size ${adapter.currentSize}`
+          )
+        }
+        throw err
+      }
+
+      // Update adapter based on outcome
+      const hadFailure = chunkResults.some(r => !r.ok)
+      if (hadFailure) {
+        adapter.recordFailure()
       } else {
         adapter.recordSuccess(chunk.length)
       }
@@ -582,17 +556,7 @@ export async function executeStandaloneBatch(
   } else {
     // No adapter — send all rows at once (original behavior)
     const results = await executeWithAdaptiveRetry(
-      session.baseUrl,
-      db,
-      model,
-      header,
-      rows,
-      mapping,
-      0,
-      rows.length,
-      retryDepth,
-      timeoutEscalationLevel,
-      signal
+      session.baseUrl, db, model, header, rows, mapping, 0, rows.length, retryDepth, signal
     )
     allResults.push(...results)
   }

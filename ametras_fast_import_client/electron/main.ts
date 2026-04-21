@@ -12,10 +12,12 @@ import './ipc/odoo'
 import './ipc/store'
 import './ipc/profile'
 import './ipc/standalone'
+import './ipc/python'
 
 // Import cleanup functions
 import { clearFileRegistry } from './ipc/files'
 import { shutdownSessions } from './ipc/odoo'
+import { shutdownPython } from './ipc/python'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -48,6 +50,7 @@ app.on('window-all-closed', () => {
 // Cleanup on app quit
 app.on('will-quit', () => {
   shutdownSessions()
+  shutdownPython()
   clearFileRegistry()
 })
 

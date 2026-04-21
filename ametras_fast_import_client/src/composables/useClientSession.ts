@@ -7,7 +7,6 @@
  */
 
 import { useSessionStore, type ServerProfile } from '@/stores/session'
-import { usePlatformStore } from '@/stores/platform'
 import { useConfigStore } from '@/stores/config'
 
 export function useClientSession() {
@@ -44,11 +43,10 @@ export function useClientSession() {
       // Profile save failure is non-fatal — user is already logged in
     }
 
-    // Clamp batch size to platform limits
-    const platform = usePlatformStore()
+    // Clamp batch size to reasonable limits
     const config = useConfigStore()
-    if (config.settings.batchSize > platform.batchSizeRange.max) {
-      config.setSettings({ batchSize: platform.batchSizeRange.max })
+    if (config.settings.batchSize > 1000) {
+      config.setSettings({ batchSize: 1000 })
     }
   }
 

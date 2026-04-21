@@ -54,5 +54,17 @@ contextBridge.exposeInMainWorld('api', {
     detectAddon: (payload) => ipcRenderer.invoke('standalone:detectAddon', payload),
     load: (payload) => ipcRenderer.invoke('standalone:load', payload),
     getOdooVersion: (payload) => ipcRenderer.invoke('standalone:getOdooVersion', payload)
+  },
+  python: {
+    detect: () => ipcRenderer.invoke('python:detect'),
+    start: (payload) => ipcRenderer.invoke('python:start', payload),
+    stop: () => ipcRenderer.invoke('python:stop'),
+    cancel: () => ipcRenderer.invoke('python:cancel'),
+    authenticate: (params) => ipcRenderer.invoke('python:authenticate', params),
+    import: (payload) => ipcRenderer.invoke('python:import', payload),
+    analyze: (payload) => ipcRenderer.invoke('python:analyze', payload),
+    models: (payload) => ipcRenderer.invoke('python:models', payload),
+    fields: (payload) => ipcRenderer.invoke('python:fields', payload),
+    progress: () => ipcRenderer.invoke('python:progress')
   }
 });

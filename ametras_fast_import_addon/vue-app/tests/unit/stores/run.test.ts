@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useRunStore } from '@/stores/run'
-import { ImportState } from '@/importer/stateMachine'
+import { ImportState } from '@/importer/types'
 
 describe('RunStore', () => {
   beforeEach(() => {

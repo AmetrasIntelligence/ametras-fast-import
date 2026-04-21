@@ -99,6 +99,14 @@ interface StandaloneLoadResult {
   errorCode?: 'NETWORK_ERROR' | 'TIMEOUT' | 'DATA_ERROR' | 'CONCURRENCY_ERROR' | 'AUTH_ERROR' | 'UNKNOWN'
 }
 
+interface PythonImportResult {
+  type: 'done' | 'error'
+  success?: number
+  failed?: number
+  errors?: Array<{ row: number; error: string; file?: string }>
+  message?: string
+}
+
 interface ElectronAPI {
   files: {
     select: () => Promise<FileHandle[]>
@@ -136,6 +144,19 @@ interface ElectronAPI {
     detectAddon: (payload: { baseUrl: string; db: string }) => Promise<StandaloneDetectResult>
     load: (payload: StandaloneLoadParams) => Promise<StandaloneLoadResult>
     getOdooVersion: (payload: { baseUrl: string; db: string }) => Promise<{ version: string | null; error?: string }>
+  }
+
+  python: {
+    detect: () => Promise<{ available: boolean; pythonPath?: string }>
+    start: (payload?: { pythonPath?: string }) => Promise<{ ok: boolean; error?: string }>
+    stop: () => Promise<{ ok: boolean }>
+    cancel: () => Promise<{ ok: boolean }>
+    authenticate: (params: { url: string; db: string; login: string; password: string }) => Promise<Record<string, unknown>>
+    import: (payload: Record<string, unknown>) => Promise<PythonImportResult>
+    analyze: (payload: { fileId: string; encoding?: string; delimiter?: string }) => Promise<{ ok: boolean; result?: Record<string, unknown>; error?: string }>
+    models: (payload: { url: string; db: string; uid: number; password: string }) => Promise<Record<string, unknown>>
+    fields: (payload: { url: string; db: string; uid: number; password: string; model: string }) => Promise<Record<string, unknown>>
+    progress: () => Promise<Record<string, unknown>[]>
   }
 }
 
