@@ -29,6 +29,7 @@ const ENGINE_RELATIVE_PATH = '../../ametras_fast_import_addon/models'
 let pythonProcess: ChildProcess | null = null
 let rl: readline.Interface | null = null
 let pendingResolve: ((msg: Record<string, unknown>) => void) | null = null
+let pendingTimeoutReset: (() => void) | null = null
 let messageQueue: Record<string, unknown>[] = []
 
 /**
@@ -177,6 +178,8 @@ function startPythonProcess(pythonPath: string): ChildProcess {
         } else {
           // Progress messages — queue for event forwarding
           messageQueue.push(msg)
+          // Reset the safety timeout — subprocess is still alive
+          if (pendingTimeoutReset) pendingTimeoutReset()
         }
       } else {
         messageQueue.push(msg)
@@ -213,14 +216,17 @@ function startPythonProcess(pythonPath: string): ChildProcess {
 
 /**
  * Send a command to the Python subprocess and wait for a terminal response.
+ *
+ * Safety timeout (2 hours) is reset every time a progress message arrives,
+ * so an active-but-slow import never times out. The timeout only fires if
+ * the subprocess goes completely silent for 2 hours.
  */
+const COMMAND_TIMEOUT_MS = 2 * 60 * 60 * 1000 // 2 hours
+
 async function sendCommand(cmd: Record<string, unknown>): Promise<Record<string, unknown>> {
   if (!pythonProcess?.stdin) {
     throw new Error('Python process not started')
   }
-
-  // Don't clear messageQueue here — let polling drain progress messages.
-  // Only the python:progress handler drains the queue.
 
   return new Promise((resolve, reject) => {
     pendingResolve = resolve
@@ -229,24 +235,35 @@ async function sendCommand(cmd: Record<string, unknown>): Promise<Record<string,
     pythonProcess!.stdin!.write(json, (err) => {
       if (err) {
         pendingResolve = null
+        pendingTimeoutReset = null
         reject(err)
       }
     })
 
-    // Timeout: 30 minutes for very large files (not 5 min)
-    const timeout = setTimeout(() => {
-      if (pendingResolve === resolve) {
-        pendingResolve = null
-        reject(new Error('Python command timed out'))
-      }
-    }, 30 * 60 * 1000)
+    // Resettable safety timeout — reset on every progress message
+    let timeout = setTimeout(onTimeout, COMMAND_TIMEOUT_MS)
 
-    // Clear timeout when resolved
-    const originalResolve = pendingResolve
-    pendingResolve = (msg) => {
-      clearTimeout(timeout)
-      originalResolve!(msg)
+    function onTimeout() {
+      if (pendingResolve === wrappedResolve) {
+        pendingResolve = null
+        pendingTimeoutReset = null
+        reject(new Error('Python command timed out (no activity for 2 hours)'))
+      }
     }
+
+    // Allow progress message handler to reset the timeout
+    pendingTimeoutReset = () => {
+      clearTimeout(timeout)
+      timeout = setTimeout(onTimeout, COMMAND_TIMEOUT_MS)
+    }
+
+    // Clear timeout when terminal message resolves the promise
+    const wrappedResolve = (msg: Record<string, unknown>) => {
+      clearTimeout(timeout)
+      pendingTimeoutReset = null
+      resolve(msg)
+    }
+    pendingResolve = wrappedResolve
   })
 }
 
@@ -257,14 +274,20 @@ async function sendCommand(cmd: Record<string, unknown>): Promise<Record<string,
 function killPythonProcess(): void {
   if (pythonProcess) {
     console.log('[python] Killing subprocess (cancel requested)')
-    pythonProcess.kill('SIGTERM')
-    // Give it 2s to exit gracefully, then force kill
-    setTimeout(() => {
-      if (pythonProcess) {
-        pythonProcess.kill('SIGKILL')
-        pythonProcess = null
-      }
-    }, 2000)
+    if (process.platform === 'win32') {
+      // Windows: SIGTERM/SIGKILL are ignored. kill() without signal calls TerminateProcess.
+      pythonProcess.kill()
+      pythonProcess = null
+    } else {
+      // Unix: graceful SIGTERM, then force SIGKILL after 2s
+      pythonProcess.kill('SIGTERM')
+      setTimeout(() => {
+        if (pythonProcess) {
+          pythonProcess.kill('SIGKILL')
+          pythonProcess = null
+        }
+      }, 2000)
+    }
   }
 }
 
@@ -365,8 +388,8 @@ ipcMain.handle('python:import', async (_event, payload: {
   try {
     await ensurePythonStarted()
 
-    // Resolve credentials from the session manager — renderer doesn't have them
-    const creds = getCredentials(payload.url, payload.db)
+    // Resolve credentials from the session manager (auto-reauths if expired)
+    const creds = await getCredentials(payload.url, payload.db)
     if (!creds) {
       return { type: 'error', message: 'No stored credentials for this session. Please re-login.' }
     }

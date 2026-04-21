@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@/stores/session'
 import { useClientSession } from '../composables/useClientSession'
-import { Button, Input, Select, Card, Divider } from '@/ui'
+import { Button, Card } from '@/ui'
 
 const { t } = useI18n()
 
@@ -196,13 +196,14 @@ function removeSelectedProfile() {
           {{ $t('login.savedConnections') }}
         </label>
         <div class="d-flex gap-2">
-          <Select
-            :model-value="selectedProfileId"
-            :options="profileOptions"
-            :placeholder="$t('login.selectConnection')"
-            class="flex-grow-1"
-            @update:model-value="onProfileSelect"
-          />
+          <select
+            :value="selectedProfileId"
+            class="form-select form-select-sm flex-grow-1"
+            @change="onProfileSelect(($event.target as HTMLSelectElement).value)"
+          >
+            <option value="">{{ $t('login.selectConnection') }}</option>
+            <option v-for="opt in profileOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+          </select>
           <Button
             v-if="selectedProfileId"
             variant="destructive"
@@ -215,16 +216,19 @@ function removeSelectedProfile() {
         </div>
       </div>
 
-      <Divider v-if="savedProfiles.length > 0" :label="$t('login.orConnectManually')" class="mb-3" />
+      <div v-if="savedProfiles.length > 0" class="d-flex align-items-center gap-2 mb-3">
+        <hr class="flex-grow-1" /><small class="text-body-secondary text-nowrap">{{ $t('login.orConnectManually') }}</small><hr class="flex-grow-1" />
+      </div>
 
       <form class="d-flex flex-column gap-3" @submit.prevent="handleLogin">
         <div>
           <label for="csv-host" class="form-label small fw-medium mb-1">
             {{ $t('login.serverHost') }}
           </label>
-          <Input
+          <input
             id="csv-host"
             v-model="host"
+            class="form-control form-control-sm"
             :placeholder="$t('login.serverHostPlaceholder')"
             required
           />
@@ -259,9 +263,10 @@ function removeSelectedProfile() {
                 <label for="csv-port" class="form-label small fw-medium mb-1">
                   {{ $t('login.port') }}
                 </label>
-                <Input
+                <input
                   id="csv-port"
                   v-model="port"
+                  class="form-control form-control-sm"
                   placeholder="8069"
                   type="number"
                   min="1"
@@ -286,9 +291,10 @@ function removeSelectedProfile() {
           <label for="csv-database" class="form-label small fw-medium mb-1">
             {{ $t('login.database') }}
           </label>
-          <Input
+          <input
             id="csv-database"
             v-model="db"
+            class="form-control form-control-sm"
             :placeholder="$t('login.databasePlaceholder')"
             required
           />
@@ -298,9 +304,10 @@ function removeSelectedProfile() {
           <label for="csv-username" class="form-label small fw-medium mb-1">
             {{ $t('login.username') }}
           </label>
-          <Input
+          <input
             id="csv-username"
             v-model="login"
+            class="form-control form-control-sm"
             :placeholder="$t('login.usernamePlaceholder')"
             required
           />
@@ -310,9 +317,10 @@ function removeSelectedProfile() {
           <label for="csv-password" class="form-label small fw-medium mb-1">
             {{ $t('login.password') }}
           </label>
-          <Input
+          <input
             id="csv-password"
             v-model="password"
+            class="form-control form-control-sm"
             type="password"
             required
           />

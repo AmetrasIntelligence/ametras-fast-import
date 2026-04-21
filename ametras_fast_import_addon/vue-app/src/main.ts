@@ -15,7 +15,7 @@ import { i18n, setLocale, type SupportedLocale } from './i18n'
 import { useSessionStore } from './stores/session'
 import { usePlatformStore } from './stores/platform'
 import { useRunStore } from './stores/run'
-import { installOdooEmbeddedApi } from './utils/odooEmbeddedApi'
+import { installOdooEmbeddedApi } from './api/odooEmbeddedApi'
 import './assets/bootstrap-compat.css'
 import './assets/main.css'
 
@@ -95,6 +95,7 @@ export function mountApp(el: HTMLElement, options: OdooMountOptions): () => void
 
   // Sync locale from Odoo's user language (e.g. "de_DE" → "de", "en_US" → "en")
   const odooLang = document.documentElement.getAttribute('lang')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     || (window as any).odoo?.session_info?.user_context?.lang
     || ''
   const langPrefix = odooLang.split(/[-_]/)[0] as SupportedLocale

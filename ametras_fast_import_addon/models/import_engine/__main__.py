@@ -35,8 +35,9 @@ logging.basicConfig(
 
 _logger = logging.getLogger(__name__)
 
-# Global reference to current importer for cancel support
+# Global reference to current importer and cancel event for cancel support
 _current_importer: Importer | None = None
+_current_cancel_event: threading.Event | None = None
 
 
 def _emit(data: dict) -> None:
@@ -45,13 +46,18 @@ def _emit(data: dict) -> None:
     sys.stdout.flush()
 
 
-def _get_backend(cmd: dict) -> RpcBackend:
+def _get_backend(cmd: dict, cancel_event: threading.Event | None = None,
+                  reporter: 'ProgressReporter | None' = None) -> RpcBackend:
     """Create RpcBackend from command credentials. Reuses uid if provided."""
     if 'uid' in cmd:
-        return RpcBackend(cmd['url'], cmd['db'], cmd['uid'], cmd['password'])
-    return RpcBackend.authenticate(
+        return RpcBackend(cmd['url'], cmd['db'], cmd['uid'], cmd['password'],
+                          cancel_event=cancel_event, reporter=reporter)
+    backend = RpcBackend.authenticate(
         cmd['url'], cmd['db'], cmd['login'], cmd['password']
     )
+    backend._cancel_event = cancel_event
+    backend._reporter = reporter or backend._reporter
+    return backend
 
 
 def _handle_authenticate(cmd: dict) -> None:
@@ -69,9 +75,10 @@ def _handle_import(cmd: dict) -> None:
     """Run a CSV import."""
     global _current_importer
     reporter = JsonLinesReporter()
+    cancel_event = threading.Event()
 
     try:
-        backend = _get_backend(cmd)
+        backend = _get_backend(cmd, cancel_event=cancel_event, reporter=reporter)
 
         config = ImportConfig(
             model=cmd['model'],
@@ -91,6 +98,7 @@ def _handle_import(cmd: dict) -> None:
 
         importer = Importer(backend, config, reporter)
         _current_importer = importer
+        _current_cancel_event = cancel_event
 
         workers = cmd.get('workers', DEFAULT_WORKERS)
 
@@ -150,6 +158,7 @@ def _handle_import(cmd: dict) -> None:
         reporter.error(str(e))
     finally:
         _current_importer = None
+        _current_cancel_event = None
 
 
 def _handle_models(cmd: dict) -> None:
@@ -206,6 +215,9 @@ def _handle_cancel(_cmd: dict) -> None:
     """Cancel the currently running import."""
     if _current_importer:
         _current_importer.cancel()
+        # Also signal the backend's reconnect wait loop to stop immediately
+        if _current_cancel_event:
+            _current_cancel_event.set()
         _emit({'type': PROGRESS_TYPE_CANCELLED})
     else:
         _emit({'type': PROGRESS_TYPE_ERROR, 'message': 'No import running'})

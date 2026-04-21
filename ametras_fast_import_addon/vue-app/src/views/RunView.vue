@@ -7,7 +7,7 @@ import { useRunStore } from '@/stores/run'
 import { useFilesStore } from '@/stores/files'
 import { useConfigStore } from '@/stores/config'
 import { useSessionStore } from '@/stores/session'
-import { ImportState } from '@/importer/types'
+import { ImportState } from '@/types/importState'
 import { formatNumber } from '@/utils/formatters'
 import { logger } from '@/utils/logger'
 import { Button, Progress, Card, Table } from '@/ui'
@@ -20,12 +20,18 @@ const filesStore = useFilesStore()
 const config = useConfigStore()
 const session = useSessionStore()
 
-// Polling
-const POLL_INTERVAL = 500
-let pollTimer: ReturnType<typeof setInterval> | null = null
+// Polling with exponential backoff on failure
+const BASE_POLL_INTERVAL = 500
+const MAX_POLL_INTERVAL = 10_000
+let pollTimer: ReturnType<typeof setTimeout> | null = null
+let consecutivePollFailures = 0
 
 // Error state
 const initError = ref<string | null>(null)
+
+// Startup watchdog (90s with no progress)
+const WATCHDOG_TIMEOUT = 90_000
+let watchdogTimer: ReturnType<typeof setTimeout> | null = null
 
 // Offline elapsed time tracking
 const offlineElapsed = ref('')
@@ -69,12 +75,24 @@ const stateLabel = computed(() => {
 
 const etaDisplay = computed(() => {
   const seconds = run.estimatedTimeRemaining
-  if (!seconds) return '--'
+  if (seconds === null) {
+    // Distinguish "calculating" from "no data"
+    return run.globalProgress > 0 ? '--' : t('run.state.initiating')
+  }
   if (seconds < 60) return `${seconds}s`
   const minutes = Math.floor(seconds / 60)
   const secs = seconds % 60
   return `${minutes}m ${secs}s`
 })
+
+const throughputDisplay = computed(() => {
+  const rps = run.throughput
+  if (!rps) return null
+  return `~${formatNumber(rps)} rows/s`
+})
+
+// Addon mode supports pause/resume/skip via server; Python mode only supports skip + cancel
+const supportsServerControl = computed(() => session.isEmbedded)
 
 const fileProgressList = computed(() =>
   Object.values(run.progress.files)
@@ -90,9 +108,13 @@ const isTransitioning = ref(false)
 watch(() => run.state, (newState) => {
   if (newState === ImportState.COMPLETED || newState === ImportState.FAILED) {
     stopPolling()
+    if (watchdogTimer) { clearTimeout(watchdogTimer); watchdogTimer = null }
+    window.api?.odoo?.pinSession?.({ baseUrl: session.baseUrl || '', pinned: false })
     router.push('/results')
   } else if (newState === ImportState.INTERRUPTED) {
     stopPolling()
+    if (watchdogTimer) { clearTimeout(watchdogTimer); watchdogTimer = null }
+    window.api?.odoo?.pinSession?.({ baseUrl: session.baseUrl || '', pinned: false })
     router.push('/import')
   }
 })
@@ -119,8 +141,16 @@ async function pollProgress() {
 
       if (resp.ok && resp.result) {
         run.updateFromServer(resp.result)
+        // Connection restored
+        if (consecutivePollFailures > 0) {
+          consecutivePollFailures = 0
+          run.connectionStatus = 'online'
+        }
       }
+      clearWatchdog()
     } catch (e) {
+      consecutivePollFailures++
+      run.connectionStatus = 'offline'
       logger.import.warn('Failed to poll progress', { error: (e as Error).message })
     }
   } else if (window.api?.python?.progress) {
@@ -130,10 +160,10 @@ async function pollProgress() {
       for (const msg of messages) {
         const m = msg as Record<string, unknown>
         if (m.type === 'progress') {
-          // Update progress for current file only — don't overwrite other files
           const total = (m.total as number) || 0
           const success = (m.success as number) || 0
           const failed = (m.failed as number) || 0
+          // Attribute to currentPythonFile (set by runPythonImport, not by queued messages)
           const filename = currentPythonFile.value || ''
           if (filename) {
             run.updateFileProgress(filename, {
@@ -141,39 +171,75 @@ async function pollProgress() {
               successCount: success,
               failedCount: failed,
             })
-            // Update the file's total rows if we got it from Python
             const fp = run.progress.files[filename]
-            if (fp && total > 0) {
-              fp.totalRows = total
-            }
+            if (fp && total > 0) fp.totalRows = total
           }
-        } else if (m.type === 'file_start') {
-          const fname = (m.filename as string) || ''
-          currentPythonFile.value = fname
-          if (fname) run.startFile(fname)
-        } else if (m.type === 'file_done') {
-          const fname = (m.filename as string) || ''
-          if (fname) run.completeFile(fname)
+        } else if (m.type === 'file_start' || m.type === 'file_done') {
+          // Ignored — runPythonImport controls file lifecycle directly via
+          // run.startFile()/completeFile(). Processing these queued messages
+          // would double-count completedFiles and cause stale attribution.
+        } else if (m.type === 'connection_lost') {
+          run.connectionStatus = 'offline'
+        } else if (m.type === 'connection_restored') {
+          run.connectionStatus = 'online'
         }
       }
+      // Record progress sample for ETA/throughput in Python mode
+      run.recordProgressSample()
+      clearWatchdog()
     } catch {
-      // Ignore polling errors
+      // Ignore polling errors for local subprocess
     }
   }
+
+  // Schedule next poll (with backoff on failures)
+  schedulePoll()
 }
 
 // Track current file for Python subprocess progress
 const currentPythonFile = ref('')
 
+function getPollInterval(): number {
+  if (consecutivePollFailures <= 0) return BASE_POLL_INTERVAL
+  return Math.min(BASE_POLL_INTERVAL * Math.pow(2, consecutivePollFailures), MAX_POLL_INTERVAL)
+}
+
+function schedulePoll() {
+  if (pollTimer) clearTimeout(pollTimer)
+  if (!run.isActive) return
+  pollTimer = setTimeout(pollProgress, getPollInterval())
+}
+
 function startPolling() {
   stopPolling()
-  pollTimer = setInterval(pollProgress, POLL_INTERVAL)
+  consecutivePollFailures = 0
+  schedulePoll()
 }
 
 function stopPolling() {
   if (pollTimer) {
-    clearInterval(pollTimer)
+    clearTimeout(pollTimer)
     pollTimer = null
+  }
+}
+
+function startWatchdog() {
+  clearWatchdog()
+  watchdogTimer = setTimeout(() => {
+    // Check if any progress has been made
+    const hasProgress = Object.values(run.progress.files).some(f => f.processedRows > 0)
+    if (!hasProgress && run.isActive) {
+      initError.value = t('run.startupTimeout')
+    }
+  }, WATCHDOG_TIMEOUT)
+}
+
+function clearWatchdog() {
+  // Clear once we see any progress
+  const hasProgress = Object.values(run.progress.files).some(f => f.processedRows > 0)
+  if (hasProgress && watchdogTimer) {
+    clearTimeout(watchdogTimer)
+    watchdogTimer = null
   }
 }
 
@@ -219,31 +285,42 @@ async function startImport() {
         run.setState(ImportState.RUNNING_FILE)
         run.runStartTime = Date.now()
         startPolling()
+        startWatchdog()
       } else {
         initError.value = resp.error || 'Failed to start import'
       }
     } else if (typeof window.api?.python?.import === 'function') {
       // Electron standalone mode: run import via Python subprocess.
-      // Start polling immediately so progress updates show in real-time.
       run.setState(ImportState.RUNNING_FILE)
       run.runStartTime = Date.now()
 
-      // Initialize progress with file info
-      const filenames = [...config.importSequence]
-      const rowCounts = new Map<string, number>()
-      for (const fname of filenames) {
-        const file = filesStore.files.find(f => f.name === fname)
-        if (file) {
-          const analysis = filesStore.getAnalysis(file.id)
-          rowCounts.set(fname, analysis?.rowCount || 0)
+      // Check if this is a retry with pre-collected failed rows
+      const retryData = run.retryRows
+      if (retryData) {
+        const filenames = [...retryData.keys()]
+        const rowCounts = new Map<string, number>()
+        for (const [fname, { rows }] of retryData) rowCounts.set(fname, rows.length)
+        run.initRun(filenames, rowCounts, config.settings.dryRun)
+      } else {
+        const filenames = [...config.importSequence]
+        const rowCounts = new Map<string, number>()
+        for (const fname of filenames) {
+          const file = filesStore.files.find(f => f.name === fname)
+          if (file) {
+            const analysis = filesStore.getAnalysis(file.id)
+            rowCounts.set(fname, analysis?.rowCount || 0)
+          }
         }
+        run.initRun(filenames, rowCounts, config.settings.dryRun)
       }
-      run.initRun(filenames, rowCounts, config.settings.dryRun)
 
-      startPolling() // Poll python:progress for real-time updates
+      startPolling()
+      startWatchdog()
+      window.api?.odoo?.pinSession?.({ baseUrl: session.baseUrl || '', pinned: true })
 
-      // Run imports in background (don't await each one — let polling show progress)
-      runPythonImport().catch(e => {
+      const importFn = retryData ? () => runPythonRetry(retryData) : runPythonImport
+      run.retryRows = null // Consumed
+      importFn().catch(e => {
         logger.import.error('Python import failed', { error: (e as Error).message })
         initError.value = (e as Error).message
         run.setState(ImportState.FAILED)
@@ -258,13 +335,81 @@ async function startImport() {
   }
 }
 
+type RetryData = Map<string, { rows: Array<{ rowNum: number; data: Record<string, string> }>; headers: string[] }>
+
+/**
+ * Retry failed rows via Python subprocess using raw_rows mode.
+ * Sends only the previously failed rows for each file.
+ */
+async function runPythonRetry(retryData: RetryData) {
+  pythonCancelled = false
+  let totalFailed = 0
+
+  for (const [filename, { rows }] of retryData) {
+    if (pythonCancelled) break
+
+    const mapping = config.fileMappings[filename]
+    if (!mapping) continue
+
+    currentPythonFile.value = filename
+    run.startFile(filename)
+
+    const rawRows = rows.map(r => r.data)
+    const importPayload = JSON.parse(JSON.stringify({
+      url: session.baseUrl,
+      db: session.currentServer?.db,
+      model: mapping.model,
+      raw_rows: rawRows,
+      field_mappings: mapping.fieldMappings || {},
+      search_keys: mapping.searchKeys || null,
+      use_external_id: mapping.fieldMappings && Object.values(mapping.fieldMappings).includes('id'),
+      dry_run: config.settings.dryRun || false,
+      strict: mapping.strict || false,
+    }))
+
+    const result = await window.api.python.import(importPayload) as unknown as Record<string, unknown>
+    await pollProgress()
+
+    if (result.type === 'done') {
+      const success = (result.success as number) || 0
+      const failed = (result.failed as number) || 0
+      totalFailed += failed
+      run.updateFileProgress(filename, { processedRows: success + failed, successCount: success, failedCount: failed })
+      run.completeFile(filename)
+
+      const errors = (result.errors as Array<{ row: number; error: string }>) || []
+      for (const e of errors) {
+        run.addError({ filename, rowNumber: e.row, rawData: {}, error: e.error, timestamp: Date.now() })
+      }
+    } else if (result.type === 'error') {
+      const errorMsg = (result.message as string) || 'Retry failed'
+      if (pythonCancelled) break
+      logger.import.error(`${filename}: ${errorMsg}`)
+      run.addError({ filename, rowNumber: 0, rawData: {}, error: errorMsg, timestamp: Date.now() })
+      run.completeFile(filename)
+    }
+
+    if (pythonCancelled) break
+  }
+
+  currentPythonFile.value = ''
+  stopPolling()
+  await pollProgress()
+
+  if (run.state !== ImportState.FAILED) {
+    run.setState(totalFailed > 0 || pythonCancelled ? ImportState.FAILED : ImportState.COMPLETED)
+  }
+}
+
 /**
  * Run Python subprocess imports sequentially for all files.
  * Called as a background task — progress is shown via polling.
  */
+const MAX_FILE_RETRIES = 2
+
 async function runPythonImport() {
   pythonCancelled = false
-  let totalSuccess = 0
+  pythonSkipRequested = false
   let totalFailed = 0
   const allErrors: Array<{ filename: string; rowNumber: number; error: string }> = []
 
@@ -276,6 +421,13 @@ async function runPythonImport() {
     const mapping = config.fileMappings[filename]
     if (!mapping) continue
 
+    let fileRetries = 0
+    let retryCurrentFile: boolean
+
+    // Retry loop for transport errors
+    do {
+    retryCurrentFile = false
+    pythonSkipRequested = false
     currentPythonFile.value = filename
     run.startFile(filename)
 
@@ -283,7 +435,7 @@ async function runPythonImport() {
       url: session.baseUrl,
       db: session.currentServer?.db,
       model: mapping.model,
-      file_path: file.id, // Resolved to real path by python:import IPC handler
+      file_path: file.id,
       field_mappings: mapping.fieldMappings || {},
       search_keys: mapping.searchKeys || null,
       use_external_id: mapping.fieldMappings && Object.values(mapping.fieldMappings).includes('id'),
@@ -296,10 +448,24 @@ async function runPythonImport() {
 
     const result = await window.api.python.import(importPayload) as unknown as Record<string, unknown>
 
+    // Flush queued progress messages for this file before processing the result.
+    // Without this, stale progress from file A could be attributed to file B
+    // when the next iteration changes currentPythonFile.
+    await pollProgress()
+
+    // Skip requested: mark file skipped, restart subprocess for next file
+    if (pythonSkipRequested && !pythonCancelled) {
+      logger.import.info(`${filename}: Skipped by user`)
+      run.skipFile(filename)
+      pythonSkipRequested = false
+      // Subprocess was killed by controlImport('skip') — it will be restarted
+      // automatically by ensurePythonStarted() on next python:import call
+      continue
+    }
+
     if (result.type === 'done') {
       const success = (result.success as number) || 0
       const failed = (result.failed as number) || 0
-      totalSuccess += success
       totalFailed += failed
 
       run.updateFileProgress(filename, {
@@ -309,15 +475,13 @@ async function runPythonImport() {
       })
       run.completeFile(filename)
 
-      // Log to browser DevTools console
       if (failed > 0) {
-        console.warn(`[import] ${filename}: ${success}/${success + failed} rows imported, ${failed} failed`)
+        logger.import.warn(`${filename}: ${success}/${success + failed} rows imported, ${failed} failed`)
       } else {
-        console.log(`[import] ${filename}: ${success} rows imported successfully`)
+        logger.import.info(`${filename}: ${success} rows imported successfully`)
       }
 
       const errors = (result.errors as Array<{ row: number; error: string; file?: string }>) || []
-      // Log first 5 unique errors to console
       const seenErrors = new Set<string>()
       for (const e of errors) {
         allErrors.push({ filename, rowNumber: e.row, error: e.error })
@@ -332,23 +496,35 @@ async function runPythonImport() {
         if (!seenErrors.has(key)) {
           seenErrors.add(key)
           if (seenErrors.size <= 5) {
-            console.warn(`[import]   Row ${e.row}: ${e.error.substring(0, 200)}`)
+            logger.import.warn(`  Row ${e.row}: ${e.error.substring(0, 200)}`)
           }
         }
       }
       if (seenErrors.size > 5) {
-        console.warn(`[import]   ... and ${errors.length - 5} more errors`)
+        logger.import.warn(`  ... and ${errors.length - 5} more errors`)
       }
     } else if (result.type === 'error') {
       const errorMsg = (result.message as string) || 'Import failed'
 
-      // If the process was killed (cancel/navigate away), don't log as file error
       if (pythonCancelled || errorMsg.includes('exited unexpectedly')) {
-        console.log(`[import] ${filename}: Import cancelled`)
+        logger.import.info(`${filename}: Import cancelled`)
         break
       }
 
-      console.error(`[import] ${filename}: ${errorMsg}`)
+      // Transport errors: retry the file (Python backend may have reconnected)
+      const isTransport = /rpc failed|connection|timeout|timed out|network|unreachable/i.test(errorMsg)
+      if (isTransport && fileRetries < MAX_FILE_RETRIES) {
+        fileRetries++
+        logger.import.warn(`${filename}: Transport error, retrying file (attempt ${fileRetries}/${MAX_FILE_RETRIES})...`)
+        run.connectionStatus = 'offline'
+        await new Promise(r => setTimeout(r, 10_000))
+        run.connectionStatus = 'online'
+        // Decrement loop index to retry same file — use continue with re-init
+        retryCurrentFile = true
+        continue
+      }
+
+      logger.import.error(`${filename}: ${errorMsg}`)
       run.addError({
         filename,
         rowNumber: 0,
@@ -360,6 +536,7 @@ async function runPythonImport() {
     }
 
     if (pythonCancelled) break
+    } while (retryCurrentFile)
   }
 
   currentPythonFile.value = ''
@@ -368,18 +545,17 @@ async function runPythonImport() {
   // Final poll to drain any remaining progress messages
   await pollProgress()
 
-  // Don't override state if already set to FAILED by cancel
   if (run.state !== ImportState.FAILED) {
     const finalState = totalFailed > 0 || allErrors.length > 0 || pythonCancelled
       ? ImportState.FAILED
       : ImportState.COMPLETED
     run.setState(finalState)
   }
-  // Navigation handled by the state watcher
 }
 
-// Track cancellation for Python subprocess mode
+// Track cancellation/skip for Python subprocess mode
 let pythonCancelled = false
+let pythonSkipRequested = false
 
 async function controlImport(action: string) {
   isTransitioning.value = true
@@ -392,20 +568,21 @@ async function controlImport(action: string) {
         params: { log_id: run.logId, action }
       })
     } else {
-      // Electron standalone: cancel by killing Python subprocess.
+      // Electron standalone mode
       if (action === 'cancel') {
         pythonCancelled = true
-        // Kill the subprocess immediately — don't wait for current file
         window.api?.python?.cancel?.()
         run.setState(ImportState.FAILED)
-        // State change triggers watcher → navigation to /results
+      } else if (action === 'skip') {
+        // Kill current file's subprocess; runPythonImport will mark it skipped and continue
+        pythonSkipRequested = true
+        window.api?.python?.cancel?.()
       }
-      // Pause/resume/skip not supported in subprocess mode
     }
   } catch (e) {
     logger.import.warn(`Failed to ${action} import`, { error: (e as Error).message })
   } finally {
-    setTimeout(() => { isTransitioning.value = false }, POLL_INTERVAL + 100)
+    setTimeout(() => { isTransitioning.value = false }, BASE_POLL_INTERVAL + 100)
   }
 }
 
@@ -434,10 +611,12 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopPolling()
+  if (watchdogTimer) { clearTimeout(watchdogTimer); watchdogTimer = null }
   if (offlineInterval) {
     clearInterval(offlineInterval)
     offlineInterval = null
   }
+  window.api?.odoo?.pinSession?.({ baseUrl: session.baseUrl || '', pinned: false })
 })
 
 // Warn before leaving during active import
@@ -516,6 +695,9 @@ onBeforeRouteLeave(
           <small class="text-body-secondary d-block">
             {{ $t('run.eta') }}: {{ etaDisplay }}
           </small>
+          <small v-if="throughputDisplay" class="text-body-secondary d-block">
+            {{ throughputDisplay }}
+          </small>
         </div>
       </div>
 
@@ -526,13 +708,13 @@ onBeforeRouteLeave(
 
       <div class="d-flex gap-3 mt-3">
         <Button
-          v-if="run.state === ImportState.PAUSED"
+          v-if="supportsServerControl && run.state === ImportState.PAUSED"
           @click="handleResume"
         >
           {{ $t('run.resume') }}
         </Button>
         <Button
-          v-else-if="isRunning"
+          v-else-if="supportsServerControl && isRunning"
           variant="outline"
           :disabled="isTransitioning"
           @click="handlePause"

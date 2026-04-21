@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import { useConfigStore } from '@/stores/config'
 import { useRunStore } from '@/stores/run'
-import { ImportState } from '@/importer/types'
+import { ImportState } from '@/types/importState'
 import MappingStatus from './MappingStatus.vue'
 
 export interface FileListItem {

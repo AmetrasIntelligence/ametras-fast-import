@@ -6,7 +6,7 @@ import type { OdooModel } from '@/api/odooClient'
  * Calculate the Levenshtein distance between two strings.
  * Returns the minimum number of single-character edits needed.
  */
-export function levenshteinDistance(a: string, b: string): number {
+function levenshteinDistance(a: string, b: string): number {
   const matrix: number[][] = []
 
   for (let i = 0; i <= b.length; i++) {
@@ -34,27 +34,9 @@ export function levenshteinDistance(a: string, b: string): number {
 }
 
 /**
- * Normalize a string for comparison by lowercasing and removing separators.
- */
-export function normalizeForComparison(str: string): string {
-  return str.toLowerCase().replace(/[-_\s.]/g, '')
-}
-
-/**
- * Tokenize a string into words by splitting on common separators.
- */
-export function tokenize(str: string): string[] {
-  return str
-    .toLowerCase()
-    .replace(/[-_.]/g, ' ')
-    .split(/\s+/)
-    .filter(t => t.length > 0)
-}
-
-/**
  * Simple English depluralization: strip common plural suffixes.
  */
-export function depluralize(word: string): string {
+function depluralize(word: string): string {
   if (word.length <= 3) return word
   if (word.endsWith('ies')) return word.slice(0, -3) + 'y'   // categories → category
   if (word.endsWith('ses')) return word.slice(0, -2)          // addresses → address
@@ -232,18 +214,3 @@ export function suggestModel(
   return bestMatch ? { model: bestMatch, score: bestScore } : null
 }
 
-/**
- * Get ranked suggestions for a filename.
- */
-export function getSuggestions(
-  filename: string,
-  models: OdooModel[],
-  limit = 5,
-  options?: SuggestModelOptions
-): Array<{ model: OdooModel; score: number }> {
-  return models
-    .map(model => ({ model, score: scoreMatch(filename, model, options?.headers) }))
-    .filter(r => r.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-}

@@ -1,24 +1,8 @@
 /**
- * Shared types for the import system.
- *
- * These types were previously defined across engine.ts, batchExecutor.ts,
- * stateMachine.ts, etc. Now centralized here since the orchestration
- * moved to the Python backend.
+ * Types for the standalone/Python batch executors.
+ * These lived in the shared @/importer/types module but are only used
+ * by the Electron client, so they live here now.
  */
-
-/** Import state — mirrors the server's job_state. */
-export enum ImportState {
-  IDLE = 'idle',
-  VALIDATING = 'validating',
-  RUNNING_FILE = 'running',
-  PAUSED = 'paused',
-  COMPLETED = 'completed',
-  FAILED = 'failed',
-  INTERRUPTED = 'interrupted',
-}
-
-/** Connection status for display. */
-export type ConnectionStatus = 'online' | 'offline' | 'checking'
 
 /** A single parsed CSV row. */
 export interface ParsedRow {
@@ -42,32 +26,6 @@ export interface MappingConfig {
   idColumn?: 'id' | '.id' | null
   searchKeys?: string[]
   strict?: boolean
-}
-
-/** Per-file progress data from the server. */
-export interface FileProgress {
-  totalRows: number
-  processedRows: number
-  successCount: number
-  failedCount: number
-  skipped?: boolean
-  processedRanges?: [number, number][]
-}
-
-/** Import error entry. */
-export interface ImportError {
-  filename: string
-  rowNumber: number
-  rawData: Record<string, string>
-  error: string
-  timestamp: number
-}
-
-/** Resume state from server log. */
-export interface ResumeState {
-  logId: number
-  fileProgress: Record<string, FileProgress>
-  errorLog: Array<{ filename: string; rowNumber: number; error: string }>
 }
 
 /**

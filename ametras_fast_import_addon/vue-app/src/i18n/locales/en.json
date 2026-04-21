@@ -127,6 +127,9 @@
     "title": "Import Settings",
     "batchSize": "Batch Size",
     "workers": "Workers",
+    "retryLimit": "Retry Limit",
+    "retryDelayMs": "Retry Delay (ms)",
+    "stopOnFatalError": "Stop on fatal error",
     "encoding": "Encoding",
     "delimiter": "Delimiter",
     "skipHeader": "Skip header row",
@@ -136,7 +139,9 @@
     "summary": {
       "batch": "Batch",
       "workers": "Workers",
+      "retries": "Retries",
       "encoding": "Encoding",
+      "stopOnError": "Stop on error",
       "dryRun": "DRY RUN"
     },
     "encoding_options": {
@@ -154,9 +159,11 @@
     "validation": {
       "batchSizeMin": "Batch size must be at least 1",
       "batchSizeMax": "Batch size must not exceed 1000",
+      "retryLimitMin": "Retry limit must be at least 0",
+      "retryLimitMax": "Retry limit must not exceed 10",
       "workersMin": "Workers must be at least 1",
       "workersMax": "Exceeds maximum worker count",
-      "batchSizeStandaloneRange": "Standalone mode: 1-100"
+      "batchSizeStandaloneRange": "Standalone mode: 10-100"
     },
     "standalone": {
       "dryRunUnavailable": "Not available in standalone mode",
@@ -199,8 +206,6 @@
     "connectionLost": "Waiting for server connection...",
     "connectionLostDetail": "The server is unreachable. Import will resume automatically when the connection is restored.",
     "reconnecting": "Checking connection...",
-    "timeoutMitigationTitle": "Experiencing server timeouts",
-    "timeoutMitigationDetail": "Reducing batch size and increasing timeout. Please be patient.",
     "fileProgress": "{completed} / {total} files",
     "tryAgain": "Try Again",
     "startupTimeout": "Import startup timed out (90s). The server may be slow or a network call hung. Please try again."
@@ -214,12 +219,8 @@
     "failed": "Failed",
     "duration": "Duration",
     "export": "Export",
-    "downloadErrors": "Download Unified Error Log (CSV)",
-    "downloadFailedRowsZip": "Download Failed Rows ZIP (.csv)",
-    "noFailedRowsToExport": "No failed rows available to export.",
-    "failedRowsExportNoFiles": "Failed rows exist, but source files are unavailable: {files}",
-    "failedRowsExportPartial": "Failed-row ZIP exported, but some files were unavailable: {files}",
-    "failedRowsExportError": "Failed to export failed rows ZIP: {error}",
+    "downloadErrors": "Error Log (CSV)",
+    "downloadFailedRows": "Failed Rows (CSV)",
     "errors": "Errors",
     "file": "File",
     "row": "Row",
@@ -339,6 +340,6 @@
     "title": "Standalone Mode",
     "description": "ametras_fast_import addon not installed - using direct Odoo API",
     "limitations": "Some features unavailable: search key upsert, per-row error handling",
-    "batchSizeNote": "Batch size limited to 1-100 in standalone mode"
+    "batchSizeNote": "Batch size limited to 10-100 in standalone mode"
   }
 }

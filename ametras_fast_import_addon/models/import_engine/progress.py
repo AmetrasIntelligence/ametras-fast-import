@@ -44,6 +44,12 @@ class ProgressReporter(ABC):
     def error(self, message: str) -> None:
         """Called on fatal errors."""
 
+    def connection_lost(self, message: str) -> None:
+        """Called when connectivity to the server is lost."""
+
+    def connection_restored(self, message: str) -> None:
+        """Called when connectivity to the server is restored."""
+
 
 class NullReporter(ProgressReporter):
     """No-op reporter for addon mode (Vue handles progress via HTTP)."""
@@ -123,3 +129,9 @@ class JsonLinesReporter(ProgressReporter):
 
     def error(self, message: str) -> None:
         self._emit({'type': PROGRESS_TYPE_ERROR, 'message': message})
+
+    def connection_lost(self, message: str) -> None:
+        self._emit({'type': 'connection_lost', 'message': message})
+
+    def connection_restored(self, message: str) -> None:
+        self._emit({'type': 'connection_restored', 'message': message})

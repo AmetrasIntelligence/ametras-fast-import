@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { OdooField } from '@/api/odooClient'
 import type { FieldTransform } from '@/types/fieldMapping'
@@ -17,6 +18,8 @@ const props = defineProps<{
   hideStrict?: boolean
   /** Returns field lookup map for computing transforms */
   getFieldLookup: () => Map<string, OdooField>
+  /** Compute transform/required metadata for a header→field mapping */
+  getFieldMetadata: (csvHeader: string, odooField: string) => { transform: FieldTransform; required: boolean }
 }>()
 
 const emit = defineEmits<{
@@ -25,40 +28,11 @@ const emit = defineEmits<{
   'update:strict': [strict: boolean]
 }>()
 
-function computeFieldMetadata(csvHeader: string, odooField: string): { transform: FieldTransform; required: boolean } {
-  const baseName = odooField.endsWith('/.id')
-    ? odooField.slice(0, -4)
-    : odooField.endsWith('/id')
-      ? odooField.slice(0, -3)
-      : odooField
-
-  const fieldLookup = props.getFieldLookup()
-  const field = fieldLookup.get(baseName)
-  const isRelational = field?.type === 'many2one' || field?.type === 'many2many'
-
-  let transform: FieldTransform = { type: 'passthrough' }
-  let required = field?.required ?? false
-
-  if (odooField.endsWith('/id') && isRelational && field?.relation) {
-    transform = field.type === 'many2many'
-      ? { type: 'm2m_ref', model: field.relation }
-      : { type: 'm2o_ref', model: field.relation }
-  } else if (odooField.endsWith('/.id') && isRelational && field?.relation) {
-    transform = { type: 'db_id', model: field.relation }
-  }
-
-  if (csvHeader === 'id' || odooField === 'id') {
-    required = true
-  }
-
-  return { transform, required }
-}
-
 function getMappingInfo(csvHeader: string): { transform: FieldTransform; required: boolean; isStandardDbId: boolean } | null {
   if (!props.fieldMappings[csvHeader]) return null
 
   const odooField = props.fieldMappings[csvHeader]
-  const { transform, required } = computeFieldMetadata(csvHeader, odooField)
+  const { transform, required } = props.getFieldMetadata(csvHeader, odooField)
   const isStandardDbId = transform.type === 'db_id' && STANDARD_DB_ID_MODELS.has(transform.model)
 
   return { transform, required, isStandardDbId }
@@ -84,10 +58,6 @@ function getFieldInfo(csvHeader: string): { fieldType?: string; relationModel?: 
 }
 
 const mappedCount = computed(() => Object.keys(props.fieldMappings).length)
-</script>
-
-<script lang="ts">
-import { computed } from 'vue'
 </script>
 
 <template>

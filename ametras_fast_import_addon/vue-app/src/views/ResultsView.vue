@@ -5,17 +5,22 @@ import { useI18n } from 'vue-i18n'
 import { useRunStore } from '@/stores/run'
 import { useSessionStore } from '@/stores/session'
 import { useFilesStore } from '@/stores/files'
-import { ImportState } from '@/importer/types'
+import { useConfigStore } from '@/stores/config'
+import { ImportState } from '@/types/importState'
 import { showAlert } from '@/composables/useDialog'
-import { downloadCSV, downloadJSON } from '@/utils/formatters'
+import { downloadCSV } from '@/utils/formatters'
 import { logger } from '@/utils/logger'
 import { Button, Card, Table } from '@/ui'
+import Papa from 'papaparse'
 
 const { t } = useI18n()
 const router = useRouter()
 const run = useRunStore()
 const session = useSessionStore()
+const filesStore = useFilesStore()
+const config = useConfigStore()
 const isRetrying = ref(false)
+const isExporting = ref(false)
 const loading = ref(false)
 const loadError = ref<string | null>(null)
 
@@ -74,21 +79,102 @@ function exportErrorsCSV() {
   downloadCSV(lines.join('\n'), 'import-errors.csv')
 }
 
-function exportFullReport() {
-  const report = {
-    summary: summary.value,
-    files: Object.values(run.progress.files),
-    errors: run.errors
+/**
+ * Read a source CSV file and return its parsed rows indexed by row number.
+ * Row numbers are 1-based (row 1 = first data row after header).
+ */
+async function readSourceFile(fileId: string, delimiter: string, encoding: string): Promise<{
+  headers: string[]
+  rows: Map<number, Record<string, string>>
+}> {
+  const content = await window.api.files.read(fileId, encoding)
+  const parsed = Papa.parse<Record<string, string>>(content, {
+    header: true,
+    delimiter: delimiter || ',',
+    skipEmptyLines: true,
+  })
+  const headers = parsed.meta.fields || []
+  const rows = new Map<number, Record<string, string>>()
+  for (let i = 0; i < parsed.data.length; i++) {
+    rows.set(i + 1, parsed.data[i]) // 1-based row number
+  }
+  return { headers, rows }
+}
+
+/**
+ * Collect failed row data grouped by filename.
+ * Returns the parsed rows keyed by filename, plus merged headers.
+ */
+async function collectFailedRows(): Promise<{
+  byFile: Map<string, { rows: Array<{ rowNum: number; data: Record<string, string> }>; headers: string[] }>
+  allHeaders: string[]
+}> {
+  // Group errors by filename
+  const errorsByFile = new Map<string, number[]>()
+  for (const err of run.errors) {
+    if (err.rowNumber <= 0) continue
+    const list = errorsByFile.get(err.filename) || []
+    list.push(err.rowNumber)
+    errorsByFile.set(err.filename, list)
   }
 
-  downloadJSON(report, 'import-report.json')
+  const byFile = new Map<string, { rows: Array<{ rowNum: number; data: Record<string, string> }>; headers: string[] }>()
+  const allHeaderSet = new Set<string>()
+  const encoding = config.settings.encoding || 'utf-8'
+
+  for (const [filename, rowNumbers] of errorsByFile) {
+    const file = filesStore.files.find(f => f.name === filename)
+    if (!file) continue
+    const analysis = filesStore.getAnalysis(file.id)
+    const delimiter = analysis?.delimiter || config.settings.delimiter || ','
+
+    const { headers, rows: allRows } = await readSourceFile(file.id, delimiter, encoding)
+    headers.forEach(h => allHeaderSet.add(h))
+
+    const failedRows: Array<{ rowNum: number; data: Record<string, string> }> = []
+    const seen = new Set<number>()
+    for (const rowNum of rowNumbers) {
+      if (seen.has(rowNum)) continue
+      seen.add(rowNum)
+      const row = allRows.get(rowNum)
+      if (row) failedRows.push({ rowNum, data: row })
+    }
+
+    if (failedRows.length > 0) {
+      byFile.set(filename, { rows: failedRows, headers })
+    }
+  }
+
+  return { byFile, allHeaders: [...allHeaderSet] }
+}
+
+async function exportFailedRows() {
+  isExporting.value = true
+  try {
+    const { byFile, allHeaders } = await collectFailedRows()
+    if (byFile.size === 0) return
+
+    const csvHeaders = ['__source_file__', '__row__', ...allHeaders]
+    const lines = [Papa.unparse([csvHeaders])]
+
+    for (const [filename, { rows }] of byFile) {
+      for (const { rowNum, data } of rows) {
+        const values = [filename, String(rowNum), ...allHeaders.map(h => data[h] ?? '')]
+        lines.push(Papa.unparse([values]))
+      }
+    }
+
+    downloadCSV(lines.join('\n'), 'failed-rows.csv')
+  } catch (e) {
+    logger.import.error('Failed to export failed rows', { error: (e as Error).message })
+  } finally {
+    isExporting.value = false
+  }
 }
 
 async function retryFailedRows() {
   if (isRetrying.value) return
 
-  // Check if files are still available before retrying
-  const filesStore = useFilesStore()
   const hasFiles = filesStore.files.length > 0
   if (!hasFiles) {
     showAlert(t('results.retryNoFiles'))
@@ -99,21 +185,37 @@ async function retryFailedRows() {
   run.isHistoricalLog = false
 
   try {
-    // Call server retry endpoint — creates new log and starts background job
-    const resp = await window.api.odoo.call<{ logId: number; state: string }>({
-      baseUrl: '',
-      endpoint: '/ametras_fast_import/import/retry',
-      params: { log_id: run.logId }
-    })
+    if (session.isEmbedded) {
+      // Addon mode: server-side retry (re-processes only failed rows)
+      const resp = await window.api.odoo.call<{ logId: number; state: string }>({
+        baseUrl: '',
+        endpoint: '/ametras_fast_import/import/retry',
+        params: { log_id: run.logId }
+      })
 
-    if (resp.ok && resp.result) {
+      if (resp.ok && resp.result) {
+        run.reset()
+        run.logId = resp.result.logId
+        run.setState(ImportState.RUNNING_FILE)
+        router.push('/run')
+      } else {
+        showAlert(resp.error || t('results.retryFailed'))
+        isRetrying.value = false
+      }
+    } else {
+      // Standalone mode: collect failed rows and re-import via Python
+      const { byFile } = await collectFailedRows()
+      if (byFile.size === 0) {
+        showAlert(t('results.retryNoFiles'))
+        isRetrying.value = false
+        return
+      }
+
+      // Store retry data, then reset (reset clears retryRows, so re-set after)
       run.reset()
-      run.logId = resp.result.logId
+      run.retryRows = byFile
       run.setState(ImportState.RUNNING_FILE)
       router.push('/run')
-    } else {
-      showAlert(resp.error || t('results.retryFailed'))
-      isRetrying.value = false
     }
   } catch (e) {
     logger.import.error('Retry failed', { error: e instanceof Error ? e.message : String(e) })
@@ -197,12 +299,11 @@ function startNew() {
       </Card>
 
       <!-- Export Actions -->
-      <Card class="p-3">
+      <Card v-if="run.errors.length > 0" class="p-3">
         <h3 class="fw-semibold mb-3">{{ $t('results.export') }}</h3>
 
         <div class="d-flex gap-3">
           <Button
-            v-if="run.errors.length > 0"
             variant="outline"
             @click="exportErrorsCSV"
           >
@@ -211,9 +312,10 @@ function startNew() {
 
           <Button
             variant="outline"
-            @click="exportFullReport"
+            :disabled="isExporting"
+            @click="exportFailedRows"
           >
-            {{ $t('results.downloadReport') }}
+            {{ $t('results.downloadFailedRows') }}
           </Button>
         </div>
       </Card>

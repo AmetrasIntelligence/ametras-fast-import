@@ -603,11 +603,12 @@ export async function getOrRefreshSession(baseUrl: string, db?: string): Promise
 
 /**
  * Get stored credentials for a session (used by Python subprocess IPC).
- * Returns decrypted password or null if no credentials saved.
+ * Attempts auto-reauth if the session has expired but saved credentials exist.
+ * Returns decrypted password or null if no credentials available.
  */
-export function getCredentials(baseUrl: string, db?: string): {
+export async function getCredentials(baseUrl: string, db?: string): Promise<{
   login: string; password: string; uid: number
-} | null {
+} | null> {
   let creds: typeof savedCredentials extends Map<string, infer V> ? V : never
   if (db) {
     creds = savedCredentials.get(getSessionKey(baseUrl, db)) as typeof creds
@@ -617,7 +618,8 @@ export function getCredentials(baseUrl: string, db?: string): {
   }
   if (!creds) return null
 
-  const session = getSession(baseUrl, db)
+  // Use getOrRefreshSession so expired sessions auto-reauth using saved credentials
+  const session = await getOrRefreshSession(baseUrl, db)
   if (!session) return null
 
   const password = creds.encrypted

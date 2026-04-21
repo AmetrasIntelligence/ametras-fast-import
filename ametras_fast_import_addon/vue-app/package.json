@@ -10,6 +10,7 @@
     "test:unit": "vitest run --reporter=verbose",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest run --coverage",
+    "check": "npm run lint && npm run typecheck && npm run test:unit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { suggestModel, getSuggestions, levenshteinDistance, depluralize } from '@/utils/smartMapping'
+import { suggestModel } from '@/utils/smartMapping'
 import type { OdooModel } from '@/api/odooClient'
 
 const mockModels: OdooModel[] = [
@@ -17,51 +17,6 @@ const mockModels: OdooModel[] = [
   { id: 12, model: 'res.partner.category', name: 'Contact Tags', transient: false },
   { id: 13, model: 'purchase.order', name: 'Purchase Order', transient: false },
 ]
-
-describe('levenshteinDistance', () => {
-  it('returns 0 for identical strings', () => {
-    expect(levenshteinDistance('abc', 'abc')).toBe(0)
-  })
-
-  it('returns correct distance for single edit', () => {
-    expect(levenshteinDistance('abc', 'ab')).toBe(1)
-    expect(levenshteinDistance('abc', 'axc')).toBe(1)
-  })
-
-  it('returns correct distance for multiple edits', () => {
-    expect(levenshteinDistance('kitten', 'sitting')).toBe(3)
-  })
-
-  it('handles empty strings', () => {
-    expect(levenshteinDistance('', 'abc')).toBe(3)
-    expect(levenshteinDistance('abc', '')).toBe(3)
-    expect(levenshteinDistance('', '')).toBe(0)
-  })
-})
-
-describe('depluralize', () => {
-  it('removes trailing s', () => {
-    expect(depluralize('partners')).toBe('partner')
-    expect(depluralize('products')).toBe('product')
-  })
-
-  it('converts ies to y', () => {
-    expect(depluralize('categories')).toBe('category')
-  })
-
-  it('converts ses to s (keeps base)', () => {
-    expect(depluralize('addresses')).toBe('address')
-  })
-
-  it('does not strip ss', () => {
-    expect(depluralize('boss')).toBe('boss')
-  })
-
-  it('returns short words unchanged', () => {
-    expect(depluralize('us')).toBe('us')
-    expect(depluralize('bus')).toBe('bus')
-  })
-})
 
 describe('suggestModel', () => {
   it('suggests res.partner for partners.csv', () => {
@@ -189,28 +144,3 @@ describe('suggestModel', () => {
   })
 })
 
-describe('getSuggestions', () => {
-  it('returns ranked suggestions', () => {
-    const suggestions = getSuggestions('partner.csv', mockModels)
-    expect(suggestions.length).toBeGreaterThan(0)
-    // Should be sorted by score descending
-    for (let i = 1; i < suggestions.length; i++) {
-      expect(suggestions[i - 1].score).toBeGreaterThanOrEqual(suggestions[i].score)
-    }
-  })
-
-  it('respects limit parameter', () => {
-    const suggestions = getSuggestions('partner.csv', mockModels, 2)
-    expect(suggestions.length).toBeLessThanOrEqual(2)
-  })
-
-  it('returns empty array for no matches', () => {
-    const suggestions = getSuggestions('zzzzzzz.csv', mockModels)
-    expect(suggestions).toEqual([])
-  })
-
-  it('first suggestion is the best match', () => {
-    const suggestions = getSuggestions('partners.csv', mockModels)
-    expect(suggestions[0].model.model).toBe('res.partner')
-  })
-})

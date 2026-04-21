@@ -3,10 +3,12 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfigStore, type RunSettings } from '@/stores/config'
 import { usePlatformStore } from '@/stores/platform'
+import { useSettingsOptions } from '@/composables/useSettingsOptions'
 
 const { t } = useI18n()
 const config = useConfigStore()
 const platform = usePlatformStore()
+const { delimiterOptions, encodingOptions } = useSettingsOptions()
 
 function validateWorkerConfig(workers: number, batchSize: number): { valid: boolean; warning?: string } {
   if (workers > 2 && batchSize < 50) {
@@ -44,20 +46,6 @@ const workersError = computed(() => {
   if (workers > MAX_WORKERS) return t('settings.validation.workersMax')
   return null
 })
-
-const delimiterOptions = computed(() => [
-  { value: ',', label: t('settings.delimiter_options.comma') },
-  { value: ';', label: t('settings.delimiter_options.semicolon') },
-  { value: '\t', label: t('settings.delimiter_options.tab') },
-  { value: '', label: t('settings.delimiter_options.auto') }
-])
-
-const encodingOptions = computed(() => [
-  { value: 'utf-8', label: t('settings.encoding_options.utf-8') },
-  { value: 'utf-8-sig', label: t('settings.encoding_options.utf-8-sig') },
-  { value: 'latin-1', label: t('settings.encoding_options.latin-1') },
-  { value: 'cp1252', label: t('settings.encoding_options.cp1252') }
-])
 </script>
 
 <template>
@@ -66,7 +54,6 @@ const encodingOptions = computed(() => [
       <div>
         <label class="form-label small text-body-secondary mb-1">
           {{ $t('settings.batchSize') }}
-          <span v-if="!true" class="text-body-secondary">({{ batchSizeMin }}-{{ batchSizeMax }})</span>
         </label>
         <input
           :value="config.settings.batchSize"

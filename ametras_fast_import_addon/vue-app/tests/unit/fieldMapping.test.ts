@@ -19,7 +19,7 @@ describe('parseTransform', () => {
       ['db_id:uom.uom', { type: 'db_id', model: 'uom.uom' }],
     ]
     for (const [input, expected] of cases) {
-      expect(parseTransform(input as any)).toEqual(expected)
+      expect(parseTransform(input as string)).toEqual(expected)
     }
   })
 

@@ -19,6 +19,7 @@ export async function setEnglishLocale(page: Page) {
 export async function mockWindowApi(page: Page) {
   await page.addInitScript(() => {
     const browserStore: Record<string, unknown> = {}
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(window as any).api = {
       files: {
         select: async () => [],

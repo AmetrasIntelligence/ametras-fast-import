@@ -40,6 +40,7 @@ test.describe('Login Flow', () => {
     // Override window.api.odoo.authenticate to simulate auth failure
     // (standalone client uses IPC, not HTTP, so page.route has no effect)
     await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (window as any).api.odoo.authenticate = async () => ({
         ok: false,
         error: 'Invalid credentials'

@@ -17,7 +17,7 @@ import {
   parseSequenceCSV,
   parseFieldMappingsCSV
 } from '@/types/importProfile'
-import { parseRichFieldMappingsCSV } from '@/utils/profileExporter'
+import { parseRichFieldMappingsCSV } from '@/services/profileExporter'
 import { importProfileFromZip } from '@/utils/profileUtils'
 import {
   listAttachmentProfiles,
