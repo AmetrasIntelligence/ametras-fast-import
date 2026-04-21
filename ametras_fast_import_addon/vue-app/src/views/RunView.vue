@@ -141,13 +141,17 @@ async function pollProgress() {
 
       if (resp.ok && resp.result) {
         run.updateFromServer(resp.result)
-        // Connection restored
         if (consecutivePollFailures > 0) {
           consecutivePollFailures = 0
           run.connectionStatus = 'online'
         }
+        clearWatchdog()
+      } else {
+        // odoo.call resolves {ok: false} on network/timeout errors (doesn't throw)
+        consecutivePollFailures++
+        run.connectionStatus = 'offline'
+        if (resp.error) logger.import.warn('Poll failed', { error: resp.error })
       }
-      clearWatchdog()
     } catch (e) {
       consecutivePollFailures++
       run.connectionStatus = 'offline'
@@ -226,9 +230,11 @@ function stopPolling() {
 function startWatchdog() {
   clearWatchdog()
   watchdogTimer = setTimeout(() => {
-    // Check if any progress has been made
     const hasProgress = Object.values(run.progress.files).some(f => f.processedRows > 0)
     if (!hasProgress && run.isActive) {
+      // Cancel the stuck import so "Try Again" doesn't double-start
+      controlImport('cancel')
+      stopPolling()
       initError.value = t('run.startupTimeout')
     }
   }, WATCHDOG_TIMEOUT)
@@ -245,9 +251,12 @@ function clearWatchdog() {
 
 async function startImport() {
   initError.value = null
+
+  // Capture retry data before reset() clears it
+  const pendingRetry = run.retryRows
   run.reset()
 
-  if (filesStore.files.length === 0) {
+  if (!pendingRetry && filesStore.files.length === 0) {
     router.replace('/import')
     return
   }
@@ -295,11 +304,10 @@ async function startImport() {
       run.runStartTime = Date.now()
 
       // Check if this is a retry with pre-collected failed rows
-      const retryData = run.retryRows
-      if (retryData) {
-        const filenames = [...retryData.keys()]
+      if (pendingRetry) {
+        const filenames = [...pendingRetry.keys()]
         const rowCounts = new Map<string, number>()
-        for (const [fname, { rows }] of retryData) rowCounts.set(fname, rows.length)
+        for (const [fname, { rows }] of pendingRetry) rowCounts.set(fname, rows.length)
         run.initRun(filenames, rowCounts, config.settings.dryRun)
       } else {
         const filenames = [...config.importSequence]
@@ -318,8 +326,7 @@ async function startImport() {
       startWatchdog()
       window.api?.odoo?.pinSession?.({ baseUrl: session.baseUrl || '', pinned: true })
 
-      const importFn = retryData ? () => runPythonRetry(retryData) : runPythonImport
-      run.retryRows = null // Consumed
+      const importFn = pendingRetry ? () => runPythonRetry(pendingRetry) : runPythonImport
       importFn().catch(e => {
         logger.import.error('Python import failed', { error: (e as Error).message })
         initError.value = (e as Error).message
@@ -354,12 +361,16 @@ async function runPythonRetry(retryData: RetryData) {
     currentPythonFile.value = filename
     run.startFile(filename)
 
+    // Build raw_rows with original row indices so error reports reference
+    // the original CSV row numbers, not the retry subset indices.
     const rawRows = rows.map(r => r.data)
+    const rowIndices = rows.map(r => r.rowNum)
     const importPayload = JSON.parse(JSON.stringify({
       url: session.baseUrl,
       db: session.currentServer?.db,
       model: mapping.model,
       raw_rows: rawRows,
+      row_indices: rowIndices,
       field_mappings: mapping.fieldMappings || {},
       search_keys: mapping.searchKeys || null,
       use_external_id: mapping.fieldMappings && Object.values(mapping.fieldMappings).includes('id'),
@@ -405,8 +416,6 @@ async function runPythonRetry(retryData: RetryData) {
  * Run Python subprocess imports sequentially for all files.
  * Called as a background task — progress is shown via polling.
  */
-const MAX_FILE_RETRIES = 2
-
 async function runPythonImport() {
   pythonCancelled = false
   pythonSkipRequested = false
@@ -421,12 +430,6 @@ async function runPythonImport() {
     const mapping = config.fileMappings[filename]
     if (!mapping) continue
 
-    let fileRetries = 0
-    let retryCurrentFile: boolean
-
-    // Retry loop for transport errors
-    do {
-    retryCurrentFile = false
     pythonSkipRequested = false
     currentPythonFile.value = filename
     run.startFile(filename)
@@ -511,18 +514,9 @@ async function runPythonImport() {
         break
       }
 
-      // Transport errors: retry the file (Python backend may have reconnected)
-      const isTransport = /rpc failed|connection|timeout|timed out|network|unreachable/i.test(errorMsg)
-      if (isTransport && fileRetries < MAX_FILE_RETRIES) {
-        fileRetries++
-        logger.import.warn(`${filename}: Transport error, retrying file (attempt ${fileRetries}/${MAX_FILE_RETRIES})...`)
-        run.connectionStatus = 'offline'
-        await new Promise(r => setTimeout(r, 10_000))
-        run.connectionStatus = 'online'
-        // Decrement loop index to retry same file — use continue with re-init
-        retryCurrentFile = true
-        continue
-      }
+      // Transport errors: mark as file-level failure (don't retry the whole file —
+      // the Python backend already retried individual RPCs with reconnect wait).
+      // Re-running the entire file would duplicate already-committed rows.
 
       logger.import.error(`${filename}: ${errorMsg}`)
       run.addError({
@@ -536,7 +530,6 @@ async function runPythonImport() {
     }
 
     if (pythonCancelled) break
-    } while (retryCurrentFile)
   }
 
   currentPythonFile.value = ''
