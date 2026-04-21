@@ -146,11 +146,6 @@ find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 
 cd - > /dev/null
 
-# No pre-signing needed on macOS.
-# The afterSign hook in package.json runs codesign --force --deep --sign -
-# on the whole .app bundle after electron-builder finishes, which re-signs
-# all nested Mach-O binaries (including these) in one consistent pass.
-
 # Verify the binary exists
 if [ "$PLATFORM" = "win32" ]; then
   PYTHON_BIN="${DEST_DIR}/python.exe"

@@ -66,11 +66,29 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            platform: mac
+            artifact: mac-arm64
+            build_arch: arm64
+            build_target: mac
+            runtime_arch: arm64
+            runtime_platform: darwin
+          - os: macos-13
+            artifact: mac-x64
+            build_arch: x64
+            build_target: mac
+            runtime_arch: x64
+            runtime_platform: darwin
           - os: windows-latest
-            platform: win
+            artifact: win-x64
+            build_arch: x64
+            build_target: win
+            runtime_arch: x64
+            runtime_platform: win32
           - os: ubuntu-latest
-            platform: linux
+            artifact: linux-x64
+            build_arch: x64
+            build_target: linux
+            runtime_arch: x64
+            runtime_platform: linux
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -83,11 +101,12 @@ jobs:
             ametras_fast_import_client/package-lock.json
       - run: cd ametras_fast_import_addon/vue-app && npm ci
       - run: cd ametras_fast_import_client && npm ci
+      - run: cd ametras_fast_import_client && bash scripts/download-python.sh ${{ matrix.runtime_platform }} ${{ matrix.runtime_arch }}
       - run: cd ametras_fast_import_client && npm run build
-      - run: cd ametras_fast_import_client && npx electron-builder --${{ matrix.platform }} --publish never
+      - run: cd ametras_fast_import_client && npx electron-builder --${{ matrix.build_target }} --${{ matrix.build_arch }} --publish never
       - uses: actions/upload-artifact@v4
         with:
-          name: ametras-fast-import-${{ matrix.platform }}
+          name: ametras-fast-import-${{ matrix.artifact }}
           path: |
             ametras_fast_import_client/release/*.dmg
             ametras_fast_import_client/release/*.exe

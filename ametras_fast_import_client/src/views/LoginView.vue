@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@/stores/session'
 import { useClientSession } from '../composables/useClientSession'
+import { isPythonAvailable } from '../standalone/pythonExecutor'
 import { Button, Card } from '@/ui'
 
 const { t } = useI18n()
@@ -26,6 +27,7 @@ const showAdvanced = ref(false)
 const selectedProfileId = ref('')
 const showEncryptionPrompt = ref(false)
 const encryptionInfo = ref<{ available: boolean; platform: string } | null>(null)
+const pythonMissing = ref(false)
 
 const savedProfiles = computed(() => session.savedProfiles)
 
@@ -37,6 +39,10 @@ const profileOptions = computed(() =>
 )
 
 onMounted(async () => {
+  // Check Python availability — required for import
+  const hasPython = await isPythonAvailable()
+  pythonMissing.value = !hasPython
+
   if (session.isAuthenticated) {
     router.push('/import')
     return
@@ -189,6 +195,17 @@ function removeSelectedProfile() {
           {{ $t('login.title') }}
         </h1>
         <small v-if="appVersion" class="text-body-tertiary" style="font-size: 0.675rem;">v{{ appVersion }}</small>
+      </div>
+
+      <div v-if="pythonMissing" class="alert alert-danger py-2 small mb-3">
+        <div class="fw-semibold">Python runtime not found</div>
+        <div class="mt-1">
+          This application needs Python 3.8 or later to import CSV files.
+          Packaged builds should include the runtime automatically.
+        </div>
+        <div class="mt-1 text-body-secondary" style="font-size: 0.7rem;">
+          Checked bundled runtime, python3/python on PATH, and common install locations.
+        </div>
       </div>
 
       <div v-if="savedProfiles.length > 0" class="mb-3">
@@ -365,7 +382,7 @@ function removeSelectedProfile() {
           type="submit"
           class="w-100"
           :loading="loading"
-          :disabled="loading"
+          :disabled="loading || pythonMissing"
         >
           {{ $t('login.connect') }}
         </Button>

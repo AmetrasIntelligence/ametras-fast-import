@@ -62,6 +62,17 @@
       "dist/**/*",
       "dist-electron/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "../ametras_fast_import_addon/models/import_engine",
+        "to": "import_engine",
+        "filter": ["**/*.py", "!__pycache__/**"]
+      },
+      {
+        "from": "python-runtime/${platform}-${arch}",
+        "to": "python-runtime"
+      }
+    ],
     "mac": {
       "target": "dmg",
       "artifactName": "Ametras_Fast_Import_MAC_v.${version}.${ext}"
