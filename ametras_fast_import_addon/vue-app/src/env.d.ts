@@ -111,8 +111,8 @@ interface ElectronAPI {
   files: {
     select: () => Promise<FileHandle[]>
     register: (paths: string[]) => Promise<FileHandle[]>
-    read: (id: string) => Promise<string>
-    readHead: (id: string, bytes: number) => Promise<string>
+    read: (id: string, encoding?: string) => Promise<string>
+    readHead: (id: string, bytes: number, encoding?: string) => Promise<string>
     countLines: (id: string) => Promise<number>
     streamChunks: (id: string, chunkLines: number, onChunk: (chunk: ChunkData) => void) => Promise<void>
     // Async streaming with backpressure support

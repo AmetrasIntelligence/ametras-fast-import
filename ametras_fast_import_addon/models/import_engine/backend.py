@@ -18,8 +18,10 @@ from typing import Any, Optional
 
 from .constants import (
     RPC_TIMEOUT_SECONDS, RPC_MAX_RETRIES, RPC_RETRY_BACKOFF_MULTIPLIER,
+    RPC_RECONNECT_TIMEOUT, RPC_RECONNECT_CHECK_INTERVAL,
     XMLRPC_OBJECT_PATH, XMLRPC_COMMON_PATH,
 )
+from .progress import ProgressReporter, NullReporter
 
 _logger = logging.getLogger(__name__)
 
@@ -98,13 +100,17 @@ class RpcBackend(OdooBackend):
 
     def __init__(self, url: str, db: str, uid: int, password: str,
                  timeout: int = RPC_TIMEOUT_SECONDS,
-                 max_retries: int = RPC_MAX_RETRIES):
+                 max_retries: int = RPC_MAX_RETRIES,
+                 cancel_event: Optional[threading.Event] = None,
+                 reporter: Optional[ProgressReporter] = None):
         self.url = url
         self.db = db
         self.uid = uid
         self.password = password
         self.timeout = timeout
         self.max_retries = max_retries
+        self._cancel_event = cancel_event
+        self._reporter: ProgressReporter = reporter or NullReporter()
         self._thread_local = threading.local()
         self._field_cache: dict[str, dict[str, FieldInfo]] = {}
 
@@ -117,16 +123,60 @@ class RpcBackend(OdooBackend):
             )
         return self._thread_local.proxy
 
+    def _is_cancelled(self) -> bool:
+        return self._cancel_event is not None and self._cancel_event.is_set()
+
+    def _check_connectivity(self) -> bool:
+        """Quick TCP connect to verify the Odoo host is reachable."""
+        from urllib.parse import urlparse
+        parsed = urlparse(self.url)
+        host = parsed.hostname or 'localhost'
+        port = parsed.port or (443 if parsed.scheme == 'https' else 8069)
+        try:
+            with socket.create_connection((host, port), timeout=5):
+                return True
+        except (OSError, socket.timeout):
+            return False
+
+    def _wait_for_connectivity(self) -> bool:
+        """
+        Block until the server is reachable again or timeout/cancel.
+        Returns True if connectivity was restored, False on timeout/cancel.
+        """
+        deadline = _time.monotonic() + RPC_RECONNECT_TIMEOUT
+        self._reporter.connection_lost(
+            f"Server unreachable. Waiting up to {RPC_RECONNECT_TIMEOUT}s for reconnect..."
+        )
+        _logger.warning(
+            "Server unreachable after quick retries. "
+            "Waiting up to %ds for connectivity...", RPC_RECONNECT_TIMEOUT
+        )
+        while _time.monotonic() < deadline:
+            if self._is_cancelled():
+                return False
+            _time.sleep(RPC_RECONNECT_CHECK_INTERVAL)
+            if self._check_connectivity():
+                return True
+        return False
+
     def _call(self, model: str, method: str, args: list,
               kwargs: Optional[dict] = None) -> Any:
         """
-        Execute an XML-RPC call with timeout and retry.
+        Execute an XML-RPC call with timeout, retry, and reconnect wait.
 
-        Retries transient network errors with exponential backoff.
-        Odoo application errors (Fault) are NOT retried.
+        Three phases:
+        1. Quick retries (3 attempts, 2/4/6s backoff) for transient blips
+        2. Connectivity wait (up to 5 min) for extended outages
+        3. One final retry after connectivity returns
+
+        Odoo application errors (Fault) are NEVER retried.
         """
         last_error: Optional[Exception] = None
+
+        # Phase 1: Quick retries
         for attempt in range(self.max_retries):
+            if self._is_cancelled():
+                raise RuntimeError("Import cancelled")
             old_timeout = socket.getdefaulttimeout()
             try:
                 socket.setdefaulttimeout(self.timeout)
@@ -147,15 +197,41 @@ class RpcBackend(OdooBackend):
                         "RPC error (attempt %d/%d): %s. Retrying in %ds...",
                         attempt + 1, self.max_retries, e, delay
                     )
-                    # Clear thread-local proxy for fresh connection
                     if hasattr(self._thread_local, 'proxy'):
                         del self._thread_local.proxy
                     _time.sleep(delay)
             finally:
                 socket.setdefaulttimeout(old_timeout)
 
+        # Phase 2: Connectivity wait — server might be temporarily down
+        if self._wait_for_connectivity():
+            # Phase 3: One final attempt after reconnect
+            if hasattr(self._thread_local, 'proxy'):
+                del self._thread_local.proxy
+            old_timeout = socket.getdefaulttimeout()
+            try:
+                socket.setdefaulttimeout(self.timeout)
+                proxy = self._get_proxy()
+                result = proxy.execute_kw(
+                    self.db, self.uid, self.password,
+                    model, method, args, kwargs or {}
+                )
+                elapsed = RPC_RECONNECT_TIMEOUT  # approximate
+                self._reporter.connection_restored(
+                    f"Connection restored. Resuming import."
+                )
+                _logger.info("Connection restored after reconnect wait")
+                return result
+            except xmlrpc.client.Fault as e:
+                raise ValueError(f"Odoo error: {e.faultString}") from e
+            except (xmlrpc.client.ProtocolError, socket.timeout,
+                    ConnectionError, OSError) as e:
+                last_error = e
+            finally:
+                socket.setdefaulttimeout(old_timeout)
+
         raise RuntimeError(
-            f"RPC failed after {self.max_retries} attempts: {last_error}"
+            f"RPC failed after {self.max_retries} retries + reconnect wait: {last_error}"
         )
 
     def search(self, model: str, domain: list,

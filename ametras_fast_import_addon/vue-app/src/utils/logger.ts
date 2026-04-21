@@ -142,19 +142,24 @@ class Logger {
       this.entries = this.entries.slice(-this.maxEntries)
     }
 
-    // Console output (verbosity controlled by minLevel)
-    const formatted = formatLogEntry(entry, { timestamp: true, includeData: false })
-    const style = getConsoleStyle(level)
+    // Console output: errors/warnings always, debug/info only in dev
+    const isImportant = level === LogLevel.ERROR || level === LogLevel.WARN
+    if (isImportant || import.meta.env.DEV) {
+      const formatted = formatLogEntry(entry, { timestamp: true, includeData: false })
+      const style = getConsoleStyle(level)
 
-    const consoleFn = level === LogLevel.ERROR ? console.error :
-                      level === LogLevel.WARN ? console.warn :
-                      // eslint-disable-next-line no-console -- logger is the sanctioned console wrapper
-                      level === LogLevel.DEBUG ? console.debug : console.log
+      /* eslint-disable no-console */
+      const consoleFn = level === LogLevel.ERROR ? console.error :
+                        level === LogLevel.WARN ? console.warn :
+                        level === LogLevel.DEBUG ? console.debug :
+                        console.log
+      /* eslint-enable no-console */
 
-    if (data && Object.keys(data).length > 0) {
-      consoleFn(`%c${formatted}`, style, data)
-    } else {
-      consoleFn(`%c${formatted}`, style)
+      if (data && Object.keys(data).length > 0) {
+        consoleFn(`%c${formatted}`, style, data)
+      } else {
+        consoleFn(`%c${formatted}`, style)
+      }
     }
   }
 

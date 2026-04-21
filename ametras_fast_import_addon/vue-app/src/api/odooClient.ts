@@ -47,64 +47,14 @@ export async function fetchModels(): Promise<OdooModel[]> {
   }))
 }
 
-export interface SaveImportLogData {
-  profile_name: string
-  profile_id?: number
-  is_dry_run: boolean
-  state: 'completed' | 'failed'
-  started_at: string   // ISO datetime
-  finished_at: string  // ISO datetime
-  filenames: string[]
-  total_rows: number
-  success_rows: number
-  failed_rows: number
-  error_log: Array<{ filename: string; rowNumber: number; error: string }>
+interface FileProgressData {
+  totalRows: number
+  successCount: number
+  failedCount: number
+  processedRanges: [number, number][]
 }
 
-export async function saveImportLog(data: SaveImportLogData): Promise<void> {
-  const session = useSessionStore()
-  if (!session.baseUrl || !session.isEmbedded) return  // Only save in embedded mode
-
-  await window.api.odoo.call({
-    baseUrl: session.baseUrl,
-    db: session.currentServer?.db,
-    endpoint: '/ametras_fast_import/log/save',
-    params: { ...data },
-  })
-}
-
-// --- Log Lifecycle API ---
-
-export interface CreateImportLogData {
-  profile_name: string
-  profile_id?: number
-  is_dry_run: boolean
-  started_at: string
-  filenames: string[]
-  total_rows: number
-  attachment_ids?: number[]
-  file_progress?: Record<string, unknown>
-}
-
-export interface UpdateImportLogData {
-  log_id: number
-  success_rows: number
-  failed_rows: number
-  file_progress: Record<string, unknown>
-}
-
-export interface FinalizeImportLogData {
-  log_id: number
-  state: 'completed' | 'failed'
-  finished_at: string
-  total_rows?: number
-  success_rows: number
-  failed_rows: number
-  error_log: Array<{ filename: string; rowNumber: number; error: string }>
-  file_progress?: Record<string, unknown>
-}
-
-export interface ImportLogRecord {
+interface ImportLogRecord {
   id: number
   profile_name: string
   profile_id: number | null
@@ -124,54 +74,6 @@ export interface ImportLogRecord {
   attachment_ids: number[]
 }
 
-export interface FileProgressData {
-  totalRows: number
-  successCount: number
-  failedCount: number
-  processedRanges: [number, number][]
-}
-
-export async function createImportLog(data: CreateImportLogData): Promise<number | null> {
-  const session = useSessionStore()
-  if (!session.baseUrl || !session.isEmbedded) return null
-
-  const response = await window.api.odoo.call<{ ok: boolean; id: number }>({
-    baseUrl: session.baseUrl,
-    db: session.currentServer?.db,
-    endpoint: '/ametras_fast_import/log/create',
-    params: { ...data },
-  })
-
-  if (response.ok && response.result?.ok) {
-    return response.result.id
-  }
-  return null
-}
-
-export async function updateImportLog(data: UpdateImportLogData): Promise<void> {
-  const session = useSessionStore()
-  if (!session.baseUrl || !session.isEmbedded) return
-
-  await window.api.odoo.call({
-    baseUrl: session.baseUrl,
-    db: session.currentServer?.db,
-    endpoint: '/ametras_fast_import/log/update',
-    params: { ...data },
-  })
-}
-
-export async function finalizeImportLog(data: FinalizeImportLogData): Promise<void> {
-  const session = useSessionStore()
-  if (!session.baseUrl || !session.isEmbedded) return
-
-  await window.api.odoo.call({
-    baseUrl: session.baseUrl,
-    db: session.currentServer?.db,
-    endpoint: '/ametras_fast_import/log/finalize',
-    params: { ...data },
-  })
-}
-
 export async function getImportLog(logId: number): Promise<ImportLogRecord | null> {
   const session = useSessionStore()
   if (!session.baseUrl || !session.isEmbedded) return null
@@ -188,6 +90,156 @@ export async function getImportLog(logId: number): Promise<ImportLogRecord | nul
   }
   return null
 }
+
+// ── Row validation ──────────────────────────────────────────────────
+
+export interface RowValidationResult {
+  ok: boolean
+  message?: string
+  action?: string
+}
+
+/**
+ * Validate a single sample row against an Odoo model via dry-run.
+ *
+ * When the addon's dry_run endpoint is available (useAddonEndpoint=true),
+ * uses /ametras_fast_import/run. Otherwise falls back to Odoo's built-in
+ * base_import.import with execute_import(dryrun=True), which is always
+ * available on any Odoo 16 instance.
+ */
+export async function validateSampleRow(
+  model: string,
+  sampleRow: Record<string, string>,
+  fieldMappings: Record<string, string>,
+  useAddonEndpoint: boolean,
+): Promise<RowValidationResult> {
+  const session = useSessionStore()
+  if (!session.baseUrl) throw new Error('Not connected')
+  const db = session.currentServer?.db
+
+  if (useAddonEndpoint) {
+    return validateViaAddon(session.baseUrl, db, model, sampleRow, fieldMappings)
+  }
+  return validateViaBaseImport(session.baseUrl, db, model, sampleRow, fieldMappings)
+}
+
+async function validateViaAddon(
+  baseUrl: string,
+  db: string | undefined,
+  model: string,
+  sampleRow: Record<string, string>,
+  fieldMappings: Record<string, string>,
+): Promise<RowValidationResult> {
+  const hasIdMapping = Object.values(fieldMappings).includes('id')
+
+  const result = await window.api.odoo.call<{
+    results: Array<{ ok: boolean; action?: string; error?: string }>
+  }>({
+    baseUrl,
+    db,
+    endpoint: '/ametras_fast_import/run',
+    params: {
+      model,
+      raw_rows: [sampleRow],
+      field_mappings: fieldMappings,
+      use_external_id: hasIdMapping,
+      dry_run: true,
+    },
+  })
+
+  if (result.ok && result.result?.results?.length) {
+    const r = result.result.results[0]
+    return { ok: r.ok, message: r.error, action: r.action }
+  }
+  if (result.ok) return { ok: true }
+  return { ok: false, message: result.error || 'Validation request failed' }
+}
+
+/**
+ * Build a minimal CSV string from mapped headers + one data row.
+ */
+function buildValidationCsv(
+  sampleRow: Record<string, string>,
+  mappedHeaders: string[],
+): string {
+  const escape = (val: string) => {
+    if (val.includes(',') || val.includes('"') || val.includes('\n') || val.includes('\r')) {
+      return `"${val.replace(/"/g, '""')}"`
+    }
+    return val
+  }
+  return [
+    mappedHeaders.map(escape).join(','),
+    mappedHeaders.map(h => escape(sampleRow[h] ?? '')).join(','),
+  ].join('\n') + '\n'
+}
+
+async function validateViaBaseImport(
+  baseUrl: string,
+  db: string | undefined,
+  model: string,
+  sampleRow: Record<string, string>,
+  fieldMappings: Record<string, string>,
+): Promise<RowValidationResult> {
+  const mappedHeaders = Object.keys(fieldMappings).filter(h => fieldMappings[h])
+  const fields = mappedHeaders.map(h => fieldMappings[h])
+
+  const csv = buildValidationCsv(sampleRow, mappedHeaders)
+
+  // Base64-encode for Odoo binary field (TextEncoder handles UTF-8)
+  const bytes = new TextEncoder().encode(csv)
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  const base64 = btoa(binary)
+
+  // Create a transient base_import.import record
+  const createResp = await window.api.odoo.call<number>({
+    baseUrl, db,
+    endpoint: '/web/dataset/call_kw',
+    params: {
+      model: 'base_import.import',
+      method: 'create',
+      args: [{ res_model: model, file: base64, file_type: 'text/csv', file_name: 'validation.csv' }],
+      kwargs: {},
+    },
+  })
+  if (!createResp.ok || !createResp.result) {
+    return { ok: false, message: createResp.error || 'Failed to create import record' }
+  }
+
+  // Call execute_import with dryrun — savepoint + rollback, nothing committed
+  const execResp = await window.api.odoo.call<{
+    ids: number[] | false
+    messages: Array<{ type: string; message: string; record?: number; field?: string }>
+  }>({
+    baseUrl, db,
+    endpoint: '/web/dataset/call_kw',
+    params: {
+      model: 'base_import.import',
+      method: 'execute_import',
+      args: [[createResp.result], fields, mappedHeaders, {
+        separator: ',',
+        quoting: '"',
+        has_headers: true,
+      }],
+      kwargs: { dryrun: true },
+    },
+  })
+  if (!execResp.ok) {
+    return { ok: false, message: execResp.error || 'Validation request failed' }
+  }
+
+  const result = execResp.result!
+  const errors = result.messages.filter(m => m.type === 'error')
+  if (errors.length > 0) {
+    return { ok: false, message: errors.map(e => e.message).join('; ') }
+  }
+
+  const action = result.ids && Array.isArray(result.ids) && result.ids.length > 0 ? 'create' : 'processed'
+  return { ok: true, action }
+}
+
+// ── Field metadata ──────────────────────────────────────────────────
 
 export async function fetchModelFields(modelName: string): Promise<OdooField[]> {
   const session = useSessionStore()
@@ -226,4 +278,3 @@ export async function fetchModelFields(modelName: string): Promise<OdooField[]> 
     relation: field.relation
   }))
 }
-

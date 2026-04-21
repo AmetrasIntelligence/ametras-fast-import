@@ -23,6 +23,8 @@ DEFAULT_RETRY_DELAY_MS = 500
 RPC_TIMEOUT_SECONDS = 120
 RPC_MAX_RETRIES = 3
 RPC_RETRY_BACKOFF_MULTIPLIER = 2  # seconds per attempt: 2, 4, 6
+RPC_RECONNECT_TIMEOUT = 300       # Max seconds to wait for connectivity (5 min)
+RPC_RECONNECT_CHECK_INTERVAL = 15  # Seconds between connectivity checks
 
 # ---------------------------------------------------------------------------
 # CSV parsing

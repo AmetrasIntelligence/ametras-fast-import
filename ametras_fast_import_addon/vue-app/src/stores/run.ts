@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { ImportState, type ConnectionStatus } from '@/importer/types'
+import { ImportState, type ConnectionStatus } from '@/types/importState'
 import { getImportLog } from '@/api/odooClient'
 
 export interface FileProgress {
@@ -30,23 +30,15 @@ export interface ImportRowError {
   timestamp: number
 }
 
-export interface TimeoutMitigationStatus {
-  mode: 'standalone' | 'addon'
-  currentBatchSize: number
-  timeoutEscalationLevel: number
-  retriesAtMinimumBatch: number
-  nextRetryDelayMs: number
-  elapsedMs: number
-  budgetMs: number
-}
+// ETA smoothing: sliding window of progress samples
+interface ProgressSample { time: number; progress: number }
+const MAX_SAMPLES = 20
 
 export const useRunStore = defineStore('run', () => {
   const state = ref<ImportState>(ImportState.IDLE)
   const isDryRun = ref(false)
   const logId = ref<number | null>(null)
   const connectionStatus = ref<ConnectionStatus>('online')
-  const timeoutMitigationActive = ref(false)
-  const timeoutMitigationStatus = ref<TimeoutMitigationStatus | null>(null)
   const resumeLogId = ref<number | null>(null)
 
   const progress = ref<RunProgress>({
@@ -56,8 +48,17 @@ export const useRunStore = defineStore('run', () => {
     files: {}
   })
   const errors = ref<ImportRowError[]>([])
+  const errorKeys = new Set<string>()
   const runStartTime = ref<number | null>(null)
   const isHistoricalLog = ref(false)
+  const progressSamples = ref<ProgressSample[]>([])
+
+  /**
+   * Retry data for standalone mode: failed rows grouped by filename.
+   * Set by ResultsView before navigating to /run for retry.
+   * Consumed and cleared by RunView.startImport().
+   */
+  const retryRows = ref<Map<string, { rows: Array<{ rowNum: number; data: Record<string, string> }>; headers: string[] }> | null>(null)
 
   const currentFile = computed(() => {
     if (progress.value.currentFileIndex < 0) return null
@@ -72,14 +73,71 @@ export const useRunStore = defineStore('run', () => {
     return total > 0 ? processed / total : 0
   })
 
-  const estimatedTimeRemaining = computed(() => {
-    if (!runStartTime.value || globalProgress.value === 0) return null
+  /** Record a progress sample for ETA/throughput smoothing. */
+  function recordProgressSample() {
+    const p = globalProgress.value
+    const now = Date.now()
+    // Skip duplicate samples (no progress change)
+    const last = progressSamples.value[progressSamples.value.length - 1]
+    if (last && last.progress === p) return
+    progressSamples.value.push({ time: now, progress: p })
+    if (progressSamples.value.length > MAX_SAMPLES) {
+      progressSamples.value = progressSamples.value.slice(-MAX_SAMPLES)
+    }
+  }
 
-    const elapsed = Date.now() - runStartTime.value
-    const rate = globalProgress.value / elapsed
-    const remaining = (1 - globalProgress.value) / rate
+  const estimatedTimeRemaining = computed<number | null>(() => {
+    if (!runStartTime.value) return null
+    const p = globalProgress.value
+    if (p <= 0) return null
+    if (p >= 1) return 0
 
-    return Math.round(remaining / 1000)
+    const now = Date.now()
+    const samples = progressSamples.value
+
+    // Sliding window rate (recent trend)
+    let windowRate = 0
+    if (samples.length >= 2) {
+      const first = samples[0]
+      const last = samples[samples.length - 1]
+      const dt = last.time - first.time
+      const dp = last.progress - first.progress
+      if (dt > 0 && dp > 0) windowRate = dp / dt
+    }
+
+    // Total average rate (overall)
+    const elapsed = now - runStartTime.value
+    const totalRate = elapsed > 0 ? p / elapsed : 0
+
+    // Blend: prefer window rate when we have enough samples
+    const rate = samples.length >= 5
+      ? 0.7 * windowRate + 0.3 * totalRate
+      : totalRate
+
+    if (rate <= 0) return null
+
+    const remaining = (1 - p) / rate
+    const seconds = Math.round(remaining / 1000)
+    // Cap at 24 hours
+    return Math.min(seconds, 86400)
+  })
+
+  const throughput = computed<number | null>(() => {
+    const samples = progressSamples.value
+    if (samples.length < 2) return null
+
+    const totalRows = Object.values(progress.value.files)
+      .filter(f => !f.skipped)
+      .reduce((sum, f) => sum + f.totalRows, 0)
+    if (totalRows <= 0) return null
+
+    const first = samples[Math.max(0, samples.length - 10)]
+    const last = samples[samples.length - 1]
+    const dt = (last.time - first.time) / 1000 // seconds
+    const dp = last.progress - first.progress
+
+    if (dt <= 0 || dp <= 0) return null
+    return Math.round((dp * totalRows) / dt)
   })
 
   const isActive = computed(() => {
@@ -100,25 +158,9 @@ export const useRunStore = defineStore('run', () => {
 
   const isWaitingForConnection = computed(() => connectionStatus.value === 'offline')
 
-  const pendingRows = computed(() => {
-    const files = Object.values(progress.value.files).filter(f => !f.skipped)
-    const total = files.reduce((sum, f) => sum + f.totalRows, 0)
-    const success = files.reduce((sum, f) => sum + f.successCount, 0)
-    const failed = files.reduce((sum, f) => sum + f.failedCount, 0)
-    return Math.max(0, total - success - failed)
-  })
-
   function initRun(filenames: string[], rowCounts: Map<string, number>, dryRun = false) {
     isHistoricalLog.value = false
     isDryRun.value = dryRun
-    connectionStatus.value = 'online'
-    timeoutMitigationActive.value = false
-    timeoutMitigationStatus.value = null
-    isInitiating.value = false
-    isPausing.value = false
-    isSkipping.value = false
-    logId.value = null
-    resumeLogId.value = null
     const files: Record<string, FileProgress> = {}
     for (const f of filenames) {
       files[f] = {
@@ -137,6 +179,8 @@ export const useRunStore = defineStore('run', () => {
       files
     }
     errors.value = []
+    errorKeys.clear()
+    progressSamples.value = []
     runStartTime.value = Date.now()
   }
 
@@ -186,25 +230,11 @@ export const useRunStore = defineStore('run', () => {
     state.value = newState
   }
 
-  function setTimeoutMitigationActive(active: boolean) {
-    timeoutMitigationActive.value = active
-    if (!active) {
-      timeoutMitigationStatus.value = null
-    }
-  }
-
-  function updateTimeoutMitigationStatus(status: TimeoutMitigationStatus) {
-    timeoutMitigationStatus.value = status
-    timeoutMitigationActive.value = true
-  }
-
   function reset() {
     state.value = ImportState.IDLE
     isDryRun.value = false
     logId.value = null
     connectionStatus.value = 'online'
-    timeoutMitigationActive.value = false
-    timeoutMitigationStatus.value = null
     resumeLogId.value = null
     progress.value = {
       totalFiles: 0,
@@ -213,8 +243,11 @@ export const useRunStore = defineStore('run', () => {
       files: {}
     }
     errors.value = []
+    errorKeys.clear()
+    progressSamples.value = []
     runStartTime.value = null
     isHistoricalLog.value = false
+    retryRows.value = null
   }
 
   /**
@@ -273,21 +306,28 @@ export const useRunStore = defineStore('run', () => {
       files,
     }
 
-    // Update errors
-    errors.value = data.errors.map(e => ({
-      filename: e.filename,
-      rowNumber: e.rowNumber,
-      rawData: {},
-      error: e.error,
-      timestamp: 0,
-    }))
+    recordProgressSample()
+
+    // Merge errors (server truncates to 100 — don't lose earlier ones)
+    const now = Date.now()
+    for (const e of data.errors) {
+      const key = `${e.filename}:${e.rowNumber}:${e.error.substring(0, 80)}`
+      if (!errorKeys.has(key)) {
+        errorKeys.add(key)
+        errors.value.push({
+          filename: e.filename,
+          rowNumber: e.rowNumber,
+          rawData: {},
+          error: e.error,
+          timestamp: now,
+        })
+      }
+    }
   }
 
   async function loadFromServerLog(id: number): Promise<boolean> {
     const log = await getImportLog(id)
     if (!log) return false
-    timeoutMitigationActive.value = false
-    timeoutMitigationStatus.value = null
 
     const files: Record<string, FileProgress> = {}
     const filenames = Object.keys(log.file_progress)
@@ -338,24 +378,24 @@ export const useRunStore = defineStore('run', () => {
     isDryRun,
     logId,
     connectionStatus,
-    timeoutMitigationActive,
-    timeoutMitigationStatus,
     resumeLogId,
     progress,
     errors,
     runStartTime,
     isHistoricalLog,
+    retryRows,
     currentFile,
     globalProgress,
     estimatedTimeRemaining,
+    throughput,
     isActive,
     isCompleted,
     hasRetryableErrors,
     isWaitingForConnection,
-    pendingRows,
     initRun,
     startFile,
     updateFileProgress,
+    recordProgressSample,
     completeFile,
     skipFile,
     addError,

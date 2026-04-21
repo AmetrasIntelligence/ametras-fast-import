@@ -15,7 +15,7 @@ import { Button, Card } from '@/ui'
 import ProfileEditor from '@/components/ProfileEditor.vue'
 import { importStandaloneProfile } from '@/services/standaloneProfiles'
 import { exportProfileToZip, downloadBlob } from '@/utils/profileUtils'
-import { generateProfileCSV, generateMappingsCSV, generateSequenceCSV, generateFieldMappingsCSV, generateRunSettingsCSV } from '@/utils/profileExporter'
+import { generateProfileCSV, generateMappingsCSV, generateSequenceCSV, generateFieldMappingsCSV, generateRunSettingsCSV } from '@/services/profileExporter'
 
 const { t } = useI18n()
 

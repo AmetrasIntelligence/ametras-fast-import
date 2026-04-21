@@ -9,8 +9,8 @@
  */
 
 import { useSessionStore } from '@/stores/session'
-import type { ParsedRow, BatchResult, MappingConfig } from '@/importer/types'
-import { detectIdColumn, NetworkBatchError, AuthBatchError, TimeoutBatchError } from '@/importer/types'
+import type { ParsedRow, BatchResult, MappingConfig } from './types'
+import { detectIdColumn, NetworkBatchError, AuthBatchError, TimeoutBatchError } from './types'
 import { logger } from '@/utils/logger'
 
 // Batch size constraints for standalone mode

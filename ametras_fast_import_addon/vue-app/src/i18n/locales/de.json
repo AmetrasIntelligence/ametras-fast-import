@@ -127,6 +127,9 @@
     "title": "Importeinstellungen",
     "batchSize": "Stapelgröße",
     "workers": "Parallele Prozesse",
+    "retryLimit": "Wiederholungslimit",
+    "retryDelayMs": "Wiederholungsverzögerung (ms)",
+    "stopOnFatalError": "Bei schwerwiegendem Fehler stoppen",
     "encoding": "Kodierung",
     "delimiter": "Trennzeichen",
     "skipHeader": "Kopfzeile überspringen",
@@ -136,7 +139,9 @@
     "summary": {
       "batch": "Stapel",
       "workers": "Prozesse",
+      "retries": "Wiederholungen",
       "encoding": "Kodierung",
+      "stopOnError": "Bei Fehler stoppen",
       "dryRun": "PROBELAUF"
     },
     "encoding_options": {
@@ -154,9 +159,11 @@
     "validation": {
       "batchSizeMin": "Stapelgröße muss mindestens 1 sein",
       "batchSizeMax": "Stapelgröße darf 1000 nicht überschreiten",
+      "retryLimitMin": "Wiederholungslimit muss mindestens 0 sein",
+      "retryLimitMax": "Wiederholungslimit darf 10 nicht überschreiten",
       "workersMin": "Prozesse muss mindestens 1 sein",
       "workersMax": "Maximale Prozessanzahl überschritten",
-      "batchSizeStandaloneRange": "Standalone-Modus: 1-100"
+      "batchSizeStandaloneRange": "Standalone-Modus: 10-100"
     },
     "standalone": {
       "dryRunUnavailable": "Im Standalone-Modus nicht verfügbar",
@@ -199,8 +206,6 @@
     "connectionLost": "Warte auf Serververbindung...",
     "connectionLostDetail": "Der Server ist nicht erreichbar. Der Import wird automatisch fortgesetzt, wenn die Verbindung wiederhergestellt ist.",
     "reconnecting": "Verbindung wird geprüft...",
-    "timeoutMitigationTitle": "Server-Timeouts werden erkannt",
-    "timeoutMitigationDetail": "Die Stapelgröße wird reduziert und das Timeout erhöht. Bitte haben Sie Geduld.",
     "fileProgress": "{completed} / {total} Dateien",
     "tryAgain": "Erneut versuchen",
     "startupTimeout": "Import-Start hat das Zeitlimit überschritten (90s). Der Server ist möglicherweise langsam oder ein Netzwerkaufruf hängt. Bitte erneut versuchen."
@@ -214,12 +219,8 @@
     "failed": "Fehlgeschlagen",
     "duration": "Dauer",
     "export": "Exportieren",
-    "downloadErrors": "Einheitliches Fehlerlog herunterladen (CSV)",
-    "downloadFailedRowsZip": "Fehlzeilen-ZIP herunterladen (.csv)",
-    "noFailedRowsToExport": "Keine fehlgeschlagenen Zeilen zum Exportieren vorhanden.",
-    "failedRowsExportNoFiles": "Fehlzeilen sind vorhanden, aber Quelldateien sind nicht verfügbar: {files}",
-    "failedRowsExportPartial": "Fehlzeilen-ZIP wurde exportiert, aber einige Dateien waren nicht verfügbar: {files}",
-    "failedRowsExportError": "Fehlzeilen-ZIP konnte nicht exportiert werden: {error}",
+    "downloadErrors": "Fehlerbericht (CSV)",
+    "downloadFailedRows": "Fehlgeschlagene Zeilen (CSV)",
     "errors": "Fehler",
     "file": "Datei",
     "row": "Zeile",
@@ -339,6 +340,6 @@
     "title": "Standalone-Modus",
     "description": "ametras_fast_import Addon nicht installiert - verwende direkte Odoo API",
     "limitations": "Einige Funktionen nicht verfügbar: Suchschlüssel-Upsert, Fehlerbehandlung pro Zeile",
-    "batchSizeNote": "Stapelgröße auf 1-100 im Standalone-Modus begrenzt"
+    "batchSizeNote": "Stapelgröße auf 10-100 im Standalone-Modus begrenzt"
   }
 }

@@ -10,6 +10,7 @@
     "build": "vue-tsc --noEmit && vite build && vite build --mode electron",
     "electron:build": "npm run build && electron-builder",
     "typecheck": "vue-tsc --noEmit",
+    "check": "npm run lint && npm run typecheck",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test:e2e": "playwright test",

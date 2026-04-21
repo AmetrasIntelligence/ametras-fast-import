@@ -43,7 +43,7 @@ export const useSavedMappingsStore = defineStore('savedMappings', () => {
     const newMapping: SavedMapping = {
       id: crypto.randomUUID(),
       filenamePattern,
-      model,
+      model
     }
     mappings.value.push(newMapping)
     await persist()
@@ -77,6 +77,6 @@ export const useSavedMappingsStore = defineStore('savedMappings', () => {
     mappings,
     load,
     addMapping,
-    findSuggestion,
+    findSuggestion
   }
 })

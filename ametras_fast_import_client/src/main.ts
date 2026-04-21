@@ -45,7 +45,7 @@ const platform = usePlatformStore(pinia)
 platform.configure({
   capabilities: {
     dryRun: false,
-    rowValidation: false,
+    rowValidation: true,
     searchKeys: false,
     serverLogs: false,
     serverProfiles: false,
@@ -55,7 +55,6 @@ platform.configure({
     'Search key upsert not available',
     'Per-row error isolation not available',
     'Explicit operation column (__op__) not supported',
-    'Dry-run validation not available',
     'Server-side import logs not available',
     'Resume interrupted imports not available',
   ],
@@ -64,7 +63,7 @@ platform.configure({
 // Detect Python in background and upgrade capabilities if available
 isPythonAvailable().then((available) => {
   if (available) {
-    console.log('[platform] Python import engine detected — enabling full features')
+    console.warn('[platform] Python import engine detected — enabling full features')
     platform.configure({
       capabilities: {
         dryRun: true,
@@ -79,7 +78,7 @@ isPythonAvailable().then((available) => {
       ],
     })
   } else {
-    console.log('[platform] Python not available — using standalone mode (model.load)')
+    console.warn('[platform] Python not available — using standalone mode (model.load)')
   }
 }).catch(() => {
   // Keep default standalone config
