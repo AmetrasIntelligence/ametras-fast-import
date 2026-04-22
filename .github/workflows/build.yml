@@ -99,8 +99,9 @@ jobs:
       - run: cd ametras_fast_import_client && npm run build
       - run: cd ametras_fast_import_client && npx electron-builder --${{ matrix.build_target }} --${{ matrix.build_arch }} --publish never
         env:
-          # Without a paid Apple Developer ID certificate, force unsigned output.
-          # This avoids ad-hoc signing paths that can trigger stricter "damaged" errors.
+          # Skip keychain certificate lookup — ad-hoc signing is sufficient.
+          # The download-python.sh script re-signs python-runtime binaries so
+          # electron-builder can produce a consistently signed bundle.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - uses: actions/upload-artifact@v4
         with:
