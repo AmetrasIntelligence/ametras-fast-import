@@ -74,8 +74,7 @@
       }
     ],
     "mac": {
-      "target": "dmg",
-      "identity": null
+      "target": "dmg"
     },
     "win": {
       "target": "nsis",
