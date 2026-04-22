@@ -71,12 +71,6 @@ jobs:
             build_target: mac
             runtime_arch: arm64
             runtime_platform: darwin
-          - os: macos-13
-            artifact: mac-x64
-            build_arch: x64
-            build_target: mac
-            runtime_arch: x64
-            runtime_platform: darwin
           - os: windows-latest
             artifact: win-x64
             build_arch: x64
@@ -104,6 +98,10 @@ jobs:
       - run: cd ametras_fast_import_client && bash scripts/download-python.sh ${{ matrix.runtime_platform }} ${{ matrix.runtime_arch }}
       - run: cd ametras_fast_import_client && npm run build
       - run: cd ametras_fast_import_client && npx electron-builder --${{ matrix.build_target }} --${{ matrix.build_arch }} --publish never
+        env:
+          # Without a paid Apple Developer ID certificate, force unsigned output.
+          # This avoids ad-hoc signing paths that can trigger stricter "damaged" errors.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - uses: actions/upload-artifact@v4
         with:
           name: ametras-fast-import-${{ matrix.artifact }}

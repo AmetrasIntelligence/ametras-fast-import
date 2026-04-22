@@ -75,7 +75,7 @@
     ],
     "mac": {
       "target": "dmg",
-      "artifactName": "Ametras_Fast_Import_MAC_v.${version}.${ext}"
+      "identity": null
     },
     "win": {
       "target": "nsis",
