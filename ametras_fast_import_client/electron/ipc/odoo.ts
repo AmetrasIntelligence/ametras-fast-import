@@ -49,15 +49,15 @@ function cleanupExpiredSessions(): void {
   const now = Date.now()
   const expiredKeys: string[] = []
 
-  for (const [key, session] of sessions) {
-    if (pinnedSessions.has(key)) continue
+  sessions.forEach((session, key) => {
+    if (pinnedSessions.has(key)) return
     const inactiveTime = now - session.lastActivity
     const sessionAge = now - session.createdAt
 
     if (inactiveTime > SESSION_TTL_MS || sessionAge > SESSION_MAX_AGE_MS) {
       expiredKeys.push(key)
     }
-  }
+  })
 
   for (const key of expiredKeys) {
     sessions.delete(key)
@@ -175,12 +175,12 @@ export function invalidateSession(baseUrl: string, db?: string): void {
     sessions.delete(key)
     pinnedSessions.delete(key)
   } else {
-    for (const [key, session] of sessions) {
+    sessions.forEach((session, key) => {
       if (session.baseUrl === baseUrl) {
         sessions.delete(key)
         pinnedSessions.delete(key)
       }
-    }
+    })
   }
 }
 
@@ -189,11 +189,11 @@ export function invalidateSession(baseUrl: string, db?: string): void {
  * Used by health checks to prevent session expiry during server outages.
  */
 function touchSessionsForBaseUrl(baseUrl: string): void {
-  for (const session of sessions.values()) {
+  sessions.forEach((session) => {
     if (session.baseUrl === baseUrl) {
       touchSession(session)
     }
-  }
+  })
 }
 
 // Fetch available databases from Odoo server
@@ -489,15 +489,15 @@ ipcMain.handle('odoo:pinSession', async (_event, payload: {
     return { ok: true }
   }
 
-  for (const [key, session] of sessions) {
-    if (session.baseUrl !== payload.baseUrl) continue
+  sessions.forEach((session, key) => {
+    if (session.baseUrl !== payload.baseUrl) return
     if (payload.pinned) {
       pinnedSessions.add(key)
     } else {
       pinnedSessions.delete(key)
     }
     touchSession(session)
-  }
+  })
 
   return { ok: true }
 })
