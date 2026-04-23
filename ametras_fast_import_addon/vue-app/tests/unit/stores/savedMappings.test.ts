@@ -48,18 +48,6 @@ describe('SavedMappingsStore', () => {
     })
   })
 
-  describe('deleteMapping', () => {
-    it('removes a mapping', async () => {
-      await loginFirst()
-      const store = useSavedMappingsStore()
-
-      const mapping = await store.addMapping('partners.csv', 'res.partner')
-      await store.deleteMapping(mapping.id)
-
-      expect(store.mappings).toHaveLength(0)
-    })
-  })
-
   describe('findSuggestion', () => {
     it('finds exact, glob, and no match', async () => {
       await loginFirst()
@@ -84,28 +72,13 @@ describe('SavedMappingsStore', () => {
     })
   })
 
-  describe('markUsed', () => {
-    it('updates lastUsedAt timestamp', async () => {
-      await loginFirst()
-      const store = useSavedMappingsStore()
-
-      const mapping = await store.addMapping('partners.csv', 'res.partner')
-      const originalTimestamp = mapping.lastUsedAt
-
-      await new Promise(r => setTimeout(r, 10))
-      await store.markUsed(mapping.id)
-
-      expect(store.mappings[0].lastUsedAt).toBeGreaterThanOrEqual(originalTimestamp)
-    })
-  })
-
   describe('load', () => {
     it('loads from per-server storage key when connected', async () => {
       await loginFirst()
       const session = useSessionStore()
 
       const stored = [
-        { id: '1', filenamePattern: 'test.csv', model: 'res.partner', lastUsedAt: 1000 }
+        { id: '1', filenamePattern: 'test.csv', model: 'res.partner' }
       ]
       mockApi.store.get.mockResolvedValue(stored)
 

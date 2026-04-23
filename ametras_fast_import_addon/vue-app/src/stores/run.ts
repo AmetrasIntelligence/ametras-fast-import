@@ -24,7 +24,7 @@ export interface RunProgress {
   files: Record<string, FileProgress>
 }
 
-export interface ImportError {
+export interface ImportRowError {
   filename: string
   rowNumber: number
   rawData: Record<string, string>
@@ -50,7 +50,7 @@ export const useRunStore = defineStore('run', () => {
     currentFileIndex: -1,
     files: {}
   })
-  const errors = ref<ImportError[]>([])
+  const errors = ref<ImportRowError[]>([])
   const runStartTime = ref<number | null>(null)
   const isHistoricalLog = ref(false)
 
@@ -157,22 +157,23 @@ export const useRunStore = defineStore('run', () => {
 
   function completeFile(filename: string) {
     const fileProgress = progress.value.files[filename]
-    if (fileProgress) {
-      fileProgress.endTime = Date.now()
-    }
+    if (!fileProgress) return
+    // Guard against double-complete (queued file_done + direct call)
+    if (fileProgress.endTime) return
+    fileProgress.endTime = Date.now()
     progress.value.completedFiles++
   }
 
   function skipFile(filename: string) {
     const fileProgress = progress.value.files[filename]
-    if (fileProgress) {
-      fileProgress.skipped = true
-      fileProgress.endTime = Date.now()
-    }
+    if (!fileProgress) return
+    if (fileProgress.endTime) return
+    fileProgress.skipped = true
+    fileProgress.endTime = Date.now()
     progress.value.completedFiles++
   }
 
-  function addError(error: ImportError) {
+  function addError(error: ImportRowError) {
     errors.value.push(error)
   }
 

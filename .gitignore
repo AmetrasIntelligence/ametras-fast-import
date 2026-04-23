@@ -305,3 +305,6 @@ coverage/
 ametras_fast_import_client/electron/ipc/*.js
 ametras_fast_import_client/electron/ipc/*.d.ts
 ametras_fast_import_client/electron/preload.js
+
+# Bundled Python runtimes (downloaded at build time via scripts/download-python.sh)
+ametras_fast_import_client/python-runtime/

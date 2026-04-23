@@ -6,7 +6,6 @@ export interface SavedMapping {
   id: string
   filenamePattern: string   // Simple glob: "customers.csv" or "*_partners.csv"
   model: string             // target Odoo model
-  lastUsedAt: number
 }
 
 export const useSavedMappingsStore = defineStore('savedMappings', () => {
@@ -37,7 +36,6 @@ export const useSavedMappingsStore = defineStore('savedMappings', () => {
     const existing = mappings.value.find(m => m.filenamePattern === filenamePattern)
     if (existing) {
       existing.model = model
-      existing.lastUsedAt = Date.now()
       await persist()
       return existing
     }
@@ -46,16 +44,10 @@ export const useSavedMappingsStore = defineStore('savedMappings', () => {
       id: crypto.randomUUID(),
       filenamePattern,
       model,
-      lastUsedAt: Date.now()
     }
     mappings.value.push(newMapping)
     await persist()
     return newMapping
-  }
-
-  async function deleteMapping(id: string) {
-    mappings.value = mappings.value.filter(m => m.id !== id)
-    await persist()
   }
 
   /**
@@ -81,20 +73,10 @@ export const useSavedMappingsStore = defineStore('savedMappings', () => {
     return null
   }
 
-  async function markUsed(id: string) {
-    const mapping = mappings.value.find(m => m.id === id)
-    if (mapping) {
-      mapping.lastUsedAt = Date.now()
-      await persist()
-    }
-  }
-
   return {
     mappings,
     load,
     addMapping,
-    deleteMapping,
     findSuggestion,
-    markUsed
   }
 })
