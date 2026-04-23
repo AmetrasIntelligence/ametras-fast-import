@@ -21,14 +21,15 @@ export const STANDALONE_DEFAULT_BATCH_SIZE = 50
 
 /**
  * Adaptive batch size controller.
- * Starts at maxSize and steps DOWN on failures or timeouts.
- * Error isolation for individual bad rows is handled by
- * executeWithAdaptiveRetry which splits failed batches.
+ * Starts at the middle level (typically 10 rows) as a tradeoff:
+ * - Not too small: only ~3 batches to ramp up to max on good data
+ * - Not too large: a failed batch of 10 triggers ~15 retry requests
+ *   vs ~114 for a failed batch of 100 (adaptive retry splits geometrically)
  *
- * Levels: [1, min(10, max), max] — starts at the top.
- * Decrease: after 3 consecutive failed batches, step down one level.
+ * Levels: [1, min(10, max), max] — starts at level 1 (middle).
+ * Increase: after 30 consecutive successful rows, step up one level.
+ * Decrease: after 3 consecutive concurrency failures, step down one level.
  * Timeout: immediately step down one level.
- * Recovery: after 30 consecutive successful rows, step back up one level.
  */
 export class BatchSizeAdapter {
   currentSize: number
@@ -44,7 +45,8 @@ export class BatchSizeAdapter {
     // Build levels: [1, min(10, max), max] deduplicated
     const raw = [1, Math.min(10, maxSize), maxSize]
     this.levels = [...new Set(raw)].sort((a, b) => a - b)
-    this.levelIndex = this.levels.length - 1
+    // Start at middle level — balances warmup cost vs failed-batch cost
+    this.levelIndex = Math.min(1, this.levels.length - 1)
     this.currentSize = this.levels[this.levelIndex]
   }
 
@@ -442,8 +444,29 @@ async function executeWithAdaptiveRetry(
   let rowsToRetry: ParsedRow[]
   const immediateFailResults: BatchResult[] = []
 
-  // Error-guided: if Odoo told us which rows are bad, skip them
-  if (result.errorRowIndices && result.errorRowIndices.size > 0 && result.errorRowIndices.size < rows.length) {
+  // All rows known-bad — no point splitting further
+  if (result.errorRowIndices && result.errorRowIndices.size >= rows.length) {
+    return result.results
+  }
+
+  // No per-row info and every result failed — systematic error, splitting won't help
+  if (!result.errorRowIndices && result.results.every(r => !r.ok)) {
+    return result.results
+  }
+
+  // Error-guided exclusion: when Odoo flags a meaningful number of
+  // specific rows as bad, exclude them and retry the rest.
+  // model.load() is transactional — the "good" rows were rolled back too
+  // and may succeed without the bad rows poisoning the batch.
+  //
+  // However, model.load() often only reports the FIRST error before
+  // rolling back. A single flagged row out of a large batch doesn't
+  // justify retrying N-1 rows — just split the whole batch instead.
+  // Threshold: at least 2 flagged rows AND >10% of the batch, so
+  // the exclusion actually removes a meaningful portion.
+  const minExcludeCount = Math.max(2, Math.ceil(rows.length * 0.1))
+  if (result.errorRowIndices && result.errorRowIndices.size >= minExcludeCount
+      && result.errorRowIndices.size < rows.length) {
     const goodRows: ParsedRow[] = []
     for (let i = 0; i < rows.length; i++) {
       if (result.errorRowIndices.has(i)) {
@@ -480,7 +503,10 @@ async function executeWithAdaptiveRetry(
       break
     }
 
-    await abortableDelay(RETRY_SPLIT_DELAY_MS, signal)
+    // Throttle between chunks (skip before the first one)
+    if (i > 0) {
+      await abortableDelay(RETRY_SPLIT_DELAY_MS, signal)
+    }
     const chunk = rowsToRetry.slice(i, i + nextChunkSize)
     const chunkResults = await executeWithAdaptiveRetry(
       baseUrl, db, model, header, chunk, mapping,
