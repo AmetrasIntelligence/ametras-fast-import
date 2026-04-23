@@ -62,7 +62,7 @@ async function advancePastFirstHealthCheck(): Promise<void> {
 const SIMPLE_CSV = 'id,name\nrow_1,Alice\nrow_2,Bob\nrow_3,Carol'
 
 function setupSingleFile(config: ReturnType<typeof useConfigStore>): void {
-  config.setSettings({ retryLimit: 2, retryDelayMs: 0, batchSize: 200, workers: 1 })
+  config.setSettings({ batchSize: 200, workers: 1 })
   config.setSequence(['file1.csv'])
   config.setFileMapping('file1.csv', {
     filename: 'file1.csv',
@@ -74,7 +74,7 @@ function setupSingleFile(config: ReturnType<typeof useConfigStore>): void {
 }
 
 function setupTwoFiles(config: ReturnType<typeof useConfigStore>): void {
-  config.setSettings({ retryLimit: 2, retryDelayMs: 0, batchSize: 200, workers: 1 })
+  config.setSettings({ batchSize: 200, workers: 1 })
   config.setSequence(['file1.csv', 'file2.csv'])
   config.setFileMapping('file1.csv', {
     filename: 'file1.csv',
@@ -271,145 +271,6 @@ describe('Engine Network Resilience', () => {
   // -----------------------------------------------------------------------
   // Test 4
   // -----------------------------------------------------------------------
-  describe('skip during retry reconnection wait (bug fix)', () => {
-    it('properly skips file when skipped during retry reconnection', async () => {
-      const config = useConfigStore()
-      const run = useRunStore()
-      setupTwoFiles(config)
-
-      // Two-phase approach to reliably populate the retry queue:
-      // Call 1: NetworkBatchError (initial batch) → PAUSED → health-check reconnect
-      // Call 2: partial failure (same batch retried after reconnect) → retry queue populated
-      // Call 3: NetworkBatchError (processRetries) → second PAUSED
-      // Skip file1 during second PAUSED
-      // Call 4: success (file2 batch)
-      let callCount = 0
-      mockExecuteBatch.mockImplementation(async (_model, rows) => {
-        callCount++
-        if (callCount === 1) {
-          throw new NetworkBatchError('Connection lost', rows)
-        }
-        if (callCount === 2) {
-          // Partial failure — first row fails, rest succeed
-          return rows.map((row, idx) => ({
-            ok: idx !== 0,
-            rowIndex: row.index,
-            ...(idx === 0 ? { error: 'Validation error' } : { createdId: idx }),
-          }))
-        }
-        if (callCount === 3) {
-          throw new NetworkBatchError('Connection lost during retry', rows)
-        }
-        return successResult(rows)
-      })
-
-      currentEngine = new ImportEngine()
-      const importPromise = currentEngine.start([
-        { id: 'f1', name: 'file1.csv' },
-        { id: 'f2', name: 'file2.csv' },
-      ])
-
-      // Wait for first PAUSED (initial batch network error)
-      await waitForCondition(() => run.state === ImportState.PAUSED)
-      expect(callCount).toBe(1)
-
-      // Reconnect: advance past health check
-      await advancePastFirstHealthCheck()
-
-      // Wait for second PAUSED (processRetries network error)
-      await waitForCondition(() => run.state === ImportState.PAUSED && callCount >= 3)
-
-      // Skip file1 while retries are waiting for reconnection
-      currentEngine.skipCurrentFile()
-
-      // Engine should continue to file2 and complete
-      await waitForCondition(() => run.state === ImportState.COMPLETED)
-      await importPromise
-
-      // file1 should be properly marked as skipped (not left in limbo)
-      expect(run.progress.files['file1.csv'].skipped).toBe(true)
-      expect(run.state).toBe(ImportState.COMPLETED)
-    })
-  })
-
-  // -----------------------------------------------------------------------
-  // Test 5
-  // -----------------------------------------------------------------------
-  describe('state normalization prevents stale RETRYING', () => {
-    it('file2 retries work after file1 retries skipped', async () => {
-      const config = useConfigStore()
-      const run = useRunStore()
-      setupTwoFiles(config)
-
-      // Two-phase approach (same as test 4) to reliably reach processRetries:
-      // Call 1: NetworkBatchError (file1 initial batch) → PAUSED → reconnect
-      // Call 2: partial failure (file1 batch retried) → retry queue populated
-      // Call 3: NetworkBatchError (file1 processRetries) → second PAUSED → skip
-      // Call 4: partial failure (file2 batch) → file2 retry queue populated
-      // Call 5: success (file2 processRetries)
-      let callCount = 0
-      mockExecuteBatch.mockImplementation(async (_model, rows) => {
-        callCount++
-        if (callCount === 1) {
-          throw new NetworkBatchError('Connection lost', rows)
-        }
-        if (callCount === 2) {
-          // file1 batch retried: first row fails
-          return rows.map((row, idx) => ({
-            ok: idx !== 0,
-            rowIndex: row.index,
-            ...(idx === 0 ? { error: 'Error A' } : { createdId: idx }),
-          }))
-        }
-        if (callCount === 3) {
-          // file1 retry: network error
-          throw new NetworkBatchError('Connection lost', rows)
-        }
-        if (callCount === 4) {
-          // file2 batch: first row fails
-          return rows.map((row, idx) => ({
-            ok: idx !== 0,
-            rowIndex: row.index,
-            ...(idx === 0 ? { error: 'Error B' } : { createdId: idx }),
-          }))
-        }
-        // Call 5+: file2 retry succeeds
-        return successResult(rows)
-      })
-
-      currentEngine = new ImportEngine()
-      const importPromise = currentEngine.start([
-        { id: 'f1', name: 'file1.csv' },
-        { id: 'f2', name: 'file2.csv' },
-      ])
-
-      // Wait for first PAUSED (file1 initial batch network error)
-      await waitForCondition(() => run.state === ImportState.PAUSED)
-
-      // Reconnect
-      await advancePastFirstHealthCheck()
-
-      // Wait for second PAUSED (file1 retry network error)
-      await waitForCondition(() => run.state === ImportState.PAUSED && callCount >= 3)
-
-      // Skip file1
-      currentEngine.skipCurrentFile()
-
-      // Engine should process file2 (including retries) and complete
-      await waitForCondition(() => run.state === ImportState.COMPLETED)
-      await importPromise
-
-      // callCount === 5 proves file2 retry ran (RUNNING_FILE → RETRYING transition succeeded)
-      expect(callCount).toBe(5)
-      expect(run.progress.files['file1.csv'].skipped).toBe(true)
-      expect(run.progress.files['file2.csv'].skipped).toBeUndefined()
-      expect(run.state).toBe(ImportState.COMPLETED)
-    })
-  })
-
-  // -----------------------------------------------------------------------
-  // Test 6
-  // -----------------------------------------------------------------------
   describe('transitional flag cleanup — skip', () => {
     it('flags are false after skip and completion', async () => {
       const config = useConfigStore()
@@ -487,7 +348,7 @@ describe('Engine Network Resilience', () => {
       const config = useConfigStore()
       const run = useRunStore()
 
-      config.setSettings({ retryLimit: 0, retryDelayMs: 0, batchSize: 1, workers: 3 })
+      config.setSettings({ batchSize: 1, workers: 3 })
       config.setSequence(['file1.csv'])
       config.setFileMapping('file1.csv', {
         filename: 'file1.csv',

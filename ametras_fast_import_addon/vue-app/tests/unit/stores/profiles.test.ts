@@ -47,7 +47,7 @@ describe('ProfilesStore', () => {
         mappings: [],
         sequence: [],
         runSettings: {
-          batchSize: 200, retryLimit: 3, retryDelayMs: 2000, stopOnFatalError: false,
+          batchSize: 200,
           encoding: 'utf-8-sig', delimiter: ',', skipHeader: true, dryRun: false, lang: 'de_DE'
         },
         createdAt: 1000,
@@ -73,7 +73,7 @@ describe('ProfilesStore', () => {
         mappings: [],
         sequence: [],
         runSettings: {
-          batchSize: 200, retryLimit: 3, retryDelayMs: 2000, stopOnFatalError: false,
+          batchSize: 200,
           encoding: 'utf-8-sig', delimiter: ',', skipHeader: true, dryRun: false, lang: 'de_DE'
         },
         createdAt: 1000,
@@ -89,7 +89,7 @@ describe('ProfilesStore', () => {
       store.cacheProfile({
         id: 1, name: 'Old', version: '1.0', mappings: [], sequence: [],
         runSettings: {
-          batchSize: 200, retryLimit: 3, retryDelayMs: 2000, stopOnFatalError: false,
+          batchSize: 200,
           encoding: 'utf-8-sig', delimiter: ',', skipHeader: true, dryRun: false, lang: 'de_DE'
         },
         createdAt: 1000, updatedAt: 1000
@@ -97,7 +97,7 @@ describe('ProfilesStore', () => {
       store.cacheProfile({
         id: 2, name: 'New', version: '1.0', mappings: [], sequence: [],
         runSettings: {
-          batchSize: 200, retryLimit: 3, retryDelayMs: 2000, stopOnFatalError: false,
+          batchSize: 200,
           encoding: 'utf-8-sig', delimiter: ',', skipHeader: true, dryRun: false, lang: 'de_DE'
         },
         createdAt: 2000, updatedAt: 3000
@@ -188,7 +188,7 @@ describe('ProfilesStore', () => {
       store.cacheProfile({
         id: 10, name: 'ToDelete', version: '1.0', mappings: [], sequence: [],
         runSettings: {
-          batchSize: 200, retryLimit: 3, retryDelayMs: 2000, stopOnFatalError: false,
+          batchSize: 200,
           encoding: 'utf-8-sig', delimiter: ',', skipHeader: true, dryRun: false, lang: 'de_DE'
         },
         createdAt: 1000, updatedAt: 2000

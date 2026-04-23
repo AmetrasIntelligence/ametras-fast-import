@@ -16,6 +16,7 @@ import { useSessionStore } from './stores/session'
 import { usePlatformStore } from './stores/platform'
 import { useRunStore } from './stores/run'
 import { executeBatch } from './importer/batchExecutor'
+import { BatchSizeAdapter } from './importer/batchSizeAdapter'
 import { installOdooEmbeddedApi } from './utils/odooEmbeddedApi'
 import './assets/bootstrap-compat.css'
 import './assets/main.css'
@@ -87,10 +88,10 @@ export function mountApp(el: HTMLElement, options: OdooMountOptions): () => void
           fieldMappings: options.fieldMappings,
           searchKeys: options.searchKeys,
           strict: options.strict,
-        }, context.dryRun),
+        }, context.dryRun, context.batchAdapter as BatchSizeAdapter | undefined),
       maxWorkers: 4,
       batchSizeRange: { min: 1, max: 1000 },
-      createBatchAdapter: null,
+      createBatchAdapter: (maxBatchSize: number) => new BatchSizeAdapter(maxBatchSize),
       capabilities: {
         dryRun: true,
         rowValidation: true,

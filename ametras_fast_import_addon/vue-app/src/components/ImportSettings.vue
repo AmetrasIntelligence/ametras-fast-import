@@ -28,13 +28,6 @@ const batchSizeError = computed(() => {
   return null
 })
 
-const retryLimitError = computed(() => {
-  const limit = config.settings.retryLimit
-  if (limit < 0) return t('settings.validation.retryLimitMin')
-  if (limit > 10) return t('settings.validation.retryLimitMax')
-  return null
-})
-
 const workersError = computed(() => {
   const workers = config.settings.workers
   if (workers < 1) return t('settings.validation.workersMin')
@@ -98,42 +91,6 @@ const encodingOptions = computed(() => [
         <small v-else-if="workerWarning" class="d-block text-warning mt-1">
           {{ workerWarning }}
         </small>
-      </div>
-      <div>
-        <label class="form-label small text-body-secondary mb-1">{{ $t('settings.retryLimit') }}</label>
-        <input
-          :value="config.settings.retryLimit"
-          type="number"
-          min="0"
-          max="10"
-          class="form-control form-control-sm"
-          :class="{ 'is-invalid': retryLimitError }"
-          @input="{ const v = parseInt(($event.target as HTMLInputElement).value); if (!isNaN(v)) config.setSettings({ retryLimit: v }) }"
-        />
-        <div v-if="retryLimitError" class="invalid-feedback">
-          {{ retryLimitError }}
-        </div>
-      </div>
-      <div>
-        <label class="form-label small text-body-secondary mb-1">{{ $t('settings.retryDelayMs') }}</label>
-        <input
-          :value="config.settings.retryDelayMs"
-          type="number"
-          min="100"
-          step="100"
-          class="form-control form-control-sm"
-          @input="{ const v = parseInt(($event.target as HTMLInputElement).value); if (!isNaN(v)) config.setSettings({ retryDelayMs: v }) }"
-        />
-      </div>
-      <div class="d-flex align-items-center gap-2 pt-4">
-        <input
-          id="stopOnError"
-          :checked="config.settings.stopOnFatalError"
-          type="checkbox"
-          class="form-check-input"
-          @change="config.setSettings({ stopOnFatalError: ($event.target as HTMLInputElement).checked })"
-        />
-        <label for="stopOnError" class="form-check-label small">{{ $t('settings.stopOnFatalError') }}</label>
       </div>
     </div>
 

@@ -2,7 +2,6 @@ import { ImportStateMachine, ImportState } from './stateMachine'
 import { parseCSVBatched, analyzeCSV, extractRowsByIndex, type ParseOptions } from './csvParser'
 import { NetworkBatchError, AuthBatchError, TimeoutBatchError, detectIdColumn, type BatchResult } from './batchExecutor'
 import { ConnectionMonitor, type HealthCheckFn } from './connectionMonitor'
-import { RetryQueue } from './retryQueue'
 import { WorkerPool, type Batch, type BatchProcessResult, calculateThroughput } from './workerPool'
 import { useConfigStore } from '@/stores/config'
 import { useRunStore } from '@/stores/run'
@@ -97,7 +96,6 @@ function failedIndicesFromErrorLog(
 
 export class ImportEngine {
   private stateMachine = new ImportStateMachine()
-  private retryQueue: RetryQueue
   private workerPool: WorkerPool | null = null
   private abortController: AbortController | null = null
   private skipFileController: AbortController | null = null
@@ -120,10 +118,7 @@ export class ImportEngine {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private processedIndices = new Map<string, Set<number>>()
 
-  constructor() {
-    const config = useConfigStore()
-    this.retryQueue = new RetryQueue(config.settings.retryLimit)
-  }
+  constructor() {}
 
   async start(files: ImportFile[], resumeState?: ResumeState): Promise<void> {
     const config = useConfigStore()
@@ -390,7 +385,6 @@ export class ImportEngine {
 
     run.startFile(file.name)
     run.isInitiating = true
-    this.retryQueue.clear()
     this.fileStartTime = Date.now()
     this.fileProcessedRows = 0
 
@@ -485,28 +479,6 @@ export class ImportEngine {
     if (this.skipFileController?.signal.aborted) {
       await this.workerPool?.drain()
       this.workerPool = null
-      throw new Error('File skipped')
-    }
-
-    // Final retry pass (ALWAYS serialized with workers=1)
-    if (!this.abortController?.signal.aborted && !this.skipFileController?.signal.aborted) {
-      await this.processRetries(file.name, mapping, settings)
-    }
-
-    // processRetries may exit early (skip/abort during reconnection wait or
-    // delay) leaving state at RETRYING.  Normalize back to RUNNING_FILE so
-    // the next file's processRetries transition (RUNNING_FILE → RETRYING)
-    // doesn't fail due to an invalid RETRYING → RETRYING self-transition.
-    if (!this.abortController?.signal.aborted && this.stateMachine.state !== ImportState.RUNNING_FILE) {
-      if (this.stateMachine.tryTransition(ImportState.RUNNING_FILE)) {
-        run.setState(ImportState.RUNNING_FILE)
-      }
-    }
-
-    // If file was skipped during retries (e.g. while waiting for reconnection),
-    // processRetries returns normally without throwing, so the catch block in
-    // start() won't trigger skipFile(). Throw here so it gets handled properly.
-    if (this.skipFileController?.signal.aborted) {
       throw new Error('File skipped')
     }
 
@@ -626,13 +598,11 @@ export class ImportEngine {
               rowIndex: row.index,
             }))
           }
-          const delay = timeoutRetryCount === 1 ? 5_000 : 15_000
           logger.import.warn(
             `[engine] Timeout (attempt ${timeoutRetryCount}/${MAX_TIMEOUT_RETRIES}), ` +
-            `retrying in ${delay / 1000}s...`
+            `retrying immediately (adapter stepped down batch size)...`
           )
-          await this.delay(delay)
-          continue // retry loop — adapter stepped down batch size on timeout
+          continue // retry loop — adapter already stepped down batch size
         }
 
         if (
@@ -757,10 +727,6 @@ export class ImportEngine {
         }
       })
 
-      if (failedCount > 0 && result.rows) {
-        this.retryQueue.addFailedRows(result.rows, batch)
-      }
-
       // Track processed row indices for log lifecycle
       if (!this.processedIndices.has(filename)) {
         this.processedIndices.set(filename, new Set())
@@ -783,198 +749,6 @@ export class ImportEngine {
         })
       }
     })
-  }
-
-  /**
-   * Process retries - ALWAYS serialized with single worker.
-   * This is critical for avoiding race conditions and DDOS-ing the server.
-   */
-  private async processRetries(
-    filename: string,
-    mapping: FileMapping,
-    settings: { dryRun?: boolean; retryDelayMs: number },
-  ): Promise<void> {
-    if (this.abortController?.signal.aborted) return
-
-    const run = useRunStore()
-    const platform = usePlatformStore()
-
-    const retryable = this.retryQueue.getRetryableRows()
-    if (retryable.length === 0) return
-
-    // Use tryTransition to avoid errors if state was reset due to abort
-    if (!this.stateMachine.tryTransition(ImportState.RETRYING)) {
-      return
-    }
-    run.setState(ImportState.RETRYING)
-
-    await this.delay(settings.retryDelayMs)
-
-    if (this.abortController?.signal.aborted) return
-    if (this.skipFileController?.signal.aborted) return
-
-    // Process retries in single batches (serialized, workers=1)
-    // Wrapped with network error handling — same pattern as executeBatchWithMapping()
-    const rows = retryable.map(r => r.row)
-
-    const MAX_AUTH_RETRIES = 2
-    let authRetryCount = 0
-    const MAX_NETWORK_RETRIES = 3
-    let networkRetryCount = 0
-    const MAX_TIMEOUT_RETRIES = 2
-    let timeoutRetryCount = 0
-
-    let results: BatchResult[]
-    while (true) {
-      // Check if file was skipped before retrying
-      if (this.skipFileController?.signal.aborted) return
-      try {
-        results = await platform.executeBatch(
-          mapping.model,
-          rows,
-          {
-            fieldMappings: mapping.fieldMappings,
-            searchKeys: mapping.searchKeys,
-            strict: mapping.strict,
-          },
-          {
-            dryRun: settings.dryRun,
-            signal: this.fileOrRunSignal(),
-            batchAdapter: this.batchSizeAdapter,
-          }
-        )
-        this.connectionMonitor?.reportOnline()
-        break
-      } catch (error) {
-        if (this.skipFileController?.signal.aborted) return
-        if (this.abortController?.signal.aborted) return
-        // Auth error — pause and retry (re-auth may succeed after cooldown)
-        if (error instanceof AuthBatchError) {
-          authRetryCount++
-          if (authRetryCount > MAX_AUTH_RETRIES) {
-            logger.import.error('[engine] Authentication failed during retries — stopping import.')
-            this.abort()
-            return
-          }
-          logger.import.warn(
-            `[engine] Auth error during retries (attempt ${authRetryCount}/${MAX_AUTH_RETRIES}): ${error.message}. Pausing for reconnection...`
-          )
-          // Fall through to shared reconnection logic below
-        }
-
-        // Timeout error — server is slow, not down.
-        // Retry with backoff (adapter already reduced batch size).
-        if (error instanceof TimeoutBatchError) {
-          const hasIdempotencyKey = !!(
-            mapping.searchKeys?.length ||
-            detectIdColumn(mapping.fieldMappings)
-          )
-          if (!hasIdempotencyKey) {
-            logger.import.warn(
-              '[engine] Timeout during retries without idempotency key — failing batch to avoid duplicates'
-            )
-            return
-          }
-
-          timeoutRetryCount++
-          if (timeoutRetryCount > MAX_TIMEOUT_RETRIES) {
-            logger.import.warn(`[engine] Retries timed out after ${MAX_TIMEOUT_RETRIES} retries — giving up`)
-            return
-          }
-          const delay = timeoutRetryCount === 1 ? 5_000 : 15_000
-          logger.import.warn(
-            `[engine] Timeout during retries (attempt ${timeoutRetryCount}/${MAX_TIMEOUT_RETRIES}), ` +
-            `retrying in ${delay / 1000}s...`
-          )
-          await this.delay(delay)
-          continue // retry loop — adapter stepped down batch size on timeout
-        }
-
-        if (
-          !(error instanceof NetworkBatchError) &&
-          !(error instanceof AuthBatchError)
-        ) {
-          throw error
-        }
-
-        // Network/auth error during retries — pause and wait for reconnection
-        networkRetryCount++
-        if (networkRetryCount > MAX_NETWORK_RETRIES) {
-          logger.import.warn(`[engine] Retries failed after ${MAX_NETWORK_RETRIES} network retries — giving up`)
-          return
-        }
-        logger.import.warn(`[engine] Retryable error during retries: ${error.message}. Pausing for reconnection...`)
-
-        const run = useRunStore()
-        this.connectionMonitor?.reportOffline()
-        run.connectionStatus = 'offline'
-
-        const wasRetrying = this.stateMachine.state === ImportState.RETRYING
-        if (wasRetrying && this.stateMachine.canPause) {
-          this.stateMachine.transition(ImportState.PAUSED)
-          run.setState(ImportState.PAUSED)
-        }
-
-        try {
-          await this.connectionMonitor!.waitForConnection(this.fileOrRunSignal())
-        } catch {
-          // Restore state from PAUSED if skip/abort cancelled the wait
-          if (wasRetrying && this.stateMachine.state === ImportState.PAUSED) {
-            this.stateMachine.transition(ImportState.RETRYING)
-            run.setState(ImportState.RETRYING)
-          }
-          run.connectionStatus = 'online'
-          this.connectionMonitor?.reportOnline()
-          return
-        }
-
-        // Reconnected — restore state and retry
-        run.connectionStatus = 'online'
-        if (wasRetrying) {
-          if (this.stateMachine.state === ImportState.PAUSED) {
-            this.stateMachine.transition(ImportState.RETRYING)
-            run.setState(ImportState.RETRYING)
-          }
-        }
-        logger.import.info('[engine] Reconnected during retries. Retrying batch...')
-        // Loop continues
-      }
-    }
-
-    if (this.abortController?.signal.aborted) return
-
-    let successCount = 0
-    const succeededRowIndices = new Set<number>()
-
-    results.forEach((result, idx) => {
-      if (result.ok) {
-        this.retryQueue.markSuccess(rows[idx].index)
-        succeededRowIndices.add(rows[idx].index)
-        successCount++
-      }
-    })
-
-    // Update success count from retries and remove resolved errors
-    const currentFile = run.currentFile
-    if (currentFile && successCount > 0) {
-      run.updateFileProgress(filename, {
-        successCount: currentFile.successCount + successCount,
-        failedCount: currentFile.failedCount - successCount
-      })
-      // Remove errors for rows that succeeded on retry so the error table
-      // stays consistent with the progress counts
-      run.errors.splice(
-        0, run.errors.length,
-        ...run.errors.filter(e => e.filename !== filename || !succeededRowIndices.has(e.rowNumber))
-      )
-    }
-
-    // Restore to RUNNING_FILE state after retries
-    if (!this.abortController?.signal.aborted) {
-      if (this.stateMachine.tryTransition(ImportState.RUNNING_FILE)) {
-        run.setState(ImportState.RUNNING_FILE)
-      }
-    }
   }
 
   pause(): void {
@@ -1255,13 +1029,11 @@ export class ImportEngine {
                 }))
                 break
               }
-              const delay = timeoutRetryCount === 1 ? 5_000 : 15_000
               logger.import.warn(
                 `[retry] Timeout (attempt ${timeoutRetryCount}/${MAX_TIMEOUT_RETRIES}), ` +
-                `retrying in ${delay / 1000}s...`
+                `retrying immediately (adapter stepped down batch size)...`
               )
-              await this.delay(delay)
-              continue // retry loop — adapter stepped down batch size on timeout
+              continue // retry loop — adapter already stepped down batch size
             }
 
             if (
@@ -1482,24 +1254,6 @@ export class ImportEngine {
     }
   }
 
-  private delay(ms: number): Promise<void> {
-    return new Promise((resolve) => {
-      const signal = this.fileOrRunSignal()
-      if (signal?.aborted) {
-        resolve()
-        return
-      }
-
-      const timeout = setTimeout(resolve, ms)
-
-      // Clean up if aborted or file skipped during delay
-      signal?.addEventListener('abort', () => {
-        clearTimeout(timeout)
-        resolve()
-      }, { once: true })
-    })
-  }
-
   /**
    * Create a health check function appropriate for the current import mode.
    * - Embedded mode: uses the default same-origin fetch to /ametras_fast_import/info
@@ -1644,7 +1398,4 @@ export class ImportEngine {
     return this.workerPool?.activeWorkerCount ?? 0
   }
 
-  getFailedRowsCSV(headers: string[]): string {
-    return this.retryQueue.exportFailedCSV(headers)
-  }
 }

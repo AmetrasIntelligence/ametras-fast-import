@@ -127,9 +127,6 @@
     "title": "Importeinstellungen",
     "batchSize": "Stapelgröße",
     "workers": "Parallele Prozesse",
-    "retryLimit": "Wiederholungslimit",
-    "retryDelayMs": "Wiederholungsverzögerung (ms)",
-    "stopOnFatalError": "Bei schwerwiegendem Fehler stoppen",
     "encoding": "Kodierung",
     "delimiter": "Trennzeichen",
     "skipHeader": "Kopfzeile überspringen",
@@ -139,9 +136,7 @@
     "summary": {
       "batch": "Stapel",
       "workers": "Prozesse",
-      "retries": "Wiederholungen",
       "encoding": "Kodierung",
-      "stopOnError": "Bei Fehler stoppen",
       "dryRun": "PROBELAUF"
     },
     "encoding_options": {
@@ -159,8 +154,6 @@
     "validation": {
       "batchSizeMin": "Stapelgröße muss mindestens 1 sein",
       "batchSizeMax": "Stapelgröße darf 1000 nicht überschreiten",
-      "retryLimitMin": "Wiederholungslimit muss mindestens 0 sein",
-      "retryLimitMax": "Wiederholungslimit darf 10 nicht überschreiten",
       "workersMin": "Prozesse muss mindestens 1 sein",
       "workersMax": "Maximale Prozessanzahl überschritten",
       "batchSizeStandaloneRange": "Standalone-Modus: 10-100"

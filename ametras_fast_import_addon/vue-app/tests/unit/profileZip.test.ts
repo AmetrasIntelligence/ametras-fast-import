@@ -104,7 +104,7 @@ describe('exportProfileToZip', () => {
       'profile.csv': 'key,value\nname,Roundtrip Test\nversion,2.0',
       'mappings.csv': 'filename,model\npartners.csv,res.partner\nproducts.csv,product.template',
       'sequence.csv': 'order,filename\n1,partners.csv\n2,products.csv',
-      'run_settings.csv': 'key,value\nbatchSize,300\nretryLimit,5'
+      'run_settings.csv': 'key,value\nbatchSize,300'
     }
 
     // Export to ZIP

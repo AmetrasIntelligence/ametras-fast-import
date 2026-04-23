@@ -1,6 +1,22 @@
 import { useSessionStore } from '@/stores/session'
 import type { ParsedRow } from './csvParser'
+import type { BatchSizeAdapter } from './batchSizeAdapter'
 import { transformRowData } from '@/utils/rowTransform'
+
+/**
+ * Dynamic request timeout for addon import calls.
+ * Formula: clamp(BASE + PER_ROW * rowCount, MIN, MAX)
+ * Addon processes rows individually with savepoints (lighter per row than standalone).
+ */
+const IMPORT_TIMEOUT_BASE_MS = 10_000   // 10s base (network round-trip + ORM setup)
+const IMPORT_TIMEOUT_PER_ROW_MS = 300   // 300ms per row (savepoint-based, lighter)
+const IMPORT_TIMEOUT_MIN_MS = 15_000    // 15s floor (protects slow individual rows)
+const IMPORT_TIMEOUT_MAX_MS = 120_000   // 120s cap (prevents unbounded waits)
+
+function computeImportTimeout(rowCount: number): number {
+  const raw = IMPORT_TIMEOUT_BASE_MS + IMPORT_TIMEOUT_PER_ROW_MS * rowCount
+  return Math.max(IMPORT_TIMEOUT_MIN_MS, Math.min(IMPORT_TIMEOUT_MAX_MS, raw))
+}
 
 /**
  * Error thrown when a batch fails due to a network/transient issue.
@@ -88,11 +104,14 @@ export interface MappingConfig {
   strict?: boolean
 }
 
-export async function executeBatch(
+/**
+ * Send a single sub-batch to the addon endpoint.
+ */
+async function executeSubBatch(
   model: string,
   rows: ParsedRow[],
   mapping: MappingConfig,
-  dryRun?: boolean
+  dryRun: boolean,
 ): Promise<BatchResult[]> {
   const session = useSessionStore()
   if (!session.baseUrl) throw new Error('Not connected')
@@ -126,7 +145,8 @@ export async function executeBatch(
       search_keys: mapping.searchKeys || null,
       dry_run: dryRun || false,
       strict: mapping.strict || false
-    }
+    },
+    timeout: computeImportTimeout(rows.length)
   })
 
   if (!response.ok || !response.result) {
@@ -158,5 +178,45 @@ export async function executeBatch(
     createdId: r.id,
     externalId: r.external_id
   }))
+}
+
+/**
+ * Execute a batch of rows via the addon endpoint.
+ * When a BatchSizeAdapter is provided, splits into sub-batches and
+ * adapts the size on timeout (step-down) or success (step-up).
+ */
+export async function executeBatch(
+  model: string,
+  rows: ParsedRow[],
+  mapping: MappingConfig,
+  dryRun?: boolean,
+  adapter?: BatchSizeAdapter,
+): Promise<BatchResult[]> {
+  if (!adapter) {
+    return executeSubBatch(model, rows, mapping, dryRun || false)
+  }
+
+  const allResults: BatchResult[] = []
+  let offset = 0
+
+  while (offset < rows.length) {
+    const chunkSize = adapter.currentSize
+    const chunk = rows.slice(offset, offset + chunkSize)
+
+    try {
+      const results = await executeSubBatch(model, chunk, mapping, dryRun || false)
+      adapter.recordSuccess(chunk.length)
+      allResults.push(...results)
+    } catch (err) {
+      if (err instanceof TimeoutBatchError) {
+        adapter.recordTimeout()
+      }
+      throw err
+    }
+
+    offset += chunk.length
+  }
+
+  return allResults
 }
 

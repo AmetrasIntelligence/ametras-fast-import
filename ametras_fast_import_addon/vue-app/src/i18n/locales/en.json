@@ -127,9 +127,6 @@
     "title": "Import Settings",
     "batchSize": "Batch Size",
     "workers": "Workers",
-    "retryLimit": "Retry Limit",
-    "retryDelayMs": "Retry Delay (ms)",
-    "stopOnFatalError": "Stop on fatal error",
     "encoding": "Encoding",
     "delimiter": "Delimiter",
     "skipHeader": "Skip header row",
@@ -139,9 +136,7 @@
     "summary": {
       "batch": "Batch",
       "workers": "Workers",
-      "retries": "Retries",
       "encoding": "Encoding",
-      "stopOnError": "Stop on error",
       "dryRun": "DRY RUN"
     },
     "encoding_options": {
@@ -159,8 +154,6 @@
     "validation": {
       "batchSizeMin": "Batch size must be at least 1",
       "batchSizeMax": "Batch size must not exceed 1000",
-      "retryLimitMin": "Retry limit must be at least 0",
-      "retryLimitMax": "Retry limit must not exceed 10",
       "workersMin": "Workers must be at least 1",
       "workersMax": "Exceeds maximum worker count",
       "batchSizeStandaloneRange": "Standalone mode: 10-100"

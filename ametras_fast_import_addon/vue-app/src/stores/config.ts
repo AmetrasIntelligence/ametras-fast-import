@@ -3,9 +3,6 @@ import { ref } from 'vue'
 
 export interface RunSettings {
   batchSize: number
-  retryLimit: number
-  retryDelayMs: number
-  stopOnFatalError: boolean
   encoding: 'utf-8' | 'utf-8-sig' | 'latin-1' | 'cp1252'
   delimiter: ',' | ';' | '\t' | ''
   skipHeader: boolean
@@ -13,8 +10,6 @@ export interface RunSettings {
   lang: string
   /** Number of parallel workers for batch processing (1-4). Default: 1 */
   workers: number
-  /** Strict mode: fail on unresolved references instead of skipping. Default: true */
-  strict: boolean
 }
 
 export interface FileMapping {
@@ -33,16 +28,12 @@ export interface FileMapping {
  */
 export const DEFAULT_RUN_SETTINGS: RunSettings = {
   batchSize: 200,
-  retryLimit: 3,
-  retryDelayMs: 500,
-  stopOnFatalError: false,
   encoding: 'utf-8-sig',
   delimiter: ',',
   skipHeader: true,
   dryRun: false,
   lang: 'de_DE',
-  workers: 3,
-  strict: true
+  workers: 3
 }
 
 export const useConfigStore = defineStore('config', () => {

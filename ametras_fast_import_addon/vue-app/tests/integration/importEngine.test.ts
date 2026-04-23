@@ -109,7 +109,7 @@ describe('ImportEngine Integration', () => {
     it('records errors for failed rows', async () => {
       const config = useConfigStore()
       const run = useRunStore()
-      config.setSettings({ retryLimit: 0, retryDelayMs: 0 })
+      config.setSettings({})
 
       config.setSequence(['partners.csv'])
       config.setFileMapping('partners.csv', {
@@ -135,7 +135,7 @@ describe('ImportEngine Integration', () => {
     it('handles partial failures and records errors', async () => {
       const config = useConfigStore()
       const run = useRunStore()
-      config.setSettings({ retryLimit: 0, retryDelayMs: 0 }) // Disable retries for simpler test
+      config.setSettings({}) // Disable retries for simpler test
 
       config.setSequence(['partners.csv'])
       config.setFileMapping('partners.csv', {
@@ -296,33 +296,6 @@ describe('ImportEngine Integration', () => {
 
       currentEngine = new ImportEngine()
       await currentEngine!.start([{ id: 'file-1', name: 'partners.csv' }])
-    })
-  })
-
-  describe('no retry configuration', () => {
-    it('does not retry when retryLimit is 0', async () => {
-      const config = useConfigStore()
-      config.setSettings({ retryLimit: 0 })
-
-      config.setSequence(['partners.csv'])
-      config.setFileMapping('partners.csv', {
-        filename: 'partners.csv',
-        model: 'res.partner',
-        idColumn: null,
-        fieldMappings: { name: 'name' }
-      })
-
-      mockExecuteBatch.mockResolvedValue([
-        { ok: true, rowIndex: 0, createdId: 1 },
-        { ok: false, rowIndex: 1, error: 'Validation error: email required' },
-        { ok: true, rowIndex: 2, createdId: 3 }
-      ])
-
-      currentEngine = new ImportEngine()
-      await currentEngine!.start([{ id: 'file-1', name: 'partners.csv' }])
-
-      // Should only be called once (no retries)
-      expect(mockExecuteBatch).toHaveBeenCalledTimes(1)
     })
   })
 

@@ -1048,6 +1048,7 @@ async function updateExistingProfile() {
               :field-mappings="config.getFileMapping(file.name)?.fieldMappings || {}"
               :fields="getFieldsForFile(file.name)"
               :strict="config.getFileMapping(file.name)?.strict ?? true"
+              :hide-strict="!platform.capabilities.searchKeys"
               :get-field-lookup="() => getFieldLookup(file.name)"
               @update:field-mapping="(header: string, field: string) => updateFieldMappingForFile(file.name, header, field)"
               @update:transform="(header: string, transform: any) => updateTransformForFile(file.name, header, transform)"

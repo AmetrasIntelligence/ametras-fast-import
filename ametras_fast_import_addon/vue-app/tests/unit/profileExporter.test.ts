@@ -26,9 +26,6 @@ function makeProfile(overrides: Partial<ImportProfile> = {}): ImportProfile {
     ],
     runSettings: {
       batchSize: 200,
-      retryLimit: 3,
-      retryDelayMs: 2000,
-      stopOnFatalError: false,
       encoding: 'utf-8-sig',
       delimiter: ',',
       skipHeader: true,
@@ -75,7 +72,7 @@ describe('applyOverrides', () => {
     expect(merged.runSettings.batchSize).toBe(500)
     expect(merged.runSettings.dryRun).toBe(true)
     // Non-overridden settings preserved
-    expect(merged.runSettings.retryLimit).toBe(3)
+    expect(merged.runSettings.encoding).toBe('utf-8-sig')
   })
 
   it('applies mapping overrides', () => {
@@ -129,9 +126,6 @@ describe('CSV generators', () => {
   it('generateRunSettingsCSV produces valid CSV', () => {
     const csv = generateRunSettingsCSV({
       batchSize: 100,
-      retryLimit: 2,
-      retryDelayMs: 1000,
-      stopOnFatalError: true,
       encoding: 'utf-8',
       delimiter: ';',
       skipHeader: false,

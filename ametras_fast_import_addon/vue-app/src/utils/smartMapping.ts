@@ -136,8 +136,21 @@ function scoreMatch(filename: string, model: OdooModel, headers?: string[]): num
     score = Math.max(score, 90)
   }
 
-  // --- Layer C: Technical part exact match with length penalty → 80 minus penalty ---
+  // --- Layer B2: Filename starts with technical model name → 85 ---
+  // Handles product_template_cost.csv → product.template (prefix match).
+  // The leading words of the filename that align with the full technical
+  // name are the strongest signal — users typically name files as
+  // "<model>_<qualifier>.csv".
+  const nameWords = name.split(/\s+/)
   const techParts = model.model.toLowerCase().split('.')
+  if (nameWords.length > techParts.length) {
+    const prefix = nameWords.slice(0, techParts.length)
+    if (prefix.every((w, i) => depluralize(w) === depluralize(techParts[i]))) {
+      score = Math.max(score, 85)
+    }
+  }
+
+  // --- Layer C: Technical part exact match with length penalty → 80 minus penalty ---
   if (techParts.some(p => p === name)) {
     const partScore = 80 - 10 * (techParts.length - 1)
     score = Math.max(score, partScore)
@@ -156,12 +169,12 @@ function scoreMatch(filename: string, model: OdooModel, headers?: string[]): num
   }
 
   // --- Layer E: Word-level matching with depluralization, ignoring common prefixes ---
-  const nameWords = name.split(/\s+/).filter(w => w.length >= 3)
+  const nameWordsFiltered = nameWords.filter(w => w.length >= 3)
   const technicalName = model.model.toLowerCase().replace(/\./g, ' ')
   const modelWords = [...new Set([...modelName.split(/\s+/), ...technicalName.split(/\s+/)])]
     .filter(w => !COMMON_PREFIXES.has(w))
 
-  for (const nw of nameWords) {
+  for (const nw of nameWordsFiltered) {
     const nwDeplural = depluralize(nw)
     if (COMMON_PREFIXES.has(nwDeplural)) continue
 

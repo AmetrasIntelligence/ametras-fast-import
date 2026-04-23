@@ -343,6 +343,7 @@ ipcMain.handle('odoo:call', async (_event, payload: {
   db?: string
   endpoint: string
   params: Record<string, unknown>
+  timeout?: number
 }) => {
   const urlCheck = validateBaseUrl(payload.baseUrl)
   if (!urlCheck.valid) {
@@ -374,7 +375,7 @@ ipcMain.handle('odoo:call', async (_event, payload: {
         params,
         id: Date.now()
       }),
-      signal: AbortSignal.timeout(RPC_TIMEOUT_MS)
+      signal: AbortSignal.timeout(payload.timeout ?? RPC_TIMEOUT_MS)
     })
 
     // Check HTTP-level errors before parsing JSON

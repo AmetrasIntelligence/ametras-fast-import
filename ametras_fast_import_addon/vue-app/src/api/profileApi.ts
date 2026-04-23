@@ -70,16 +70,12 @@ function toImportProfile(data: ProfileFullData): ImportProfile {
     sequence: data.sequence || [],
     runSettings: {
       batchSize: parseInt(runSettings.batchSize as string, 10) || DEFAULT_RUN_SETTINGS.batchSize,
-      retryLimit: parseInt(runSettings.retryLimit as string, 10) || DEFAULT_RUN_SETTINGS.retryLimit,
-      retryDelayMs: parseInt(runSettings.retryDelayMs as string, 10) || DEFAULT_RUN_SETTINGS.retryDelayMs,
-      stopOnFatalError: runSettings.stopOnFatalError === 'true',
       encoding: (runSettings.encoding as RunSettings['encoding']) || DEFAULT_RUN_SETTINGS.encoding,
       delimiter: (runSettings.delimiter as RunSettings['delimiter']) || DEFAULT_RUN_SETTINGS.delimiter,
       skipHeader: runSettings.skipHeader !== 'false',
       dryRun: runSettings.dryRun === 'true',
       lang: (runSettings.lang as string) || DEFAULT_RUN_SETTINGS.lang,
-      workers: DEFAULT_RUN_SETTINGS.workers,
-      strict: runSettings.strict !== 'false'
+      workers: DEFAULT_RUN_SETTINGS.workers
     },
     fieldMappings: data.field_mappings?.filter(
       (fm): fm is BackendFieldMapping & { csvColumn: string } =>
@@ -232,15 +228,11 @@ function toBackendFieldMappings(fieldMappings?: FieldMapping[]): BackendFieldMap
 function toBackendRunSettings(runSettings: Partial<RunSettings>): Record<string, string> {
   const result: Record<string, string> = {}
   if (runSettings.batchSize !== undefined) result.batchSize = String(runSettings.batchSize)
-  if (runSettings.retryLimit !== undefined) result.retryLimit = String(runSettings.retryLimit)
-  if (runSettings.retryDelayMs !== undefined) result.retryDelayMs = String(runSettings.retryDelayMs)
-  if (runSettings.stopOnFatalError !== undefined) result.stopOnFatalError = String(runSettings.stopOnFatalError)
   if (runSettings.encoding !== undefined) result.encoding = runSettings.encoding
   if (runSettings.delimiter !== undefined) result.delimiter = runSettings.delimiter
   if (runSettings.skipHeader !== undefined) result.skipHeader = String(runSettings.skipHeader)
   if (runSettings.dryRun !== undefined) result.dryRun = String(runSettings.dryRun)
   if (runSettings.lang !== undefined) result.lang = runSettings.lang
-  if (runSettings.strict !== undefined) result.strict = String(runSettings.strict)
   // Note: 'workers' is intentionally omitted - runtime-only, not stored in profiles
   return result
 }

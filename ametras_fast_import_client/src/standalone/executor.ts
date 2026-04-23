@@ -12,6 +12,7 @@ import { useSessionStore } from '@/stores/session'
 import type { ParsedRow } from '@/importer/csvParser'
 import type { BatchResult, MappingConfig } from '@/importer/batchExecutor'
 import { detectIdColumn, NetworkBatchError, AuthBatchError, TimeoutBatchError } from '@/importer/batchExecutor'
+import { BatchSizeAdapter } from '@/importer/batchSizeAdapter'
 import { logger } from '@/utils/logger'
 
 // Batch size constraints for standalone mode
@@ -19,70 +20,8 @@ export const STANDALONE_MIN_BATCH_SIZE = 10
 export const STANDALONE_MAX_BATCH_SIZE = 100
 export const STANDALONE_DEFAULT_BATCH_SIZE = 50
 
-/**
- * Adaptive batch size controller.
- * Starts at the middle level (typically 10 rows) as a tradeoff:
- * - Not too small: only ~3 batches to ramp up to max on good data
- * - Not too large: a failed batch of 10 triggers ~15 retry requests
- *   vs ~114 for a failed batch of 100 (adaptive retry splits geometrically)
- *
- * Levels: [1, min(10, max), max] — starts at level 1 (middle).
- * Increase: after 30 consecutive successful rows, step up one level.
- * Decrease: after 3 consecutive concurrency failures, step down one level.
- * Timeout: immediately step down one level.
- */
-export class BatchSizeAdapter {
-  currentSize: number
-  private levels: number[]
-  private levelIndex: number
-  private successfulRows: number = 0
-  private consecutiveFailures: number = 0
-
-  static readonly SUCCESS_THRESHOLD = 30
-  static readonly FAILURE_THRESHOLD = 3
-
-  constructor(maxSize: number = STANDALONE_MAX_BATCH_SIZE) {
-    // Build levels: [1, min(10, max), max] deduplicated
-    const raw = [1, Math.min(10, maxSize), maxSize]
-    this.levels = [...new Set(raw)].sort((a, b) => a - b)
-    // Start at middle level — balances warmup cost vs failed-batch cost
-    this.levelIndex = Math.min(1, this.levels.length - 1)
-    this.currentSize = this.levels[this.levelIndex]
-  }
-
-  /** Record successful rows and step back up after recovery from a step-down. */
-  recordSuccess(rowCount: number): void {
-    this.consecutiveFailures = 0
-    if (this.levelIndex >= this.levels.length - 1) return // already at max
-    this.successfulRows += rowCount
-    if (this.successfulRows >= BatchSizeAdapter.SUCCESS_THRESHOLD) {
-      this.levelIndex++
-      this.currentSize = this.levels[this.levelIndex]
-      this.successfulRows = 0
-    }
-  }
-
-  /** Record a batch failure and step down after enough consecutive failures. */
-  recordFailure(): void {
-    this.successfulRows = 0
-    this.consecutiveFailures++
-    if (this.consecutiveFailures >= BatchSizeAdapter.FAILURE_THRESHOLD && this.levelIndex > 0) {
-      this.levelIndex--
-      this.currentSize = this.levels[this.levelIndex]
-      this.consecutiveFailures = 0
-    }
-  }
-
-  /** Immediately step down one level — used for timeouts where the batch is clearly too large. */
-  recordTimeout(): void {
-    this.successfulRows = 0
-    this.consecutiveFailures = 0
-    if (this.levelIndex > 0) {
-      this.levelIndex--
-      this.currentSize = this.levels[this.levelIndex]
-    }
-  }
-}
+// Re-export for backward compatibility
+export { BatchSizeAdapter } from '@/importer/batchSizeAdapter'
 
 // Concurrency retry settings
 export const CONCURRENCY_MAX_RETRIES = 3
@@ -387,6 +326,7 @@ async function executeWithAdaptiveRetry(
 
   // Try the batch — with concurrency retry (backoff + jitter) before falling through to splitting
   let result: Awaited<ReturnType<typeof executeLoadBatch>>
+  let isConcurrencyFallthrough = false
   for (let attempt = 0; ; attempt++) {
     try {
       result = await executeLoadBatch(baseUrl, db, model, header, rows, mapping, signal)
@@ -410,6 +350,7 @@ async function executeWithAdaptiveRetry(
         logger.import.warn(
           `[standalone] Concurrency error persisted after ${CONCURRENCY_MAX_RETRIES} attempts, falling through to batch splitting`
         )
+        isConcurrencyFallthrough = true
         result = {
           ok: false,
           results: rows.map(row => ({ ok: false, error: err.message, rowIndex: row.index })),
@@ -449,8 +390,9 @@ async function executeWithAdaptiveRetry(
     return result.results
   }
 
-  // No per-row info and every result failed — systematic error, splitting won't help
-  if (!result.errorRowIndices && result.results.every(r => !r.ok)) {
+  // No per-row info and every result failed — systematic error, splitting won't help.
+  // Exception: concurrency errors are transient — smaller batches may succeed.
+  if (!isConcurrencyFallthrough && !result.errorRowIndices && result.results.every(r => !r.ok)) {
     return result.results
   }
 
@@ -581,12 +523,16 @@ export async function executeStandaloneBatch(
       }
 
       // Update adapter based on server capacity, not data quality.
-      // Concurrency errors (deadlocks/lock contention) signal the server
-      // is struggling with the load → step down batch size.
+      // Concurrency errors (deadlocks/lock contention) → immediate step
+      // down, same as timeout. The batch size is causing too much lock
+      // pressure on the database right now.
       // Data errors (validation, constraints) are row-level issues that
       // don't reflect server capacity → don't affect batch sizing.
       if (hints.hadConcurrency) {
-        adapter.recordFailure()
+        adapter.recordTimeout()
+        logger.import.warn(
+          `[standalone] Concurrency — adapter stepped down to batch size ${adapter.currentSize}`
+        )
       } else {
         adapter.recordSuccess(chunk.length)
       }

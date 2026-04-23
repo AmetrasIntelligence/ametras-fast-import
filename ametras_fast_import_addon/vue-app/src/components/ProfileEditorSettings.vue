@@ -54,47 +54,6 @@ function updateSetting(key: string, value: unknown) {
         @input="{ const v = parseInt(($event.target as HTMLInputElement).value); if (!isNaN(v)) updateSetting('batchSize', v) }"
       />
     </div>
-    <div>
-      <label class="form-label small text-body-secondary mb-1">
-        {{ $t('settings.retryLimit') }}
-        <span v-if="isSettingOverridden('retryLimit')" class="csv-override-indicator">*</span>
-      </label>
-      <input
-        :value="effectiveRunSettings.retryLimit"
-        type="number"
-        min="0"
-        max="10"
-        class="form-control form-control-sm"
-        @input="{ const v = parseInt(($event.target as HTMLInputElement).value); if (!isNaN(v)) updateSetting('retryLimit', v) }"
-      />
-    </div>
-    <div>
-      <label class="form-label small text-body-secondary mb-1">
-        {{ $t('settings.retryDelayMs') }}
-        <span v-if="isSettingOverridden('retryDelayMs')" class="csv-override-indicator">*</span>
-      </label>
-      <input
-        :value="effectiveRunSettings.retryDelayMs"
-        type="number"
-        min="100"
-        step="100"
-        class="form-control form-control-sm"
-        @input="{ const v = parseInt(($event.target as HTMLInputElement).value); if (!isNaN(v)) updateSetting('retryDelayMs', v) }"
-      />
-    </div>
-    <div class="d-flex align-items-center gap-2 pt-4">
-      <input
-        id="pe-stopOnError"
-        :checked="effectiveRunSettings.stopOnFatalError"
-        type="checkbox"
-        class="form-check-input"
-        @change="updateSetting('stopOnFatalError', ($event.target as HTMLInputElement).checked)"
-      />
-      <label for="pe-stopOnError" class="form-check-label small">
-        {{ $t('settings.stopOnFatalError') }}
-        <span v-if="isSettingOverridden('stopOnFatalError')" class="csv-override-indicator">*</span>
-      </label>
-    </div>
   </div>
 
   <div class="row row-cols-1 row-cols-sm-2 g-3 mt-1">

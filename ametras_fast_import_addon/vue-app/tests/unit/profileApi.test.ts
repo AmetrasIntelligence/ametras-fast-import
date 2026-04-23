@@ -88,7 +88,7 @@ describe('profileApi', () => {
           updated_at: '2024-01-02T00:00:00',
           mappings: [{ filename: 'a.csv', model: 'res.partner' }],
           sequence: [{ order: 1, filename: 'a.csv' }],
-          run_settings: { batchSize: '100', retryLimit: '2' },
+          run_settings: { batchSize: '100' },
           field_mappings: []
         }
       })

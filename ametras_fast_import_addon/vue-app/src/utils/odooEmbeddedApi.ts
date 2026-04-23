@@ -194,7 +194,7 @@ export function installOdooEmbeddedApi(): void {
     odoo: {
       call: async (payload) => {
         try {
-          const response = await fetch(payload.endpoint, {
+          const fetchOptions: RequestInit = {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'same-origin',
@@ -204,7 +204,11 @@ export function installOdooEmbeddedApi(): void {
               params: payload.params,
               id: Date.now(),
             }),
-          })
+          }
+          if (payload.timeout) {
+            fetchOptions.signal = AbortSignal.timeout(payload.timeout)
+          }
+          const response = await fetch(payload.endpoint, fetchOptions)
 
           // Check HTTP-level errors before parsing JSON
           if (!response.ok) {

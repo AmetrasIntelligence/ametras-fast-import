@@ -21,6 +21,8 @@ interface OdooPayload {
   db?: string
   endpoint: string
   params: Record<string, unknown>
+  /** Optional request timeout in ms. Falls back to default (30s) if omitted. */
+  timeout?: number
 }
 
 interface AuthParams {

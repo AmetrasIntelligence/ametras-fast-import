@@ -13,6 +13,8 @@ const props = defineProps<{
   fieldMappings: Record<string, string>
   fields: OdooField[]
   strict: boolean
+  /** Hide the strict toggle (e.g. in standalone mode where it has no effect) */
+  hideStrict?: boolean
   /** Returns field lookup map for computing transforms */
   getFieldLookup: () => Map<string, OdooField>
 }>()
@@ -96,7 +98,7 @@ import { computed } from 'vue'
         <small class="text-body-secondary">
           {{ mappedCount }} {{ t('common.of') }} {{ headers.length }} {{ t('config.mapped') }}
         </small>
-        <label class="csv-field-mapping__strict-toggle" :title="t('config.strictTooltip')">
+        <label v-if="!hideStrict" class="csv-field-mapping__strict-toggle" :title="t('config.strictTooltip')">
           <input
             type="checkbox"
             :checked="strict"

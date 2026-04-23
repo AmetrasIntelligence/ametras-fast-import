@@ -79,8 +79,18 @@ ipcMain.handle('standalone:detectAddon', async (
 // Odoo model names: lowercase letters, digits, dots, underscores (e.g. "res.partner")
 const ODOO_MODEL_NAME_RE = /^[a-z][a-z0-9_.]*$/
 
-// Request timeout for Odoo RPC calls (60s — load() can be slow for large batches)
-const LOAD_TIMEOUT_MS = 60_000
+// Dynamic request timeout for model.load() calls.
+// Formula: clamp(BASE + PER_ROW * rowCount, MIN, MAX)
+// model.load() is transactional (heavier per row than addon mode).
+const LOAD_TIMEOUT_BASE_MS = 10_000   // 10s base (network round-trip + ORM setup)
+const LOAD_TIMEOUT_PER_ROW_MS = 1_000 // 1s per row (transactional load is heavier)
+const LOAD_TIMEOUT_MIN_MS = 15_000    // 15s floor (protects slow individual rows)
+const LOAD_TIMEOUT_MAX_MS = 120_000   // 120s cap (prevents unbounded waits)
+
+function computeLoadTimeout(rowCount: number): number {
+  const raw = LOAD_TIMEOUT_BASE_MS + LOAD_TIMEOUT_PER_ROW_MS * rowCount
+  return Math.max(LOAD_TIMEOUT_MIN_MS, Math.min(LOAD_TIMEOUT_MAX_MS, raw))
+}
 
 interface LoadParams {
   baseUrl: string
@@ -153,7 +163,7 @@ ipcMain.handle('standalone:load', async (
         },
         id: Date.now()
       }),
-      signal: AbortSignal.timeout(LOAD_TIMEOUT_MS)
+      signal: AbortSignal.timeout(computeLoadTimeout(rows.length))
     })
 
     if (!response.ok) {

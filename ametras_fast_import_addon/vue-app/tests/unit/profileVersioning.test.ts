@@ -11,9 +11,6 @@ function makeProfile(overrides: Partial<ImportProfile> = {}): ImportProfile {
     sequence: [],
     runSettings: {
       batchSize: 200,
-      retryLimit: 3,
-      retryDelayMs: 2000,
-      stopOnFatalError: false,
       encoding: 'utf-8-sig',
       delimiter: ',',
       skipHeader: true,

@@ -34,15 +34,11 @@ function importSettingsCSV(csv: string) {
     const key = row.key || ''
     const value = row.value || ''
     if (key === 'batchSize') newSettings.batchSize = parseInt(value, 10)
-    if (key === 'retryLimit') newSettings.retryLimit = parseInt(value, 10)
-    if (key === 'retryDelayMs') newSettings.retryDelayMs = parseInt(value, 10)
-    if (key === 'stopOnFatalError') newSettings.stopOnFatalError = value === 'true'
     if (key === 'encoding') newSettings.encoding = value as RunSettings['encoding']
     if (key === 'delimiter') newSettings.delimiter = value as RunSettings['delimiter']
     if (key === 'skipHeader') newSettings.skipHeader = value === 'true'
     if (key === 'dryRun') newSettings.dryRun = value === 'true'
     if (key === 'lang') newSettings.lang = value
-    if (key === 'strict') newSettings.strict = value === 'true'
   }
   config.setSettings(newSettings)
 }
@@ -57,9 +53,6 @@ describe('ConfigStore', () => {
       const store = useConfigStore()
 
       expect(store.settings.batchSize).toBe(200)
-      expect(store.settings.retryLimit).toBe(3)
-      expect(store.settings.retryDelayMs).toBe(500)
-      expect(store.settings.stopOnFatalError).toBe(false)
       expect(store.settings.encoding).toBe('utf-8-sig')
       expect(store.settings.delimiter).toBe(',')
       expect(store.settings.skipHeader).toBe(true)
@@ -75,7 +68,6 @@ describe('ConfigStore', () => {
       const store = useConfigStore()
       const cases: [Partial<RunSettings>, keyof RunSettings, unknown][] = [
         [{ batchSize: 50 }, 'batchSize', 50],
-        [{ retryLimit: 5 }, 'retryLimit', 5],
         [{ encoding: 'latin-1' }, 'encoding', 'latin-1'],
         [{ delimiter: ';' }, 'delimiter', ';'],
         [{ skipHeader: false }, 'skipHeader', false],
@@ -93,9 +85,6 @@ describe('ConfigStore', () => {
       store.setSettings(mockRunSettings.small)
 
       expect(store.settings.batchSize).toBe(10)
-      expect(store.settings.retryLimit).toBe(1)
-      expect(store.settings.retryDelayMs).toBe(500)
-      expect(store.settings.stopOnFatalError).toBe(true)
       expect(store.settings.encoding).toBe('utf-8')
       expect(store.settings.delimiter).toBe(';')
       expect(store.settings.lang).toBe('en_US')
@@ -103,9 +92,9 @@ describe('ConfigStore', () => {
 
     it('preserves unspecified settings', () => {
       const store = useConfigStore()
-      const originalRetryDelay = store.settings.retryDelayMs
+      const originalEncoding = store.settings.encoding
       store.setSettings({ batchSize: 200 })
-      expect(store.settings.retryDelayMs).toBe(originalRetryDelay)
+      expect(store.settings.encoding).toBe(originalEncoding)
     })
   })
 
@@ -177,7 +166,7 @@ describe('ConfigStore', () => {
   describe('CSV export', () => {
     it('exports settings as CSV', () => {
       const store = useConfigStore()
-      store.setSettings({ batchSize: 50, retryLimit: 2 })
+      store.setSettings({ batchSize: 50 })
 
       const csv = exportSettingsCSV()
       const parsed = Papa.parse<{ key?: string; value?: string }>(csv, {
@@ -191,7 +180,6 @@ describe('ConfigStore', () => {
       )
 
       expect(map.batchSize).toBe('50')
-      expect(map.retryLimit).toBe('2')
       expect(map.encoding).toBe('utf-8-sig')
       expect(map.delimiter).toBe(',')
       expect(map.skipHeader).toBe('true')
@@ -218,9 +206,6 @@ describe('ConfigStore', () => {
 
       const csv = `key,value
 batchSize,300
-retryLimit,5
-retryDelayMs,3000
-stopOnFatalError,true
 encoding,latin-1
 delimiter,;
 skipHeader,false
@@ -230,9 +215,6 @@ lang,en_US`
       importSettingsCSV(csv)
 
       expect(store.settings.batchSize).toBe(300)
-      expect(store.settings.retryLimit).toBe(5)
-      expect(store.settings.retryDelayMs).toBe(3000)
-      expect(store.settings.stopOnFatalError).toBe(true)
       expect(store.settings.encoding).toBe('latin-1')
       expect(store.settings.delimiter).toBe(';')
       expect(store.settings.skipHeader).toBe(false)
@@ -246,7 +228,7 @@ lang,en_US`
       importSettingsCSV(`key,value\nbatchSize,50`)
 
       expect(store.settings.batchSize).toBe(50)
-      expect(store.settings.retryLimit).toBe(3) // unchanged default
+      expect(store.settings.encoding).toBe('utf-8-sig') // unchanged default
     })
   })
 
@@ -256,15 +238,11 @@ lang,en_US`
 
       store.setSettings(mockRunSettings.small)
       expect(store.settings.batchSize).toBe(10)
-      expect(store.settings.stopOnFatalError).toBe(true)
 
       store.setSettings(mockRunSettings.large)
       expect(store.settings.batchSize).toBe(500)
-      expect(store.settings.retryLimit).toBe(5)
 
       store.setSettings(mockRunSettings.noRetry)
-      expect(store.settings.retryLimit).toBe(0)
-      expect(store.settings.retryDelayMs).toBe(0)
       expect(store.settings.encoding).toBe('latin-1')
       expect(store.settings.delimiter).toBe('\t')
       expect(store.settings.skipHeader).toBe(false)
@@ -280,9 +258,6 @@ lang,en_US`
       const store = useConfigStore()
       store.setSettings({
         batchSize: 150,
-        retryLimit: 4,
-        retryDelayMs: 1500,
-        stopOnFatalError: true,
         encoding: 'cp1252',
         delimiter: ';',
         skipHeader: false,
@@ -295,9 +270,6 @@ lang,en_US`
       importSettingsCSV(csv)
 
       expect(store.settings.batchSize).toBe(150)
-      expect(store.settings.retryLimit).toBe(4)
-      expect(store.settings.retryDelayMs).toBe(1500)
-      expect(store.settings.stopOnFatalError).toBe(true)
       expect(store.settings.encoding).toBe('cp1252')
       expect(store.settings.delimiter).toBe(';')
       expect(store.settings.skipHeader).toBe(false)

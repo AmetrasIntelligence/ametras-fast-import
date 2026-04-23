@@ -112,15 +112,11 @@ export async function importStandaloneProfile(file: File): Promise<ImportProfile
         const value = line.substring(idx + 1).trim()
 
         if (key === 'batchSize') runSettings.batchSize = parseInt(value, 10)
-        else if (key === 'retryLimit') runSettings.retryLimit = parseInt(value, 10)
-        else if (key === 'retryDelayMs') runSettings.retryDelayMs = parseInt(value, 10)
-        else if (key === 'stopOnFatalError') runSettings.stopOnFatalError = value === 'true'
         else if (key === 'encoding') runSettings.encoding = value as RunSettings['encoding']
         else if (key === 'delimiter') runSettings.delimiter = value as RunSettings['delimiter']
         else if (key === 'skipHeader') runSettings.skipHeader = value !== 'false'
         else if (key === 'dryRun') runSettings.dryRun = value === 'true'
         else if (key === 'lang') runSettings.lang = value
-        else if (key === 'strict') runSettings.strict = value !== 'false'
       }
     }
   }
