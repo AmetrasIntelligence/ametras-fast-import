@@ -72,7 +72,7 @@ const encodingOptions = computed(() => [
           :max="batchSizeMax"
           class="form-control form-control-sm"
           :class="{ 'is-invalid': batchSizeError }"
-          @input="config.setSettings({ batchSize: parseInt(($event.target as HTMLInputElement).value) || 100 })"
+          @input="{ const v = parseInt(($event.target as HTMLInputElement).value); if (!isNaN(v)) config.setSettings({ batchSize: v }) }"
         />
         <div v-if="batchSizeError" class="invalid-feedback">
           {{ batchSizeError }}
@@ -90,7 +90,7 @@ const encodingOptions = computed(() => [
           :max="platform.maxWorkers"
           class="form-control form-control-sm"
           :class="{ 'is-invalid': workersError }"
-          @input="config.setSettings({ workers: Math.max(1, Math.min(platform.maxWorkers, parseInt(($event.target as HTMLInputElement).value) || 1)) })"
+          @input="{ const v = parseInt(($event.target as HTMLInputElement).value); if (!isNaN(v)) config.setSettings({ workers: Math.max(1, Math.min(platform.maxWorkers, v)) }) }"
         />
         <div v-if="workersError" class="invalid-feedback">
           {{ workersError }}
@@ -108,7 +108,7 @@ const encodingOptions = computed(() => [
           max="10"
           class="form-control form-control-sm"
           :class="{ 'is-invalid': retryLimitError }"
-          @input="config.setSettings({ retryLimit: parseInt(($event.target as HTMLInputElement).value) || 0 })"
+          @input="{ const v = parseInt(($event.target as HTMLInputElement).value); if (!isNaN(v)) config.setSettings({ retryLimit: v }) }"
         />
         <div v-if="retryLimitError" class="invalid-feedback">
           {{ retryLimitError }}
@@ -122,7 +122,7 @@ const encodingOptions = computed(() => [
           min="100"
           step="100"
           class="form-control form-control-sm"
-          @input="config.setSettings({ retryDelayMs: parseInt(($event.target as HTMLInputElement).value) || 1000 })"
+          @input="{ const v = parseInt(($event.target as HTMLInputElement).value); if (!isNaN(v)) config.setSettings({ retryDelayMs: v }) }"
         />
       </div>
       <div class="d-flex align-items-center gap-2 pt-4">

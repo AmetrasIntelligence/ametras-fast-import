@@ -51,7 +51,7 @@ function updateSetting(key: string, value: unknown) {
         min="1"
         max="1000"
         class="form-control form-control-sm"
-        @input="updateSetting('batchSize', parseInt(($event.target as HTMLInputElement).value) || 100)"
+        @input="{ const v = parseInt(($event.target as HTMLInputElement).value); if (!isNaN(v)) updateSetting('batchSize', v) }"
       />
     </div>
     <div>
@@ -65,7 +65,7 @@ function updateSetting(key: string, value: unknown) {
         min="0"
         max="10"
         class="form-control form-control-sm"
-        @input="updateSetting('retryLimit', parseInt(($event.target as HTMLInputElement).value) || 0)"
+        @input="{ const v = parseInt(($event.target as HTMLInputElement).value); if (!isNaN(v)) updateSetting('retryLimit', v) }"
       />
     </div>
     <div>
@@ -79,7 +79,7 @@ function updateSetting(key: string, value: unknown) {
         min="100"
         step="100"
         class="form-control form-control-sm"
-        @input="updateSetting('retryDelayMs', parseInt(($event.target as HTMLInputElement).value) || 1000)"
+        @input="{ const v = parseInt(($event.target as HTMLInputElement).value); if (!isNaN(v)) updateSetting('retryDelayMs', v) }"
       />
     </div>
     <div class="d-flex align-items-center gap-2 pt-4">
