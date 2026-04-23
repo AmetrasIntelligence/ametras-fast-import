@@ -142,21 +142,19 @@ class Logger {
       this.entries = this.entries.slice(-this.maxEntries)
     }
 
-    // Console output in development
-    if (import.meta.env.DEV) {
-      const formatted = formatLogEntry(entry, { timestamp: true, includeData: false })
-      const style = getConsoleStyle(level)
+    // Console output (verbosity controlled by minLevel)
+    const formatted = formatLogEntry(entry, { timestamp: true, includeData: false })
+    const style = getConsoleStyle(level)
 
-      const consoleFn = level === LogLevel.ERROR ? console.error :
-                        level === LogLevel.WARN ? console.warn :
-                        level === LogLevel.DEBUG ? console.debug :
-                        console.log
+    const consoleFn = level === LogLevel.ERROR ? console.error :
+                      level === LogLevel.WARN ? console.warn :
+                      level === LogLevel.DEBUG ? console.debug :
+                      console.log
 
-      if (data && Object.keys(data).length > 0) {
-        consoleFn(`%c${formatted}`, style, data)
-      } else {
-        consoleFn(`%c${formatted}`, style)
-      }
+    if (data && Object.keys(data).length > 0) {
+      consoleFn(`%c${formatted}`, style, data)
+    } else {
+      consoleFn(`%c${formatted}`, style)
     }
   }
 
