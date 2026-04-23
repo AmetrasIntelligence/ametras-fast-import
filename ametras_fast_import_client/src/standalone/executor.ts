@@ -20,18 +20,20 @@ export const STANDALONE_MAX_BATCH_SIZE = 100
 export const STANDALONE_DEFAULT_BATCH_SIZE = 50
 
 /**
- * Warmup-based adaptive batch size controller.
- * Starts at size 1 (single rows) to learn data quality, then steps up
- * through fixed levels: 1 → 10 → maxSize.
+ * Adaptive batch size controller.
+ * Starts at maxSize and steps DOWN on failures or timeouts.
+ * Error isolation for individual bad rows is handled by
+ * executeWithAdaptiveRetry which splits failed batches.
  *
- * Increase: after 100 consecutive successful rows, step up one level.
+ * Levels: [1, min(10, max), max] — starts at the top.
  * Decrease: after 3 consecutive failed batches, step down one level.
- * Each file starts fresh at level 0 (size 1).
+ * Timeout: immediately step down one level.
+ * Recovery: after 30 consecutive successful rows, step back up one level.
  */
 export class BatchSizeAdapter {
   currentSize: number
   private levels: number[]
-  private levelIndex: number = 0
+  private levelIndex: number
   private successfulRows: number = 0
   private consecutiveFailures: number = 0
 
@@ -42,15 +44,16 @@ export class BatchSizeAdapter {
     // Build levels: [1, min(10, max), max] deduplicated
     const raw = [1, Math.min(10, maxSize), maxSize]
     this.levels = [...new Set(raw)].sort((a, b) => a - b)
-    this.levelIndex = 0
-    this.currentSize = this.levels[0]
+    this.levelIndex = this.levels.length - 1
+    this.currentSize = this.levels[this.levelIndex]
   }
 
-  /** Record successful rows and step up after enough consecutive successes. */
+  /** Record successful rows and step back up after recovery from a step-down. */
   recordSuccess(rowCount: number): void {
     this.consecutiveFailures = 0
+    if (this.levelIndex >= this.levels.length - 1) return // already at max
     this.successfulRows += rowCount
-    if (this.successfulRows >= BatchSizeAdapter.SUCCESS_THRESHOLD && this.levelIndex < this.levels.length - 1) {
+    if (this.successfulRows >= BatchSizeAdapter.SUCCESS_THRESHOLD) {
       this.levelIndex++
       this.currentSize = this.levels[this.levelIndex]
       this.successfulRows = 0
@@ -357,6 +360,11 @@ function computeRetryChunkSize(initialSize: number, depth: number, retryDepth: n
  *
  * The bottom level is always single rows — no "max depth exceeded" errors.
  */
+/** Mutable hints passed back to the caller for adapter decisions. */
+interface AdaptiveRetryHints {
+  hadConcurrency: boolean
+}
+
 async function executeWithAdaptiveRetry(
   baseUrl: string,
   db: string,
@@ -367,7 +375,8 @@ async function executeWithAdaptiveRetry(
   depth: number = 0,
   initialBatchSize: number,
   retryDepth: number = DEFAULT_RETRY_DEPTH,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  hints?: AdaptiveRetryHints
 ): Promise<BatchResult[]> {
   // Check abort before doing any work
   if (signal?.aborted) {
@@ -382,6 +391,7 @@ async function executeWithAdaptiveRetry(
       break // no concurrency error — proceed
     } catch (err) {
       if (err instanceof ConcurrencyBatchError) {
+        if (hints) hints.hadConcurrency = true
         if (attempt < CONCURRENCY_MAX_RETRIES - 1) {
           const delay = concurrencyBackoffDelay(attempt)
           logger.import.warn(
@@ -474,7 +484,7 @@ async function executeWithAdaptiveRetry(
     const chunk = rowsToRetry.slice(i, i + nextChunkSize)
     const chunkResults = await executeWithAdaptiveRetry(
       baseUrl, db, model, header, chunk, mapping,
-      depth + 1, initialBatchSize, retryDepth, signal
+      depth + 1, initialBatchSize, retryDepth, signal, hints
     )
     retryResults.push(...chunkResults)
   }
@@ -529,9 +539,10 @@ export async function executeStandaloneBatch(
       const chunk = rows.slice(offset, offset + chunkSize)
 
       let chunkResults: BatchResult[]
+      const hints: AdaptiveRetryHints = { hadConcurrency: false }
       try {
         chunkResults = await executeWithAdaptiveRetry(
-          session.baseUrl, db, model, header, chunk, mapping, 0, chunkSize, retryDepth, signal
+          session.baseUrl, db, model, header, chunk, mapping, 0, chunkSize, retryDepth, signal, hints
         )
       } catch (err) {
         if (err instanceof TimeoutBatchError && adapter) {
@@ -543,9 +554,12 @@ export async function executeStandaloneBatch(
         throw err
       }
 
-      // Update adapter based on outcome
-      const hadFailure = chunkResults.some(r => !r.ok)
-      if (hadFailure) {
+      // Update adapter based on server capacity, not data quality.
+      // Concurrency errors (deadlocks/lock contention) signal the server
+      // is struggling with the load → step down batch size.
+      // Data errors (validation, constraints) are row-level issues that
+      // don't reflect server capacity → don't affect batch sizing.
+      if (hints.hadConcurrency) {
         adapter.recordFailure()
       } else {
         adapter.recordSuccess(chunk.length)

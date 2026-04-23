@@ -1,4 +1,8 @@
 export { default as Button } from './Button.vue'
+export { default as Input } from './Input.vue'
+export { default as Select } from './Select.vue'
+export { default as Checkbox } from './Checkbox.vue'
 export { default as Card } from './Card.vue'
+export { default as Divider } from './Divider.vue'
 export { default as Progress } from './Progress.vue'
 export { default as Table } from './Table.vue'

@@ -148,8 +148,8 @@ class Logger {
 
     const consoleFn = level === LogLevel.ERROR ? console.error :
                       level === LogLevel.WARN ? console.warn :
-                      level === LogLevel.DEBUG ? console.debug :
-                      console.log
+                      // eslint-disable-next-line no-console -- logger is the sanctioned console wrapper
+                      level === LogLevel.DEBUG ? console.debug : console.log
 
     if (data && Object.keys(data).length > 0) {
       consoleFn(`%c${formatted}`, style, data)
