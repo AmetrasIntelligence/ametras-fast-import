@@ -1,6 +1,8 @@
 import { ImportStateMachine, ImportState } from './stateMachine'
 import { parseCSVBatched, analyzeCSV, extractRowsByIndex, type ParseOptions } from './csvParser'
-import { NetworkBatchError, AuthBatchError, TimeoutBatchError, detectIdColumn, type BatchResult } from './batchExecutor'
+import { NetworkBatchError, AuthBatchError, TimeoutBatchError, type BatchResult } from './batchExecutor'
+import type { BatchSizeAdapter } from './batchSizeAdapter'
+import { assessTimeoutRetryIdempotency } from './idempotency'
 import { ConnectionMonitor, type HealthCheckFn } from './connectionMonitor'
 import { WorkerPool, type Batch, type BatchProcessResult, calculateThroughput } from './workerPool'
 import { useConfigStore } from '@/stores/config'
@@ -107,6 +109,7 @@ export class ImportEngine {
     skip?: AbortSignal
     onAbort: () => void
   } | null = null
+  private pauseWaiters: Array<() => void> = []
   private pinnedSession: { baseUrl: string; db: string } | null = null
 
   // Throughput tracking
@@ -124,8 +127,9 @@ export class ImportEngine {
     const config = useConfigStore()
     const run = useRunStore()
 
-    // Clear any stale lock from a previous import to prevent deadlocks
+    // Clear stale state from a previous import
     runStateLock.reset()
+    this.batchSizeAdapter = null
 
     await this.setSessionPinned(true)
     try {
@@ -274,6 +278,10 @@ export class ImportEngine {
           run.skipFile(filename)
           run.connectionStatus = 'online'
           this.connectionMonitor?.reportOnline()
+          // Reset adapter so the next file starts fresh — the skipped file
+          // may have caused step-downs (timeouts/congestion) that don't
+          // reflect the next file's server conditions.
+          this.batchSizeAdapter = null
           continue
         }
 
@@ -343,7 +351,7 @@ export class ImportEngine {
     rowFilter: Set<number>,
     parseOptions: ParseOptions = {}
   ): Promise<void> {
-    const rows = await extractRowsByIndex(file.id, rowFilter, parseOptions)
+    const rows = await extractRowsByIndex(file.id, rowFilter, parseOptions, this.fileOrRunSignal())
     return this.processFileCore(file, { rows }, parseOptions)
   }
 
@@ -436,6 +444,8 @@ export class ImportEngine {
 
           try {
             this.workerPool!.enqueueBatch(batch, file.name)
+            // First batch enqueued — initiation phase is over, processing has begun.
+            if (run.isInitiating) run.isInitiating = false
           } catch (err) {
             if (this.abortController?.signal.aborted || this.skipFileController?.signal.aborted) {
               return
@@ -457,6 +467,7 @@ export class ImportEngine {
         const batchRows = rowSource.rows.slice(i, i + effectiveBatchSize)
         try {
           this.workerPool.enqueueBatch(batchRows, file.name)
+          if (run.isInitiating) run.isInitiating = false
         } catch (err) {
           if (this.abortController?.signal.aborted || this.skipFileController?.signal.aborted) break
           throw err
@@ -505,16 +516,23 @@ export class ImportEngine {
     dryRun: boolean | undefined,
   ): Promise<BatchResult[]> {
     const platform = usePlatformStore()
+    const run = useRunStore()
+    const isStandaloneMode = !platform.capabilities.searchKeys
     const MAX_AUTH_RETRIES = 2
     let authRetryCount = 0
     const MAX_NETWORK_RETRIES = 3
     let networkRetryCount = 0
-    const MAX_TIMEOUT_RETRIES = 2
-    let timeoutRetryCount = 0
+    // Consecutive timeouts at the adapter's minimum batch size.
+    // Reset whenever the adapter steps down (progress was made).
+    const MAX_TIMEOUTS_AT_MINIMUM = isStandaloneMode ? 8 : 2
+    const MAX_TIMEOUT_ESCALATION_LEVEL = isStandaloneMode ? 5 : 0
+    let timeoutsAtMinimum = 0
+    let timeoutEscalationLevel = 0
 
     while (true) {
       // Check if file was skipped before retrying
       if (this.skipFileController?.signal.aborted) {
+        run.setTimeoutMitigationActive(false)
         return batch.rows.map(row => ({
           ok: false, error: 'File skipped', rowIndex: row.index
         }))
@@ -532,14 +550,19 @@ export class ImportEngine {
             dryRun,
             signal: this.fileOrRunSignal(),
             batchAdapter: this.batchSizeAdapter,
+            timeoutEscalationLevel,
           }
         )
 
         // Successful batch — signal online
         this.connectionMonitor?.reportOnline()
+        if (run.timeoutMitigationActive) {
+          run.setTimeoutMitigationActive(false)
+        }
         return results
       } catch (error) {
         if (this.skipFileController?.signal.aborted) {
+          run.setTimeoutMitigationActive(false)
           return batch.rows.map(row => ({
             ok: false,
             error: 'File skipped',
@@ -547,11 +570,15 @@ export class ImportEngine {
           }))
         }
         if (this.abortController?.signal.aborted) {
+          run.setTimeoutMitigationActive(false)
           return batch.rows.map(row => ({
             ok: false,
             error: 'Import aborted',
             rowIndex: row.index,
           }))
+        }
+        if (!(error instanceof TimeoutBatchError) && run.timeoutMitigationActive) {
+          run.setTimeoutMitigationActive(false)
         }
         // Auth error — pause and retry (re-auth may succeed after cooldown)
         if (error instanceof AuthBatchError) {
@@ -572,37 +599,93 @@ export class ImportEngine {
         }
 
         // Timeout error — server is slow, not down.
-        // Retry with backoff (adapter already reduced batch size).
+        // The adapter steps down batch size automatically; keep retrying
+        // as long as the adapter can make progress. Only give up after
+        // consecutive timeouts at the minimum batch size.
+        //
+        // Standalone mode (transactional model.load): retrying without
+        // idempotency keys risks duplicates because the server may have
+        // committed the entire batch before the timeout fired.
+        // Addon mode (per-row savepoints): safe to retry regardless.
         if (error instanceof TimeoutBatchError) {
-          const hasIdempotencyKey = !!(
-            mapping.searchKeys?.length ||
-            detectIdColumn(mapping.fieldMappings)
-          )
-          if (!hasIdempotencyKey) {
-            logger.import.warn(
-              '[engine] Timeout without idempotency key — failing batch to avoid duplicates'
+          if (isStandaloneMode) {
+            run.setTimeoutMitigationActive(true)
+            const assessment = assessTimeoutRetryIdempotency(batch.rows, mapping.fieldMappings)
+            if (assessment.unsafeRows.length > 0) {
+              const reasonSummary = Object.entries(assessment.unsafeReasonCounts)
+                .map(([reason, count]) => `${reason}:${count}`)
+                .join(', ')
+
+              if (assessment.safeRows.length === 0) {
+                logger.import.warn(
+                  '[engine] Timeout in standalone mode without row-level idempotency keys — failing batch to avoid duplicates'
+                )
+                run.setTimeoutMitigationActive(false)
+                return batch.rows.map(row => ({
+                  ok: false,
+                  error: 'Request timed out. Some rows are missing valid id/.id values, so safe retry is not possible.',
+                  rowIndex: row.index,
+                }))
+              }
+
+              logger.import.warn(
+                `[engine] Timeout with mixed idempotency rows in standalone mode. ` +
+                `Retrying ${assessment.safeRows.length} safe rows, failing ${assessment.unsafeRows.length} unsafe rows (${reasonSummary}).`
+              )
+
+              const safeResults = await this.executeBatchWithMapping(
+                { ...batch, rows: assessment.safeRows },
+                mapping,
+                dryRun,
+              )
+              const unsafeResults = assessment.unsafeRows.map(row => ({
+                ok: false,
+                error: 'Request timed out. Row is missing a valid id/.id value, so safe retry was skipped to avoid duplicates.',
+                rowIndex: row.index,
+              }))
+              run.setTimeoutMitigationActive(false)
+              return [...safeResults, ...unsafeResults].sort((a, b) => a.rowIndex - b.rowIndex)
+            }
+
+            timeoutEscalationLevel = Math.min(
+              timeoutEscalationLevel + 1,
+              MAX_TIMEOUT_ESCALATION_LEVEL
             )
-            return batch.rows.map(row => ({
-              ok: false,
-              error: 'Request timed out. Add external IDs or search keys to enable safe retry.',
-              rowIndex: row.index,
-            }))
           }
 
-          timeoutRetryCount++
-          if (timeoutRetryCount > MAX_TIMEOUT_RETRIES) {
-            logger.import.warn(`[engine] Batch timed out after ${MAX_TIMEOUT_RETRIES} retries — failing batch`)
+          const adapter = this.batchSizeAdapter as BatchSizeAdapter | null
+          const steppedDown = adapter?.recordTimeout() ?? false
+
+          if (steppedDown) {
+            // Adapter made progress — reset counter and retry with smaller batches
+            timeoutsAtMinimum = 0
+            logger.import.warn(
+              `[engine] Timeout, adapter stepped down to ${adapter!.currentSize}. ` +
+              (isStandaloneMode ? `Timeout escalation level ${timeoutEscalationLevel}. Retrying...` : 'Retrying...')
+            )
+            continue
+          }
+
+          // Already at minimum batch size
+          timeoutsAtMinimum++
+          if (timeoutsAtMinimum >= MAX_TIMEOUTS_AT_MINIMUM) {
+            logger.import.warn(
+              `[engine] Batch timed out ${timeoutsAtMinimum} times at minimum batch size — failing batch`
+            )
+            run.setTimeoutMitigationActive(false)
             return batch.rows.map(row => ({
               ok: false,
-              error: `Timed out after ${MAX_TIMEOUT_RETRIES} retries: ${error.message}`,
+              error: `Timed out at minimum batch size: ${error.message}`,
               rowIndex: row.index,
             }))
           }
           logger.import.warn(
-            `[engine] Timeout (attempt ${timeoutRetryCount}/${MAX_TIMEOUT_RETRIES}), ` +
-            `retrying immediately (adapter stepped down batch size)...`
+            `[engine] Timeout at minimum batch size (${timeoutsAtMinimum}/${MAX_TIMEOUTS_AT_MINIMUM}), ` +
+            (isStandaloneMode
+              ? `timeout escalation level ${timeoutEscalationLevel}. Retrying...`
+              : 'retrying...')
           )
-          continue // retry loop — adapter already stepped down batch size
+          continue
         }
 
         if (
@@ -623,8 +706,6 @@ export class ImportEngine {
           }))
         }
         logger.import.warn(`[engine] Retryable error during batch: ${error.message}. Pausing for reconnection...`)
-
-        const run = useRunStore()
         this.connectionMonitor?.reportOffline()
         run.connectionStatus = 'offline'
 
@@ -648,6 +729,7 @@ export class ImportEngine {
           }
           run.connectionStatus = 'online'
           this.connectionMonitor?.reportOnline()
+          run.setTimeoutMitigationActive(false)
           const wasSkipped = this.skipFileController?.signal.aborted
           return batch.rows.map(row => ({
             ok: false,
@@ -700,7 +782,7 @@ export class ImportEngine {
       }
       const batch = result.results
 
-      // Clear transitional UI flags
+      // Safety net: clear isInitiating if it wasn't already cleared at enqueue time
       if (run.isInitiating) {
         run.isInitiating = false
       }
@@ -770,6 +852,7 @@ export class ImportEngine {
       this.stateMachine.transition(ImportState.RUNNING_FILE)
       run.setState(ImportState.RUNNING_FILE)
       run.isPausing = false
+      this.releasePauseWaiters()
       this.workerPool?.resume()
     }
   }
@@ -780,6 +863,8 @@ export class ImportEngine {
     this.workerPool?.abort()
     this.connectionMonitor?.destroy()
     this.clearCombinedAbortSignal()
+    this.releasePauseWaiters()
+    this.batchSizeAdapter = null
     void this.setSessionPinned(false)
     this.stopHeartbeat()
     this.stateMachine.reset()
@@ -787,6 +872,7 @@ export class ImportEngine {
     run.isInitiating = false
     run.isPausing = false
     run.isSkipping = false
+    run.setTimeoutMitigationActive(false)
     // Silent mode: called from reset()/logout — the caller will clear state.
     // Skip setState(FAILED) to avoid the RunView watcher routing to /results
     // while a new import is being initialised in the same navigation cycle.
@@ -817,8 +903,9 @@ export class ImportEngine {
     const run = useRunStore()
     const filesStore = useFilesStore()
 
-    // Clear any stale lock from a previous import to prevent deadlocks
+    // Clear stale state from a previous import
     runStateLock.reset()
+    this.batchSizeAdapter = null
 
     await this.setSessionPinned(true)
     try {
@@ -927,16 +1014,28 @@ export class ImportEngine {
     // Process files sequentially
     for (const { filename, fileId, rowIndices } of filesToRetry) {
       if (this.abortController.signal.aborted) break
+      await this.waitWhilePaused(this.abortController.signal)
+      if (this.abortController.signal.aborted) break
 
       const mapping = config.getFileMapping(filename)
       if (!mapping) continue
 
       logger.import.info(`Retrying ${rowIndices.size} failed rows for: ${filename}`)
       run.startFile(filename)
+      this.skipFileController = new AbortController()
 
       try {
+        await this.waitWhilePaused(this.fileOrRunSignal())
+        if (this.skipFileController?.signal.aborted) {
+          throw new Error('File skipped')
+        }
+
         // Extract only the failed rows from the original file
-        const rows = await extractRowsByIndex(fileId, rowIndices, parseOptions)
+        const rows = await extractRowsByIndex(fileId, rowIndices, parseOptions, this.fileOrRunSignal())
+
+        if (this.skipFileController?.signal.aborted) {
+          throw new Error('File skipped')
+        }
 
         if (rows.length === 0) {
           logger.import.warn(`No rows extracted for ${filename} - row indices may not match`)
@@ -954,19 +1053,30 @@ export class ImportEngine {
         )
         const retryAdapter = platform.createBatchAdapter?.(effectiveSize) ?? undefined
 
+        const isStandaloneMode = !platform.capabilities.searchKeys
         const MAX_AUTH_RETRIES = 2
         let authRetryCount = 0
         const MAX_NETWORK_RETRIES = 3
         let networkRetryCount = 0
-        const MAX_TIMEOUT_RETRIES = 2
-        let timeoutRetryCount = 0
+        const MAX_TIMEOUTS_AT_MINIMUM = isStandaloneMode ? 8 : 2
+        const MAX_TIMEOUT_ESCALATION_LEVEL = isStandaloneMode ? 5 : 0
+        let timeoutsAtMinimum = 0
+        let timeoutEscalationLevel = 0
+        let rowsToProcess = rows
+        const unsafeTimeoutResults: BatchResult[] = []
 
         let results: BatchResult[] | undefined
         while (true) {
+          await this.waitWhilePaused(this.fileOrRunSignal())
+          if (this.skipFileController?.signal.aborted) {
+            throw new Error('File skipped')
+          }
+          if (this.abortController?.signal.aborted) break
+
           try {
             results = await platform.executeBatch(
               mapping.model,
-              rows,
+              rowsToProcess,
               {
                 fieldMappings: mapping.fieldMappings,
                 searchKeys: mapping.searchKeys,
@@ -974,19 +1084,31 @@ export class ImportEngine {
               },
               {
                 dryRun: config.settings.dryRun,
-                signal: this.abortController?.signal,
+                signal: this.fileOrRunSignal(),
                 batchAdapter: retryAdapter,
+                timeoutEscalationLevel,
               }
             )
             this.connectionMonitor?.reportOnline()
+            run.setTimeoutMitigationActive(false)
             break
           } catch (error) {
+            if (this.skipFileController?.signal.aborted) {
+              throw new Error('File skipped')
+            }
+            if (this.abortController?.signal.aborted) {
+              run.setTimeoutMitigationActive(false)
+              break
+            }
+            if (!(error instanceof TimeoutBatchError) && run.timeoutMitigationActive) {
+              run.setTimeoutMitigationActive(false)
+            }
             // Auth error — pause and retry (re-auth may succeed after cooldown)
             if (error instanceof AuthBatchError) {
               authRetryCount++
               if (authRetryCount > MAX_AUTH_RETRIES) {
                 logger.import.error('[retry] Authentication failed after retries — stopping import.')
-                results = rows.map(row => ({
+                results = rowsToProcess.map(row => ({
                   ok: false,
                   error: 'Authentication failed: ' + error.message,
                   rowIndex: row.index,
@@ -1001,39 +1123,80 @@ export class ImportEngine {
             }
 
             // Timeout error — server is slow, not down.
-            // Retry with backoff (adapter already reduced batch size).
+            // The adapter steps down batch size automatically; keep retrying
+            // as long as the adapter can make progress.
+            // Standalone mode: require idempotency keys (same as executeBatchWithMapping).
             if (error instanceof TimeoutBatchError) {
-              const hasIdempotencyKey = !!(
-                mapping.searchKeys?.length ||
-                detectIdColumn(mapping.fieldMappings)
-              )
-              if (!hasIdempotencyKey) {
-                logger.import.warn(
-                  '[retry] Timeout without idempotency key — failing batch to avoid duplicates'
+              if (isStandaloneMode) {
+                run.setTimeoutMitigationActive(true)
+                const assessment = assessTimeoutRetryIdempotency(rowsToProcess, mapping.fieldMappings)
+                if (assessment.unsafeRows.length > 0) {
+                  const reasonSummary = Object.entries(assessment.unsafeReasonCounts)
+                    .map(([reason, count]) => `${reason}:${count}`)
+                    .join(', ')
+
+                  for (const row of assessment.unsafeRows) {
+                    unsafeTimeoutResults.push({
+                      ok: false,
+                      error: 'Request timed out. Row is missing a valid id/.id value, so safe retry was skipped to avoid duplicates.',
+                      rowIndex: row.index,
+                    })
+                  }
+
+                  if (assessment.safeRows.length === 0) {
+                    logger.import.warn(
+                      '[retry] Timeout in standalone mode without row-level idempotency keys — failing batch to avoid duplicates'
+                    )
+                    results = [...unsafeTimeoutResults]
+                    run.setTimeoutMitigationActive(false)
+                    break
+                  }
+
+                  logger.import.warn(
+                    `[retry] Timeout with mixed idempotency rows in standalone mode. ` +
+                    `Retrying ${assessment.safeRows.length} safe rows, failing ${assessment.unsafeRows.length} unsafe rows (${reasonSummary}).`
+                  )
+                  rowsToProcess = assessment.safeRows
+                }
+
+                timeoutEscalationLevel = Math.min(
+                  timeoutEscalationLevel + 1,
+                  MAX_TIMEOUT_ESCALATION_LEVEL
                 )
-                results = rows.map(row => ({
-                  ok: false,
-                  error: 'Request timed out. Add external IDs or search keys to enable safe retry.',
-                  rowIndex: row.index,
-                }))
-                break
               }
 
-              timeoutRetryCount++
-              if (timeoutRetryCount > MAX_TIMEOUT_RETRIES) {
-                logger.import.warn(`[retry] Timed out after ${MAX_TIMEOUT_RETRIES} retries — failing batch`)
-                results = rows.map(row => ({
+              const adapter = retryAdapter as BatchSizeAdapter | undefined
+              const steppedDown = adapter?.recordTimeout() ?? false
+
+              if (steppedDown) {
+                timeoutsAtMinimum = 0
+                logger.import.warn(
+                  `[retry] Timeout, adapter stepped down to ${adapter!.currentSize}. ` +
+                  (isStandaloneMode ? `Timeout escalation level ${timeoutEscalationLevel}. Retrying...` : 'Retrying...')
+                )
+                continue
+              }
+
+              timeoutsAtMinimum++
+              if (timeoutsAtMinimum >= MAX_TIMEOUTS_AT_MINIMUM) {
+                logger.import.warn(
+                  `[retry] Timed out ${timeoutsAtMinimum} times at minimum batch size — failing batch`
+                )
+                results = rowsToProcess.map(row => ({
                   ok: false,
-                  error: `Timed out after ${MAX_TIMEOUT_RETRIES} retries: ${error.message}`,
+                  error: `Timed out at minimum batch size: ${error.message}`,
                   rowIndex: row.index,
                 }))
+                run.setTimeoutMitigationActive(false)
                 break
               }
               logger.import.warn(
-                `[retry] Timeout (attempt ${timeoutRetryCount}/${MAX_TIMEOUT_RETRIES}), ` +
-                `retrying immediately (adapter stepped down batch size)...`
+                `[retry] Timeout at minimum batch size (${timeoutsAtMinimum}/${MAX_TIMEOUTS_AT_MINIMUM}), ` +
+                (isStandaloneMode
+                  ? `timeout escalation level ${timeoutEscalationLevel}. Retrying...`
+                  : 'retrying...')
               )
-              continue // retry loop — adapter already stepped down batch size
+              continue
             }
 
             if (
@@ -1047,7 +1210,7 @@ export class ImportEngine {
             networkRetryCount++
             if (networkRetryCount > MAX_NETWORK_RETRIES) {
               logger.import.warn(`[retry] Batch failed after ${MAX_NETWORK_RETRIES} retries — giving up`)
-              results = rows.map(row => ({
+              results = rowsToProcess.map(row => ({
                 ok: false,
                 error: `Network error after ${MAX_NETWORK_RETRIES} retries: ${error.message}`,
                 rowIndex: row.index,
@@ -1065,9 +1228,19 @@ export class ImportEngine {
             }
 
             try {
-              await this.connectionMonitor!.waitForConnection(this.abortController?.signal)
+              await this.connectionMonitor!.waitForConnection(this.fileOrRunSignal())
             } catch {
-              // Aborted during wait — let the outer abort check handle it
+              const wasSkipped = this.skipFileController?.signal.aborted
+              if (wasRunning && this.stateMachine.state === ImportState.PAUSED) {
+                this.stateMachine.transition(ImportState.RUNNING_FILE)
+                run.setState(ImportState.RUNNING_FILE)
+              }
+              run.connectionStatus = 'online'
+              this.connectionMonitor?.reportOnline()
+              run.setTimeoutMitigationActive(false)
+              if (wasSkipped) {
+                throw new Error('File skipped')
+              }
               break
             }
 
@@ -1080,8 +1253,22 @@ export class ImportEngine {
           }
         }
 
+        if (this.skipFileController?.signal.aborted) {
+          throw new Error('File skipped')
+        }
         if (this.abortController?.signal.aborted) break
         if (!results) continue
+
+        if (unsafeTimeoutResults.length > 0) {
+          const mergedByRowIndex = new Map<number, BatchResult>()
+          for (const result of results) {
+            mergedByRowIndex.set(result.rowIndex, result)
+          }
+          for (const unsafeResult of unsafeTimeoutResults) {
+            mergedByRowIndex.set(unsafeResult.rowIndex, unsafeResult)
+          }
+          results = [...mergedByRowIndex.values()].sort((a, b) => a.rowIndex - b.rowIndex)
+        }
 
         // Process results
         let successCount = 0
@@ -1127,6 +1314,14 @@ export class ImportEngine {
         logger.import.info(`Retry completed for ${filename}: ${successCount} succeeded, ${failedCount} failed`)
 
       } catch (error) {
+        if (this.skipFileController?.signal.aborted) {
+          logger.import.info(`Skipped retry file: ${filename}`)
+          run.skipFile(filename)
+          run.connectionStatus = 'online'
+          this.connectionMonitor?.reportOnline()
+          run.setTimeoutMitigationActive(false)
+          continue
+        }
         const importError = parseOdooError(error, { filename })
         logger.import.error(`Retry failed for file: ${filename}`, {
           error: importError.message
@@ -1139,6 +1334,12 @@ export class ImportEngine {
           timestamp: Date.now()
         })
         run.completeFile(filename)
+      } finally {
+        this.clearCombinedAbortSignal()
+        this.skipFileController = null
+        run.isSkipping = false
+        run.isPausing = false
+        run.setTimeoutMitigationActive(false)
       }
     }
 
@@ -1216,6 +1417,38 @@ export class ImportEngine {
     run?.removeEventListener('abort', onAbort)
     skip?.removeEventListener('abort', onAbort)
     this.combinedAbortSignal = null
+  }
+
+  private async waitWhilePaused(signal?: AbortSignal): Promise<void> {
+    while (this.stateMachine.state === ImportState.PAUSED) {
+      if (signal?.aborted) return
+      await new Promise<void>((resolve) => {
+        let done = false
+        const finish = () => {
+          if (done) return
+          done = true
+          this.pauseWaiters = this.pauseWaiters.filter(waiter => waiter !== finish)
+          if (signal) {
+            signal.removeEventListener('abort', onAbort)
+          }
+          resolve()
+        }
+        const onAbort = () => finish()
+        if (signal) {
+          signal.addEventListener('abort', onAbort, { once: true })
+        }
+        this.pauseWaiters.push(finish)
+      })
+    }
+  }
+
+  private releasePauseWaiters(): void {
+    if (this.pauseWaiters.length === 0) return
+    const waiters = [...this.pauseWaiters]
+    this.pauseWaiters = []
+    for (const waiter of waiters) {
+      waiter()
+    }
   }
 
   private async setSessionPinned(pinned: boolean): Promise<void> {

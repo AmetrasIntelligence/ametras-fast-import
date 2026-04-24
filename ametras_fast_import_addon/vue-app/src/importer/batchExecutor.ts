@@ -203,20 +203,12 @@ export async function executeBatch(
     const chunkSize = adapter.currentSize
     const chunk = rows.slice(offset, offset + chunkSize)
 
-    try {
-      const results = await executeSubBatch(model, chunk, mapping, dryRun || false)
-      adapter.recordSuccess(chunk.length)
-      allResults.push(...results)
-    } catch (err) {
-      if (err instanceof TimeoutBatchError) {
-        adapter.recordTimeout()
-      }
-      throw err
-    }
+    const results = await executeSubBatch(model, chunk, mapping, dryRun || false)
+    adapter.recordSuccess(chunk.length)
+    allResults.push(...results)
 
     offset += chunk.length
   }
 
   return allResults
 }
-

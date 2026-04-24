@@ -20,6 +20,27 @@ export const STANDALONE_MIN_BATCH_SIZE = 10
 export const STANDALONE_MAX_BATCH_SIZE = 100
 export const STANDALONE_DEFAULT_BATCH_SIZE = 50
 
+// Standalone request timeout model (must stay aligned with IPC defaults)
+const STANDALONE_TIMEOUT_BASE_MS = 10_000
+const STANDALONE_TIMEOUT_PER_ROW_MS = 1_000
+const STANDALONE_TIMEOUT_MIN_MS = 15_000
+const STANDALONE_TIMEOUT_MAX_MS = 120_000
+const STANDALONE_TIMEOUT_ESCALATED_MAX_MS = 600_000
+
+function computeStandaloneTimeoutMs(rowCount: number, timeoutEscalationLevel: number): number {
+  const baseRaw = STANDALONE_TIMEOUT_BASE_MS + STANDALONE_TIMEOUT_PER_ROW_MS * rowCount
+  const baseTimeout = Math.max(
+    STANDALONE_TIMEOUT_MIN_MS,
+    Math.min(STANDALONE_TIMEOUT_MAX_MS, baseRaw)
+  )
+  if (timeoutEscalationLevel <= 0) return baseTimeout
+  const multiplier = Math.min(2 ** timeoutEscalationLevel, 32)
+  return Math.max(
+    STANDALONE_TIMEOUT_MIN_MS,
+    Math.min(STANDALONE_TIMEOUT_ESCALATED_MAX_MS, Math.round(baseTimeout * multiplier))
+  )
+}
+
 // Re-export for backward compatibility
 export { BatchSizeAdapter } from '@/importer/batchSizeAdapter'
 
@@ -165,6 +186,7 @@ async function executeLoadBatch(
   header: string[],
   rows: ParsedRow[],
   mapping: MappingConfig,
+  timeoutEscalationLevel: number,
   signal?: AbortSignal
 ): Promise<{ ok: boolean; results: BatchResult[]; errorRowIndices?: Set<number> }> {
   if (signal?.aborted) {
@@ -181,7 +203,8 @@ async function executeLoadBatch(
     db,
     model,
     header,
-    rows: loadRows
+    rows: loadRows,
+    timeoutMs: computeStandaloneTimeoutMs(rows.length, timeoutEscalationLevel),
   })
 
   if (!response.ok) {
@@ -316,6 +339,7 @@ async function executeWithAdaptiveRetry(
   depth: number = 0,
   initialBatchSize: number,
   retryDepth: number = DEFAULT_RETRY_DEPTH,
+  timeoutEscalationLevel: number = 0,
   signal?: AbortSignal,
   hints?: AdaptiveRetryHints
 ): Promise<BatchResult[]> {
@@ -329,7 +353,16 @@ async function executeWithAdaptiveRetry(
   let isConcurrencyFallthrough = false
   for (let attempt = 0; ; attempt++) {
     try {
-      result = await executeLoadBatch(baseUrl, db, model, header, rows, mapping, signal)
+      result = await executeLoadBatch(
+        baseUrl,
+        db,
+        model,
+        header,
+        rows,
+        mapping,
+        timeoutEscalationLevel,
+        signal
+      )
       break // no concurrency error — proceed
     } catch (err) {
       if (err instanceof ConcurrencyBatchError) {
@@ -452,7 +485,7 @@ async function executeWithAdaptiveRetry(
     const chunk = rowsToRetry.slice(i, i + nextChunkSize)
     const chunkResults = await executeWithAdaptiveRetry(
       baseUrl, db, model, header, chunk, mapping,
-      depth + 1, initialBatchSize, retryDepth, signal, hints
+      depth + 1, initialBatchSize, retryDepth, timeoutEscalationLevel, signal, hints
     )
     retryResults.push(...chunkResults)
   }
@@ -471,7 +504,8 @@ export async function executeStandaloneBatch(
   dryRun?: boolean,
   signal?: AbortSignal,
   adapter?: BatchSizeAdapter,
-  retryDepth: number = DEFAULT_RETRY_DEPTH
+  retryDepth: number = DEFAULT_RETRY_DEPTH,
+  timeoutEscalationLevel: number = 0
 ): Promise<BatchResult[]> {
   if (dryRun) {
     throw new Error('Dry-run is not supported in standalone mode. Disable dry-run or install the ametras_fast_import addon.')
@@ -506,21 +540,21 @@ export async function executeStandaloneBatch(
       const chunkSize = adapter.currentSize
       const chunk = rows.slice(offset, offset + chunkSize)
 
-      let chunkResults: BatchResult[]
       const hints: AdaptiveRetryHints = { hadConcurrency: false }
-      try {
-        chunkResults = await executeWithAdaptiveRetry(
-          session.baseUrl, db, model, header, chunk, mapping, 0, chunkSize, retryDepth, signal, hints
-        )
-      } catch (err) {
-        if (err instanceof TimeoutBatchError && adapter) {
-          adapter.recordTimeout()
-          logger.import.warn(
-            `[standalone] Timeout — adapter stepped down to batch size ${adapter.currentSize}`
-          )
-        }
-        throw err
-      }
+      const chunkResults = await executeWithAdaptiveRetry(
+        session.baseUrl,
+        db,
+        model,
+        header,
+        chunk,
+        mapping,
+        0,
+        chunkSize,
+        retryDepth,
+        timeoutEscalationLevel,
+        signal,
+        hints
+      )
 
       // Update adapter based on server capacity, not data quality.
       // Concurrency errors (deadlocks/lock contention) → immediate step
@@ -543,7 +577,17 @@ export async function executeStandaloneBatch(
   } else {
     // No adapter — send all rows at once (original behavior)
     const results = await executeWithAdaptiveRetry(
-      session.baseUrl, db, model, header, rows, mapping, 0, rows.length, retryDepth, signal
+      session.baseUrl,
+      db,
+      model,
+      header,
+      rows,
+      mapping,
+      0,
+      rows.length,
+      retryDepth,
+      timeoutEscalationLevel,
+      signal
     )
     allResults.push(...results)
   }

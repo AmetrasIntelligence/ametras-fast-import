@@ -49,6 +49,8 @@ platform.configure({
       context.dryRun,
       context.signal,
       context.batchAdapter as BatchSizeAdapter | undefined,
+      undefined,
+      context.timeoutEscalationLevel ?? 0,
     ),
   maxWorkers: 3,
   batchSizeRange: { min: STANDALONE_MIN_BATCH_SIZE, max: STANDALONE_MAX_BATCH_SIZE },

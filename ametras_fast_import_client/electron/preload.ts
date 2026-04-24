@@ -12,6 +12,7 @@ interface StandaloneLoadParams {
   model: string
   header: string[]
   rows: (string | number | boolean | null)[][]
+  timeoutMs?: number
 }
 
 interface StandaloneLoadResult {

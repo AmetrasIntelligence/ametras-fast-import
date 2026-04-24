@@ -38,6 +38,7 @@ export const useRunStore = defineStore('run', () => {
   const engine = shallowRef<ImportEngine | null>(null)
   const logId = ref<number | null>(null)
   const connectionStatus = ref<ConnectionStatus>('online')
+  const timeoutMitigationActive = ref(false)
   const resumeLogId = ref<number | null>(null)
 
   // Transitional UI flags — true while an action is draining in-flight work
@@ -114,6 +115,7 @@ export const useRunStore = defineStore('run', () => {
   function initRun(filenames: string[], rowCounts: Map<string, number>, dryRun = false) {
     isHistoricalLog.value = false
     isDryRun.value = dryRun
+    timeoutMitigationActive.value = false
     const files: Record<string, FileProgress> = {}
     for (const f of filenames) {
       files[f] = {
@@ -181,6 +183,10 @@ export const useRunStore = defineStore('run', () => {
     state.value = newState
   }
 
+  function setTimeoutMitigationActive(active: boolean) {
+    timeoutMitigationActive.value = active
+  }
+
   function reset() {
     // Abort any running engine before clearing state to prevent leaked
     // timers, connection monitors, and worker pools from interfering
@@ -194,6 +200,7 @@ export const useRunStore = defineStore('run', () => {
     engine.value = null
     logId.value = null
     connectionStatus.value = 'online'
+    timeoutMitigationActive.value = false
     resumeLogId.value = null
     isInitiating.value = false
     isPausing.value = false
@@ -212,6 +219,7 @@ export const useRunStore = defineStore('run', () => {
   async function loadFromServerLog(id: number): Promise<boolean> {
     const log = await getImportLog(id)
     if (!log) return false
+    timeoutMitigationActive.value = false
 
     // Populate file progress
     const files: Record<string, FileProgress> = {}
@@ -267,6 +275,7 @@ export const useRunStore = defineStore('run', () => {
     engine,
     logId,
     connectionStatus,
+    timeoutMitigationActive,
     resumeLogId,
     isInitiating,
     isPausing,
@@ -290,6 +299,7 @@ export const useRunStore = defineStore('run', () => {
     skipFile,
     addError,
     setState,
+    setTimeoutMitigationActive,
     setEngine,
     reset,
     loadFromServerLog

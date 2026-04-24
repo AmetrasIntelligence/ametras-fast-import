@@ -13,6 +13,13 @@ export interface ParseOptions {
   hasHeader?: boolean
 }
 
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return
+  const error = new Error('Aborted')
+  error.name = 'AbortError'
+  throw error
+}
+
 /**
  * Build a standard Papa.parse config for header-based parsing.
  */
@@ -138,38 +145,55 @@ export async function parseCSVFull(
 export async function extractRowsByIndex(
   fileId: string,
   targetIndices: Set<number>,
-  options: ParseOptions = {}
+  options: ParseOptions = {},
+  signal?: AbortSignal
 ): Promise<ParsedRow[]> {
   let rowIndex = 0
   const matchedRows: ParsedRow[] = []
 
-  // Stream through file, collecting only matching rows
-  await window.api.files.streamChunks(fileId, 1000, (chunk) => {
-    if (chunk.done || !chunk.data) return
+  // Stream through file with backpressure so abort/skip can cancel extraction.
+  const streamId = await window.api.files.streamStart(fileId, 1000, options.encoding)
+  try {
+    while (true) {
+      throwIfAborted(signal)
 
-    const parsed = Papa.parse(chunk.data, buildParseConfig(options))
-
-    if (parsed.errors.length > 0) {
-      for (const err of parsed.errors) {
-        logger.csv.warn(`Parse error at row ${(err.row ?? -1) + rowIndex + 1}: ${err.message}`, {
-          type: err.type,
-          code: err.code,
-          row: err.row
-        })
+      const chunk = await window.api.files.streamNext(streamId)
+      if (chunk.error) {
+        throw new Error(chunk.error)
       }
-    }
 
-    for (const data of parsed.data as Record<string, string>[]) {
-      rowIndex++
-      if (targetIndices.has(rowIndex)) {
-        matchedRows.push({
-          index: rowIndex,
-          data,
-          raw: Object.values(data)
-        })
+      throwIfAborted(signal)
+
+      if (chunk.data) {
+        const parsed = Papa.parse(chunk.data, buildParseConfig(options))
+
+        if (parsed.errors.length > 0) {
+          for (const err of parsed.errors) {
+            logger.csv.warn(`Parse error at row ${(err.row ?? -1) + rowIndex + 1}: ${err.message}`, {
+              type: err.type,
+              code: err.code,
+              row: err.row
+            })
+          }
+        }
+
+        for (const data of parsed.data as Record<string, string>[]) {
+          rowIndex++
+          if (targetIndices.has(rowIndex)) {
+            matchedRows.push({
+              index: rowIndex,
+              data,
+              raw: Object.values(data)
+            })
+          }
+        }
       }
+
+      if (chunk.done) break
     }
-  })
+  } finally {
+    await window.api.files.streamClose(streamId).catch(() => {})
+  }
 
   return matchedRows
 }

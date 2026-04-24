@@ -54,13 +54,23 @@ export class BatchSizeAdapter {
     }
   }
 
-  /** Immediately step down one level — used for timeouts where the batch is clearly too large. */
-  recordTimeout(): void {
+  /**
+   * Immediately step down one level — used for timeouts where the batch is clearly too large.
+   * Returns true if the size actually changed (stepped down), false if already at minimum.
+   */
+  recordTimeout(): boolean {
     this.successfulRows = 0
     this.consecutiveFailures = 0
     if (this.levelIndex > 0) {
       this.levelIndex--
       this.currentSize = this.levels[this.levelIndex]
+      return true
     }
+    return false
+  }
+
+  /** True when the adapter is at the smallest possible batch size. */
+  get isAtMinimum(): boolean {
+    return this.levelIndex === 0
   }
 }

@@ -6,9 +6,22 @@ import {
 } from '../fixtures'
 import { ImportEngine } from '@/importer/engine'
 import { ImportState } from '@/importer/stateMachine'
+import { NetworkBatchError, TimeoutBatchError } from '@/importer/batchExecutor'
 import { useConfigStore } from '@/stores/config'
+import { useFilesStore } from '@/stores/files'
 import { useRunStore } from '@/stores/run'
 import { usePlatformStore, type ExecuteBatchFn } from '@/stores/platform'
+
+async function waitForCondition(
+  predicate: () => boolean,
+  { maxIterations = 200, tickMs = 5 } = {}
+): Promise<void> {
+  for (let i = 0; i < maxIterations; i++) {
+    if (predicate()) return
+    await new Promise(resolve => setTimeout(resolve, tickMs))
+  }
+  throw new Error('waitForCondition: timed out')
+}
 
 describe('ImportEngine Integration', () => {
   let pinia: Pinia
@@ -432,6 +445,267 @@ describe('ImportEngine Integration', () => {
 
       // Batches should never run concurrently
       expect(maxConcurrent).toBe(1)
+    })
+  })
+
+  describe('retry failed rows timeout handling', () => {
+    it('pauses retry processing until resumed', async () => {
+      const config = useConfigStore()
+      const run = useRunStore()
+      const filesStore = useFilesStore()
+
+      let firstRows: Array<{ index: number }> = []
+      let resolveFirstBatch: ((value: Array<{ ok: boolean; rowIndex: number; createdId: number }>) => void) | null = null
+      const firstBatchPromise = new Promise<Array<{ ok: boolean; rowIndex: number; createdId: number }>>((resolve) => {
+        resolveFirstBatch = resolve
+      })
+
+      const retryExecuteBatch = vi.fn<ExecuteBatchFn>(async (_model, rows) => {
+        if (retryExecuteBatch.mock.calls.length === 1) {
+          firstRows = rows
+          return firstBatchPromise
+        }
+        return rows.map((row, idx) => ({
+          ok: true,
+          rowIndex: row.index,
+          createdId: idx + 1,
+        }))
+      })
+
+      const platform = usePlatformStore()
+      platform.configure({
+        executeBatch: retryExecuteBatch,
+        maxWorkers: 4,
+        batchSizeRange: { min: 1, max: 1000 },
+        createBatchAdapter: null,
+        capabilities: {
+          dryRun: true,
+          rowValidation: true,
+          searchKeys: true,
+          serverLogs: false,
+          serverProfiles: true,
+          multipleWorkers: true,
+          lang: true,
+        },
+        limitations: [],
+      })
+
+      config.setSequence(['file1.csv', 'file2.csv'])
+      config.setFileMapping('file1.csv', {
+        filename: 'file1.csv',
+        model: 'res.partner',
+        fieldMappings: { name: 'name' },
+      })
+      config.setFileMapping('file2.csv', {
+        filename: 'file2.csv',
+        model: 'res.partner',
+        fieldMappings: { name: 'name' },
+      })
+
+      filesStore.addFiles([
+        { id: 'file-1', name: 'file1.csv', size: 16 },
+        { id: 'file-2', name: 'file2.csv', size: 16 },
+      ])
+
+      run.addError({
+        filename: 'file1.csv',
+        rowNumber: 1,
+        rawData: {},
+        error: 'Previous failure row 1',
+        timestamp: Date.now(),
+      })
+      run.addError({
+        filename: 'file2.csv',
+        rowNumber: 1,
+        rawData: {},
+        error: 'Previous failure row 1',
+        timestamp: Date.now(),
+      })
+
+      setupMockStream('name\nAlice')
+
+      currentEngine = new ImportEngine()
+      const retryPromise = currentEngine.retryFailedRows()
+
+      await waitForCondition(() => retryExecuteBatch.mock.calls.length === 1)
+      currentEngine.pause()
+      await waitForCondition(() => run.state === ImportState.PAUSED)
+
+      resolveFirstBatch?.(firstRows.map((row, idx) => ({
+        ok: true,
+        rowIndex: row.index,
+        createdId: idx + 1,
+      })))
+
+      await waitForCondition(() => run.progress.completedFiles === 1)
+      await new Promise(resolve => setTimeout(resolve, 30))
+      expect(retryExecuteBatch).toHaveBeenCalledTimes(1)
+
+      currentEngine.resume()
+      await retryPromise
+
+      expect(run.state).toBe(ImportState.COMPLETED)
+      expect(run.progress.completedFiles).toBe(2)
+      expect(retryExecuteBatch).toHaveBeenCalledTimes(2)
+    })
+
+    it('skips current retry file and continues with the next file', async () => {
+      const config = useConfigStore()
+      const run = useRunStore()
+      const filesStore = useFilesStore()
+
+      let callCount = 0
+      const retryExecuteBatch = vi.fn<ExecuteBatchFn>(async (_model, rows) => {
+        callCount++
+        if (callCount === 1) {
+          throw new NetworkBatchError('Connection lost', rows)
+        }
+        return rows.map((row, idx) => ({
+          ok: true,
+          rowIndex: row.index,
+          createdId: idx + 1,
+        }))
+      })
+
+      const platform = usePlatformStore()
+      platform.configure({
+        executeBatch: retryExecuteBatch,
+        maxWorkers: 4,
+        batchSizeRange: { min: 1, max: 1000 },
+        createBatchAdapter: null,
+        capabilities: {
+          dryRun: true,
+          rowValidation: true,
+          searchKeys: true,
+          serverLogs: false,
+          serverProfiles: true,
+          multipleWorkers: true,
+          lang: true,
+        },
+        limitations: [],
+      })
+
+      config.setSequence(['file1.csv', 'file2.csv'])
+      config.setFileMapping('file1.csv', {
+        filename: 'file1.csv',
+        model: 'res.partner',
+        fieldMappings: { name: 'name' },
+      })
+      config.setFileMapping('file2.csv', {
+        filename: 'file2.csv',
+        model: 'res.partner',
+        fieldMappings: { name: 'name' },
+      })
+
+      filesStore.addFiles([
+        { id: 'file-1', name: 'file1.csv', size: 16 },
+        { id: 'file-2', name: 'file2.csv', size: 16 },
+      ])
+
+      run.addError({
+        filename: 'file1.csv',
+        rowNumber: 1,
+        rawData: {},
+        error: 'Previous failure row 1',
+        timestamp: Date.now(),
+      })
+      run.addError({
+        filename: 'file2.csv',
+        rowNumber: 1,
+        rawData: {},
+        error: 'Previous failure row 1',
+        timestamp: Date.now(),
+      })
+
+      setupMockStream('name\nAlice')
+
+      currentEngine = new ImportEngine()
+      const retryPromise = currentEngine.retryFailedRows()
+
+      await waitForCondition(() => run.state === ImportState.PAUSED)
+      currentEngine.skipCurrentFile()
+      await retryPromise
+
+      expect(run.state).toBe(ImportState.COMPLETED)
+      expect(run.progress.completedFiles).toBe(2)
+      expect(run.progress.files['file1.csv'].skipped).toBe(true)
+      expect(run.progress.files['file2.csv'].successCount).toBe(1)
+      expect(run.timeoutMitigationActive).toBe(false)
+    })
+
+    it('does not duplicate unsafe timeout failures when all rows are non-idempotent', async () => {
+      const config = useConfigStore()
+      const run = useRunStore()
+      const filesStore = useFilesStore()
+
+      const timeoutExecuteBatch = vi.fn<ExecuteBatchFn>(async (_model, rows) => {
+        throw new TimeoutBatchError('Request timed out', rows)
+      })
+
+      const platform = usePlatformStore()
+      platform.configure({
+        executeBatch: timeoutExecuteBatch,
+        maxWorkers: 4,
+        batchSizeRange: { min: 1, max: 1000 },
+        createBatchAdapter: null,
+        capabilities: {
+          dryRun: true,
+          rowValidation: true,
+          searchKeys: false,
+          serverLogs: false,
+          serverProfiles: true,
+          multipleWorkers: true,
+          lang: true,
+        },
+        limitations: [],
+      })
+
+      config.setSequence(['partners.csv'])
+      config.setFileMapping('partners.csv', {
+        filename: 'partners.csv',
+        model: 'res.partner',
+        fieldMappings: { name: 'name' },
+      })
+
+      filesStore.addFiles([{ id: 'file-1', name: 'partners.csv', size: 32 }])
+
+      // Seed previous row-level errors so retryFailedRows() has work to do.
+      run.addError({
+        filename: 'partners.csv',
+        rowNumber: 1,
+        rawData: {},
+        error: 'Previous failure row 1',
+        timestamp: Date.now(),
+      })
+      run.addError({
+        filename: 'partners.csv',
+        rowNumber: 2,
+        rawData: {},
+        error: 'Previous failure row 2',
+        timestamp: Date.now(),
+      })
+
+      setupMockStream('name\nAlice\nBob')
+
+      currentEngine = new ImportEngine()
+      await currentEngine.retryFailedRows()
+
+      expect(run.state).toBe(ImportState.COMPLETED)
+      expect(timeoutExecuteBatch).toHaveBeenCalledTimes(1)
+      expect(run.timeoutMitigationActive).toBe(false)
+
+      const fileProgress = run.progress.files['partners.csv']
+      expect(fileProgress?.processedRows).toBe(2)
+      expect(fileProgress?.successCount).toBe(0)
+      expect(fileProgress?.failedCount).toBe(2)
+
+      const rowErrors = run.errors
+        .filter(e => e.filename === 'partners.csv' && e.rowNumber > 0)
+        .map(e => e.rowNumber)
+        .sort((a, b) => a - b)
+
+      expect(rowErrors).toEqual([1, 2])
+      expect(run.errors.filter(e => e.filename === 'partners.csv' && e.rowNumber > 0)).toHaveLength(2)
     })
   })
 

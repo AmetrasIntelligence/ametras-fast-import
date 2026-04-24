@@ -86,8 +86,12 @@ const LOAD_TIMEOUT_BASE_MS = 10_000   // 10s base (network round-trip + ORM setu
 const LOAD_TIMEOUT_PER_ROW_MS = 1_000 // 1s per row (transactional load is heavier)
 const LOAD_TIMEOUT_MIN_MS = 15_000    // 15s floor (protects slow individual rows)
 const LOAD_TIMEOUT_MAX_MS = 120_000   // 120s cap (prevents unbounded waits)
+const LOAD_TIMEOUT_ESCALATED_MAX_MS = 600_000 // 10m cap for timeout escalation mode
 
-function computeLoadTimeout(rowCount: number): number {
+function computeLoadTimeout(rowCount: number, timeoutOverrideMs?: number): number {
+  if (typeof timeoutOverrideMs === 'number' && Number.isFinite(timeoutOverrideMs) && timeoutOverrideMs > 0) {
+    return Math.max(LOAD_TIMEOUT_MIN_MS, Math.min(LOAD_TIMEOUT_ESCALATED_MAX_MS, Math.round(timeoutOverrideMs)))
+  }
   const raw = LOAD_TIMEOUT_BASE_MS + LOAD_TIMEOUT_PER_ROW_MS * rowCount
   return Math.max(LOAD_TIMEOUT_MIN_MS, Math.min(LOAD_TIMEOUT_MAX_MS, raw))
 }
@@ -98,6 +102,7 @@ interface LoadParams {
   model: string
   header: string[]
   rows: (string | number | boolean | null)[][]
+  timeoutMs?: number
 }
 
 interface LoadResult {
@@ -130,7 +135,7 @@ ipcMain.handle('standalone:load', async (
   _event,
   payload: LoadParams
 ): Promise<LoadResult> => {
-  const { baseUrl, db, model, header, rows } = payload
+  const { baseUrl, db, model, header, rows, timeoutMs } = payload
 
   // Validate model name to prevent injection via crafted model names
   if (!model || !ODOO_MODEL_NAME_RE.test(model)) {
@@ -163,7 +168,7 @@ ipcMain.handle('standalone:load', async (
         },
         id: Date.now()
       }),
-      signal: AbortSignal.timeout(computeLoadTimeout(rows.length))
+      signal: AbortSignal.timeout(computeLoadTimeout(rows.length, timeoutMs))
     })
 
     if (!response.ok) {

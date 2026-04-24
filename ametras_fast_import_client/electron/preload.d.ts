@@ -9,6 +9,7 @@ interface StandaloneLoadParams {
     model: string;
     header: string[];
     rows: (string | number | boolean | null)[][];
+    timeoutMs?: number;
 }
 interface StandaloneLoadResult {
     ok: boolean;
@@ -104,6 +105,7 @@ interface OdooPayload {
     db?: string;
     endpoint: string;
     params: Record<string, unknown>;
+    timeout?: number;
 }
 interface AuthParams {
     baseUrl: string;

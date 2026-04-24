@@ -17,7 +17,12 @@ export type ExecuteBatchFn = (
   model: string,
   rows: ParsedRow[],
   options: { fieldMappings: Record<string, string>; searchKeys?: string[]; strict?: boolean },
-  context: { dryRun?: boolean; signal?: AbortSignal; batchAdapter?: unknown }
+  context: {
+    dryRun?: boolean
+    signal?: AbortSignal
+    batchAdapter?: unknown
+    timeoutEscalationLevel?: number
+  }
 ) => Promise<BatchResult[]>
 
 export interface PlatformConfig {

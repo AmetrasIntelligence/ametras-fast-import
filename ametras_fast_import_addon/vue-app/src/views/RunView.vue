@@ -262,6 +262,21 @@ function viewResults() {
       </div>
     </div>
 
+    <!-- Timeout Mitigation Banner -->
+    <div
+      v-if="run.timeoutMitigationActive && !run.isWaitingForConnection"
+      class="alert alert-info d-flex align-items-center gap-3 mb-0"
+      role="alert"
+    >
+      <div class="spinner-border spinner-border-sm text-info" role="status">
+        <span class="visually-hidden">{{ $t('run.timeoutMitigationTitle') }}</span>
+      </div>
+      <div>
+        <strong>{{ $t('run.timeoutMitigationTitle') }}</strong>
+        <div class="small">{{ $t('run.timeoutMitigationDetail') }}</div>
+      </div>
+    </div>
+
     <!-- Init Error -->
     <Card v-if="initError" class="p-4">
       <div class="alert alert-danger mb-0">

@@ -198,6 +198,8 @@
     "connectionLost": "Warte auf Serververbindung...",
     "connectionLostDetail": "Der Server ist nicht erreichbar. Der Import wird automatisch fortgesetzt, wenn die Verbindung wiederhergestellt ist.",
     "reconnecting": "Verbindung wird geprüft...",
+    "timeoutMitigationTitle": "Server-Timeouts werden erkannt",
+    "timeoutMitigationDetail": "Die Stapelgröße wird reduziert und das Timeout erhöht. Bitte haben Sie Geduld.",
     "fileProgress": "{completed} / {total} Dateien",
     "tryAgain": "Erneut versuchen",
     "startupTimeout": "Import-Start hat das Zeitlimit überschritten (90s). Der Server ist möglicherweise langsam oder ein Netzwerkaufruf hängt. Bitte erneut versuchen."
