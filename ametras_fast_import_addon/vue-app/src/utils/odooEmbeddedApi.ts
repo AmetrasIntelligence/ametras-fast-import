@@ -9,7 +9,11 @@ const _fileMap = new Map<string, File>()
 
 // Client-side stream state for stateless chunk endpoint
 const _streamState = new Map<string, {
-  fileId: string; chunkLines: number; encoding?: string; offset: number
+  fileId: string
+  chunkLines: number
+  encoding?: string
+  offset: number
+  hasHeader: boolean
 }>()
 
 let _idCounter = 0
@@ -153,9 +157,9 @@ export function installOdooEmbeddedApi(): void {
         }
       },
 
-      streamStart: async (id, chunkLines, encoding) => {
+      streamStart: async (id, chunkLines, encoding, hasHeader = true) => {
         const streamId = `local:${++_idCounter}`
-        _streamState.set(streamId, { fileId: id, chunkLines, encoding, offset: 0 })
+        _streamState.set(streamId, { fileId: id, chunkLines, encoding, offset: 0, hasHeader })
         return streamId
       },
 
@@ -169,6 +173,7 @@ export function installOdooEmbeddedApi(): void {
             chunk_lines: state.chunkLines,
             offset: state.offset,
             encoding: state.encoding,
+            has_header: state.hasHeader,
           },
         )
         state.offset += state.chunkLines

@@ -36,7 +36,14 @@ const pinia = createPinia()
 // Import session store for navigation guard
 import { useSessionStore } from '@/stores/session'
 import { usePlatformStore } from '@/stores/platform'
-import { executeStandaloneBatch, BatchSizeAdapter, STANDALONE_MIN_BATCH_SIZE, STANDALONE_MAX_BATCH_SIZE } from './standalone/executor'
+import { useConfigStore } from '@/stores/config'
+import {
+  executeStandaloneBatch,
+  BatchSizeAdapter,
+  STANDALONE_MIN_BATCH_SIZE,
+  STANDALONE_MAX_BATCH_SIZE,
+  STANDALONE_DEFAULT_BATCH_SIZE,
+} from './standalone/executor'
 
 // Configure platform for standalone/client mode
 const platform = usePlatformStore(pinia)
@@ -52,7 +59,7 @@ platform.configure({
       undefined,
       context.timeoutEscalationLevel ?? 0,
     ),
-  maxWorkers: 3,
+  maxWorkers: 1,
   batchSizeRange: { min: STANDALONE_MIN_BATCH_SIZE, max: STANDALONE_MAX_BATCH_SIZE },
   createBatchAdapter: (maxBatchSize: number) => new BatchSizeAdapter(maxBatchSize),
   capabilities: {
@@ -61,7 +68,7 @@ platform.configure({
     searchKeys: false,
     serverLogs: false,
     serverProfiles: false,
-    multipleWorkers: true,
+    multipleWorkers: false,
     lang: false,
   },
   limitations: [
@@ -71,8 +78,20 @@ platform.configure({
     'Dry-run validation not available',
     'Server-side import logs not available',
     'Resume interrupted imports not available',
+    'Parallel workers are limited to 1 for timeout stability',
   ],
 })
+
+const config = useConfigStore(pinia)
+if (config.settings.workers !== 1) {
+  config.setSettings({ workers: 1 })
+}
+if (
+  config.settings.batchSize < STANDALONE_MIN_BATCH_SIZE ||
+  config.settings.batchSize > STANDALONE_MAX_BATCH_SIZE
+) {
+  config.setSettings({ batchSize: STANDALONE_DEFAULT_BATCH_SIZE })
+}
 
 // Navigation guard: redirect to login if not authenticated
 router.beforeEach((to, _from, next) => {

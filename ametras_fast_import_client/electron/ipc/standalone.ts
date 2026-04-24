@@ -185,7 +185,13 @@ ipcMain.handle('standalone:load', async (
         return { ok: false, error: `HTTP ${status}: Too many requests`, errorCode: 'NETWORK_ERROR' }
       }
       if (status === 500) {
-        return { ok: false, error: `HTTP ${status}: Internal server error`, errorCode: 'NETWORK_ERROR' }
+        return {
+          ok: false,
+          error: `HTTP ${status}: Internal server error (commit state unknown)`,
+          // Treat as timeout-like uncertainty so the caller can apply
+          // idempotency-safe retry policy instead of blind network retry.
+          errorCode: 'TIMEOUT'
+        }
       }
       if (status === 502 || status === 503 || status === 504) {
         return { ok: false, error: `HTTP ${status}: Server unavailable`, errorCode: 'NETWORK_ERROR' }

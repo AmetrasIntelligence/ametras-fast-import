@@ -96,6 +96,13 @@ function failedIndicesFromErrorLog(
   return indices
 }
 
+const STANDALONE_TIMEOUT_RETRY_BUDGET_MS = 30 * 60 * 1000
+const ADDON_TIMEOUT_RETRY_BUDGET_MS = 10 * 60 * 1000
+const STANDALONE_TIMEOUT_RETRY_DELAY_BASE_MS = 1500
+const ADDON_TIMEOUT_RETRY_DELAY_BASE_MS = 500
+const TIMEOUT_RETRY_DELAY_MAX_MS = 30_000
+const TIMEOUT_RETRY_DELAY_SLICE_MS = 250
+
 export class ImportEngine {
   private stateMachine = new ImportStateMachine()
   private workerPool: WorkerPool | null = null
@@ -159,7 +166,7 @@ export class ImportEngine {
         const fp = resumeState.fileProgress[file.name]
         if (!fp) {
           // File not in progress — process all rows
-          const analysis = await analyzeCSV(file.id)
+          const analysis = await analyzeCSV(file.id, parseOptions)
           rowCounts.set(file.name, analysis.rowCount)
           continue
         }
@@ -184,7 +191,7 @@ export class ImportEngine {
     } else {
       // Normal mode: analyze files (streaming line count)
       for (const file of files) {
-        const analysis = await analyzeCSV(file.id)
+        const analysis = await analyzeCSV(file.id, parseOptions)
         rowCounts.set(file.name, analysis.rowCount)
       }
     }
@@ -420,7 +427,9 @@ export class ImportEngine {
     }
 
     // Create worker pool
-    const workers = Math.max(1, Math.min(platform.maxWorkers, settings.workers || 1))
+    // Standalone mode uses a single worker to reduce timeout pressure and lock contention.
+    const configuredWorkers = Math.max(1, Math.min(platform.maxWorkers, settings.workers || 1))
+    const workers = !platform.capabilities.searchKeys ? 1 : configuredWorkers
     this.workerPool = new WorkerPool(workers)
 
     this.workerPool.start(
@@ -453,7 +462,8 @@ export class ImportEngine {
             throw err
           }
         },
-        parseOptions
+        parseOptions,
+        this.fileOrRunSignal()
       )
     } else {
       for (let i = 0; i < rowSource.rows.length; i += effectiveBatchSize) {
@@ -522,10 +532,9 @@ export class ImportEngine {
     let authRetryCount = 0
     const MAX_NETWORK_RETRIES = 3
     let networkRetryCount = 0
-    // Consecutive timeouts at the adapter's minimum batch size.
-    // Reset whenever the adapter steps down (progress was made).
-    const MAX_TIMEOUTS_AT_MINIMUM = isStandaloneMode ? 8 : 2
-    const MAX_TIMEOUT_ESCALATION_LEVEL = isStandaloneMode ? 5 : 0
+    const MAX_TIMEOUT_ESCALATION_LEVEL = isStandaloneMode ? 6 : 2
+    const timeoutRetryBudgetMs = this.getTimeoutRetryBudgetMs(isStandaloneMode)
+    let timeoutMitigationStartedAt = 0
     let timeoutsAtMinimum = 0
     let timeoutEscalationLevel = 0
 
@@ -578,7 +587,7 @@ export class ImportEngine {
           }))
         }
         if (!(error instanceof TimeoutBatchError) && run.timeoutMitigationActive) {
-          run.setTimeoutMitigationActive(false)
+          this.clearTimeoutMitigationState()
         }
         // Auth error — pause and retry (re-auth may succeed after cooldown)
         if (error instanceof AuthBatchError) {
@@ -598,16 +607,14 @@ export class ImportEngine {
           // Fall through to shared reconnection logic below
         }
 
-        // Timeout error — server is slow, not down.
-        // The adapter steps down batch size automatically; keep retrying
-        // as long as the adapter can make progress. Only give up after
-        // consecutive timeouts at the minimum batch size.
-        //
-        // Standalone mode (transactional model.load): retrying without
-        // idempotency keys risks duplicates because the server may have
-        // committed the entire batch before the timeout fired.
-        // Addon mode (per-row savepoints): safe to retry regardless.
+        // Timeout error — degrade to slower, wait-first behavior before
+        // failing rows. Under pressure we keep reducing batch size,
+        // increasing timeout level, and backing off between retries.
         if (error instanceof TimeoutBatchError) {
+          if (timeoutMitigationStartedAt === 0) {
+            timeoutMitigationStartedAt = Date.now()
+          }
+
           if (isStandaloneMode) {
             run.setTimeoutMitigationActive(true)
             const assessment = assessTimeoutRetryIdempotency(batch.rows, mapping.fieldMappings)
@@ -620,7 +627,7 @@ export class ImportEngine {
                 logger.import.warn(
                   '[engine] Timeout in standalone mode without row-level idempotency keys — failing batch to avoid duplicates'
                 )
-                run.setTimeoutMitigationActive(false)
+                this.clearTimeoutMitigationState()
                 return batch.rows.map(row => ({
                   ok: false,
                   error: 'Request timed out. Some rows are missing valid id/.id values, so safe retry is not possible.',
@@ -643,22 +650,31 @@ export class ImportEngine {
                 error: 'Request timed out. Row is missing a valid id/.id value, so safe retry was skipped to avoid duplicates.',
                 rowIndex: row.index,
               }))
-              run.setTimeoutMitigationActive(false)
+              this.clearTimeoutMitigationState()
               return [...safeResults, ...unsafeResults].sort((a, b) => a.rowIndex - b.rowIndex)
             }
-
-            timeoutEscalationLevel = Math.min(
-              timeoutEscalationLevel + 1,
-              MAX_TIMEOUT_ESCALATION_LEVEL
-            )
           }
 
+          timeoutEscalationLevel = Math.min(
+            timeoutEscalationLevel + 1,
+            MAX_TIMEOUT_ESCALATION_LEVEL
+          )
           const adapter = this.batchSizeAdapter as BatchSizeAdapter | null
           const steppedDown = adapter?.recordTimeout() ?? false
+          const elapsedMs = Date.now() - timeoutMitigationStartedAt
 
           if (steppedDown) {
-            // Adapter made progress — reset counter and retry with smaller batches
             timeoutsAtMinimum = 0
+            this.updateTimeoutMitigationStatus(
+              isStandaloneMode ? 'standalone' : 'addon',
+              adapter,
+              batch.rows.length,
+              timeoutEscalationLevel,
+              timeoutsAtMinimum,
+              0,
+              elapsedMs,
+              timeoutRetryBudgetMs,
+            )
             logger.import.warn(
               `[engine] Timeout, adapter stepped down to ${adapter!.currentSize}. ` +
               (isStandaloneMode ? `Timeout escalation level ${timeoutEscalationLevel}. Retrying...` : 'Retrying...')
@@ -666,25 +682,47 @@ export class ImportEngine {
             continue
           }
 
-          // Already at minimum batch size
           timeoutsAtMinimum++
-          if (timeoutsAtMinimum >= MAX_TIMEOUTS_AT_MINIMUM) {
+          if (elapsedMs >= timeoutRetryBudgetMs) {
             logger.import.warn(
-              `[engine] Batch timed out ${timeoutsAtMinimum} times at minimum batch size — failing batch`
+              `[engine] Batch timed out at minimum batch size for ${Math.round(elapsedMs / 1000)}s ` +
+              `(budget ${Math.round(timeoutRetryBudgetMs / 1000)}s) — failing batch`
             )
-            run.setTimeoutMitigationActive(false)
+            this.clearTimeoutMitigationState()
             return batch.rows.map(row => ({
               ok: false,
-              error: `Timed out at minimum batch size: ${error.message}`,
+              error:
+                `Timed out after waiting ${Math.round(elapsedMs / 1000)}s at minimum batch size: ` +
+                `${error.message}`,
               rowIndex: row.index,
             }))
           }
-          logger.import.warn(
-            `[engine] Timeout at minimum batch size (${timeoutsAtMinimum}/${MAX_TIMEOUTS_AT_MINIMUM}), ` +
-            (isStandaloneMode
-              ? `timeout escalation level ${timeoutEscalationLevel}. Retrying...`
-              : 'retrying...')
+
+          const nextRetryDelayMs = Math.min(
+            this.computeTimeoutRetryDelayMs(
+              timeoutsAtMinimum,
+              timeoutEscalationLevel,
+              isStandaloneMode,
+            ),
+            Math.max(0, timeoutRetryBudgetMs - elapsedMs),
           )
+          this.updateTimeoutMitigationStatus(
+            isStandaloneMode ? 'standalone' : 'addon',
+            adapter,
+            batch.rows.length,
+            timeoutEscalationLevel,
+            timeoutsAtMinimum,
+            nextRetryDelayMs,
+            elapsedMs,
+            timeoutRetryBudgetMs,
+          )
+          logger.import.warn(
+            `[engine] Timeout at minimum batch size (${timeoutsAtMinimum}), ` +
+            `${Math.round(elapsedMs / 1000)}s elapsed/${Math.round(timeoutRetryBudgetMs / 1000)}s budget, ` +
+            `waiting ${Math.round(nextRetryDelayMs / 1000)}s before retry ` +
+            `(timeout escalation level ${timeoutEscalationLevel}).`
+          )
+          await this.waitTimeoutRetryDelay(nextRetryDelayMs, this.fileOrRunSignal())
           continue
         }
 
@@ -1058,8 +1096,9 @@ export class ImportEngine {
         let authRetryCount = 0
         const MAX_NETWORK_RETRIES = 3
         let networkRetryCount = 0
-        const MAX_TIMEOUTS_AT_MINIMUM = isStandaloneMode ? 8 : 2
-        const MAX_TIMEOUT_ESCALATION_LEVEL = isStandaloneMode ? 5 : 0
+        const MAX_TIMEOUT_ESCALATION_LEVEL = isStandaloneMode ? 6 : 2
+        const timeoutRetryBudgetMs = this.getTimeoutRetryBudgetMs(isStandaloneMode)
+        let timeoutMitigationStartedAt = 0
         let timeoutsAtMinimum = 0
         let timeoutEscalationLevel = 0
         let rowsToProcess = rows
@@ -1094,14 +1133,14 @@ export class ImportEngine {
             break
           } catch (error) {
             if (this.skipFileController?.signal.aborted) {
-              throw new Error('File skipped')
+              throw Object.assign(new Error('File skipped'), { cause: error })
             }
             if (this.abortController?.signal.aborted) {
               run.setTimeoutMitigationActive(false)
               break
             }
             if (!(error instanceof TimeoutBatchError) && run.timeoutMitigationActive) {
-              run.setTimeoutMitigationActive(false)
+              this.clearTimeoutMitigationState()
             }
             // Auth error — pause and retry (re-auth may succeed after cooldown)
             if (error instanceof AuthBatchError) {
@@ -1122,11 +1161,13 @@ export class ImportEngine {
               // Fall through to shared reconnection logic below
             }
 
-            // Timeout error — server is slow, not down.
-            // The adapter steps down batch size automatically; keep retrying
-            // as long as the adapter can make progress.
-            // Standalone mode: require idempotency keys (same as executeBatchWithMapping).
+            // Timeout error — degrade to slower, wait-first behavior before
+            // failing rows.
             if (error instanceof TimeoutBatchError) {
+              if (timeoutMitigationStartedAt === 0) {
+                timeoutMitigationStartedAt = Date.now()
+              }
+
               if (isStandaloneMode) {
                 run.setTimeoutMitigationActive(true)
                 const assessment = assessTimeoutRetryIdempotency(rowsToProcess, mapping.fieldMappings)
@@ -1148,7 +1189,7 @@ export class ImportEngine {
                       '[retry] Timeout in standalone mode without row-level idempotency keys — failing batch to avoid duplicates'
                     )
                     results = [...unsafeTimeoutResults]
-                    run.setTimeoutMitigationActive(false)
+                    this.clearTimeoutMitigationState()
                     break
                   }
 
@@ -1158,18 +1199,28 @@ export class ImportEngine {
                   )
                   rowsToProcess = assessment.safeRows
                 }
-
-                timeoutEscalationLevel = Math.min(
-                  timeoutEscalationLevel + 1,
-                  MAX_TIMEOUT_ESCALATION_LEVEL
-                )
               }
 
+              timeoutEscalationLevel = Math.min(
+                timeoutEscalationLevel + 1,
+                MAX_TIMEOUT_ESCALATION_LEVEL
+              )
               const adapter = retryAdapter as BatchSizeAdapter | undefined
               const steppedDown = adapter?.recordTimeout() ?? false
+              const elapsedMs = Date.now() - timeoutMitigationStartedAt
 
               if (steppedDown) {
                 timeoutsAtMinimum = 0
+                this.updateTimeoutMitigationStatus(
+                  isStandaloneMode ? 'standalone' : 'addon',
+                  adapter,
+                  rowsToProcess.length,
+                  timeoutEscalationLevel,
+                  timeoutsAtMinimum,
+                  0,
+                  elapsedMs,
+                  timeoutRetryBudgetMs,
+                )
                 logger.import.warn(
                   `[retry] Timeout, adapter stepped down to ${adapter!.currentSize}. ` +
                   (isStandaloneMode ? `Timeout escalation level ${timeoutEscalationLevel}. Retrying...` : 'Retrying...')
@@ -1178,24 +1229,47 @@ export class ImportEngine {
               }
 
               timeoutsAtMinimum++
-              if (timeoutsAtMinimum >= MAX_TIMEOUTS_AT_MINIMUM) {
+              if (elapsedMs >= timeoutRetryBudgetMs) {
                 logger.import.warn(
-                  `[retry] Timed out ${timeoutsAtMinimum} times at minimum batch size — failing batch`
+                  `[retry] Timed out at minimum batch size for ${Math.round(elapsedMs / 1000)}s ` +
+                  `(budget ${Math.round(timeoutRetryBudgetMs / 1000)}s) — failing batch`
                 )
                 results = rowsToProcess.map(row => ({
                   ok: false,
-                  error: `Timed out at minimum batch size: ${error.message}`,
+                  error:
+                    `Timed out after waiting ${Math.round(elapsedMs / 1000)}s at minimum batch size: ` +
+                    `${error.message}`,
                   rowIndex: row.index,
                 }))
-                run.setTimeoutMitigationActive(false)
+                this.clearTimeoutMitigationState()
                 break
               }
-              logger.import.warn(
-                `[retry] Timeout at minimum batch size (${timeoutsAtMinimum}/${MAX_TIMEOUTS_AT_MINIMUM}), ` +
-                (isStandaloneMode
-                  ? `timeout escalation level ${timeoutEscalationLevel}. Retrying...`
-                  : 'retrying...')
+
+              const nextRetryDelayMs = Math.min(
+                this.computeTimeoutRetryDelayMs(
+                  timeoutsAtMinimum,
+                  timeoutEscalationLevel,
+                  isStandaloneMode,
+                ),
+                Math.max(0, timeoutRetryBudgetMs - elapsedMs),
               )
+              this.updateTimeoutMitigationStatus(
+                isStandaloneMode ? 'standalone' : 'addon',
+                adapter,
+                rowsToProcess.length,
+                timeoutEscalationLevel,
+                timeoutsAtMinimum,
+                nextRetryDelayMs,
+                elapsedMs,
+                timeoutRetryBudgetMs,
+              )
+              logger.import.warn(
+                `[retry] Timeout at minimum batch size (${timeoutsAtMinimum}), ` +
+                `${Math.round(elapsedMs / 1000)}s elapsed/${Math.round(timeoutRetryBudgetMs / 1000)}s budget, ` +
+                `waiting ${Math.round(nextRetryDelayMs / 1000)}s before retry ` +
+                `(timeout escalation level ${timeoutEscalationLevel}).`
+              )
+              await this.waitTimeoutRetryDelay(nextRetryDelayMs, this.fileOrRunSignal())
               continue
             }
 
@@ -1364,6 +1438,86 @@ export class ImportEngine {
     }
     } finally {
       await this.setSessionPinned(false)
+    }
+  }
+
+  private getTimeoutRetryBudgetMs(isStandaloneMode: boolean): number {
+    return isStandaloneMode ? STANDALONE_TIMEOUT_RETRY_BUDGET_MS : ADDON_TIMEOUT_RETRY_BUDGET_MS
+  }
+
+  private computeTimeoutRetryDelayMs(
+    retriesAtMinimum: number,
+    timeoutEscalationLevel: number,
+    isStandaloneMode: boolean,
+  ): number {
+    const base = isStandaloneMode
+      ? STANDALONE_TIMEOUT_RETRY_DELAY_BASE_MS
+      : ADDON_TIMEOUT_RETRY_DELAY_BASE_MS
+    const attemptFactor = Math.max(1, Math.pow(2, Math.max(0, retriesAtMinimum - 1)))
+    const escalationFactor = isStandaloneMode ? Math.max(1, timeoutEscalationLevel + 1) : 1
+    return Math.min(
+      TIMEOUT_RETRY_DELAY_MAX_MS,
+      Math.round(base * attemptFactor * escalationFactor),
+    )
+  }
+
+  private updateTimeoutMitigationStatus(
+    mode: 'standalone' | 'addon',
+    adapter: BatchSizeAdapter | null | undefined,
+    fallbackBatchSize: number,
+    timeoutEscalationLevel: number,
+    retriesAtMinimumBatch: number,
+    nextRetryDelayMs: number,
+    elapsedMs: number,
+    budgetMs: number,
+  ): void {
+    const run = useRunStore()
+    run.updateTimeoutMitigationStatus({
+      mode,
+      currentBatchSize: Math.max(1, adapter?.currentSize ?? fallbackBatchSize),
+      timeoutEscalationLevel,
+      retriesAtMinimumBatch,
+      nextRetryDelayMs: Math.max(0, nextRetryDelayMs),
+      elapsedMs: Math.max(0, elapsedMs),
+      budgetMs: Math.max(0, budgetMs),
+    })
+  }
+
+  private clearTimeoutMitigationState(): void {
+    const run = useRunStore()
+    if (run.timeoutMitigationActive || run.timeoutMitigationStatus) {
+      run.setTimeoutMitigationActive(false)
+    }
+  }
+
+  private async waitTimeoutRetryDelay(delayMs: number, signal?: AbortSignal): Promise<void> {
+    if (delayMs <= 0) return
+    const endAt = Date.now() + delayMs
+
+    while (Date.now() < endAt) {
+      if (signal?.aborted) return
+
+      await this.waitWhilePaused(signal)
+      if (signal?.aborted) return
+
+      const remainingMs = endAt - Date.now()
+      if (remainingMs <= 0) return
+
+      await new Promise<void>((resolve) => {
+        const onAbort = () => {
+          clearTimeout(timer)
+          resolve()
+        }
+        const timer = setTimeout(() => {
+          if (signal) {
+            signal.removeEventListener('abort', onAbort)
+          }
+          resolve()
+        }, Math.min(TIMEOUT_RETRY_DELAY_SLICE_MS, remainingMs))
+        if (signal) {
+          signal.addEventListener('abort', onAbort, { once: true })
+        }
+      })
     }
   }
 

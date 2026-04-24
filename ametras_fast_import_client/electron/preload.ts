@@ -44,7 +44,7 @@ interface ElectronAPI {
     countLines: (id: string) => Promise<number>
     streamChunks: (id: string, chunkLines: number, onChunk: (chunk: ChunkData) => void, encoding?: string) => Promise<void>
     // Async streaming with backpressure support
-    streamStart: (id: string, chunkLines: number, encoding?: string) => Promise<string>
+    streamStart: (id: string, chunkLines: number, encoding?: string, hasHeader?: boolean) => Promise<string>
     streamNext: (streamId: string) => Promise<ChunkData>
     streamClose: (streamId: string) => Promise<void>
     cleanupStreams: () => Promise<void>
@@ -150,8 +150,8 @@ contextBridge.exposeInMainWorld('api', {
       })
     },
     // Async streaming with backpressure - allows awaiting each batch
-    streamStart: (id: string, chunkLines: number, encoding?: string) =>
-      ipcRenderer.invoke('files:streamStart', id, chunkLines, encoding),
+    streamStart: (id: string, chunkLines: number, encoding?: string, hasHeader: boolean = true) =>
+      ipcRenderer.invoke('files:streamStart', id, chunkLines, encoding, hasHeader),
     streamNext: (streamId: string) =>
       ipcRenderer.invoke('files:streamNext', streamId),
     streamClose: (streamId: string) =>

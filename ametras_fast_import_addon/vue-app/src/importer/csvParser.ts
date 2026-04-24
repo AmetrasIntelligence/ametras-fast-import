@@ -41,17 +41,25 @@ export async function parseCSVBatched(
   fileId: string,
   batchSize: number,
   onBatch: (rows: ParsedRow[]) => Promise<void>,
-  options: ParseOptions = {}
+  options: ParseOptions = {},
+  signal?: AbortSignal
 ): Promise<{ totalRows: number }> {
   let rowIndex = 0
 
   // Start async stream with backpressure support
-  const streamId = await window.api.files.streamStart(fileId, batchSize, options.encoding)
+  const streamId = await window.api.files.streamStart(
+    fileId,
+    batchSize,
+    options.encoding,
+    options.hasHeader ?? true
+  )
 
   try {
     while (true) {
+      throwIfAborted(signal)
       // Request next chunk - stream pauses until we're ready
       const chunk = await window.api.files.streamNext(streamId)
+      throwIfAborted(signal)
 
       if (chunk.error) {
         throw new Error(chunk.error)
@@ -89,6 +97,7 @@ export async function parseCSVBatched(
 
         // Process batch - backpressure: we won't request next chunk until done
         if (batch.length > 0) {
+          throwIfAborted(signal)
           await onBatch(batch)
         }
       }
@@ -152,7 +161,12 @@ export async function extractRowsByIndex(
   const matchedRows: ParsedRow[] = []
 
   // Stream through file with backpressure so abort/skip can cancel extraction.
-  const streamId = await window.api.files.streamStart(fileId, 1000, options.encoding)
+  const streamId = await window.api.files.streamStart(
+    fileId,
+    1000,
+    options.encoding,
+    options.hasHeader ?? true
+  )
   try {
     while (true) {
       throwIfAborted(signal)
@@ -201,7 +215,7 @@ export async function extractRowsByIndex(
 /**
  * Analyze CSV structure using only first 10KB - memory efficient.
  */
-export async function analyzeCSV(fileId: string): Promise<{
+export async function analyzeCSV(fileId: string, options: ParseOptions = {}): Promise<{
   headers: string[]
   rowCount: number
   sampleRows: Record<string, string>[]
@@ -211,21 +225,22 @@ export async function analyzeCSV(fileId: string): Promise<{
 }> {
   // Read only first 10KB for analysis
   const sample = await window.api.files.readHead(fileId, 10240)
+  const hasHeader = options.hasHeader ?? true
 
   const parsed = Papa.parse(sample, {
-    header: true,
+    header: hasHeader,
     skipEmptyLines: true,
     preview: 5
   })
 
-  const headers = parsed.meta.fields || []
+  const headers = (parsed.meta.fields || []) as string[]
 
   // Count lines efficiently via streaming
   const lineCount = await window.api.files.countLines(fileId)
 
   return {
     headers,
-    rowCount: Math.max(0, lineCount - 1), // Subtract header
+    rowCount: hasHeader ? Math.max(0, lineCount - 1) : lineCount,
     sampleRows: parsed.data as Record<string, string>[],
     delimiter: parsed.meta.delimiter,
     hasIdColumn: headers.includes('id'),

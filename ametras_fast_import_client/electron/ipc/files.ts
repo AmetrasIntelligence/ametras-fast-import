@@ -79,6 +79,23 @@ function stripBOM(content: string): string {
 }
 
 /**
+ * Update CSV quote state for a single line.
+ * Handles escaped quotes ("") and toggles only on unescaped ".
+ */
+function updateQuoteState(line: string, inQuotedField: boolean): boolean {
+  let quoted = inQuotedField
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] !== '"') continue
+    if (i + 1 < line.length && line[i + 1] === '"') {
+      i++
+      continue
+    }
+    quoted = !quoted
+  }
+  return quoted
+}
+
+/**
  * Detect line ending style from content sample.
  */
 function _detectLineEnding(content: string): string {
@@ -279,12 +296,16 @@ ipcMain.handle('files:streamChunks', async (event, id: string, chunkLines: numbe
 const activeStreams = new Map<string, {
   rl: readline.Interface
   headerLine: string
+  hasHeader: boolean
+  firstChunkPending: boolean
   buffer: string[][]
   done: boolean
   error?: string
 }>()
 
-ipcMain.handle('files:streamStart', async (_event, id: string, chunkLines: number, encoding?: string) => {
+ipcMain.handle(
+  'files:streamStart',
+  async (_event, id: string, chunkLines: number, encoding?: string, hasHeader: boolean = true) => {
   const filePath = fileRegistry.get(id)
   if (!filePath) throw new Error(`Unknown file ID: ${id}`)
 
@@ -296,6 +317,8 @@ ipcMain.handle('files:streamStart', async (_event, id: string, chunkLines: numbe
   const state = {
     rl,
     headerLine: '',
+    hasHeader,
+    firstChunkPending: true,
     buffer: [] as string[][],
     done: false,
     error: undefined as string | undefined
@@ -304,6 +327,8 @@ ipcMain.handle('files:streamStart', async (_event, id: string, chunkLines: numbe
   let currentChunk: string[] = []
   let isFirstLine = true
   let bomStripped = false
+  let inQuotedField = false
+  let completedRowsInChunk = 0
 
   rl.on('line', (line) => {
     let processedLine = line
@@ -312,15 +337,29 @@ ipcMain.handle('files:streamStart', async (_event, id: string, chunkLines: numbe
     if (isFirstLine && !bomStripped) {
       processedLine = stripBOM(line)
       bomStripped = true
-      state.headerLine = processedLine
+    }
+
+    if (isFirstLine) {
       isFirstLine = false
+      if (state.hasHeader) {
+        state.headerLine = processedLine
+        currentChunk.push(processedLine)
+        return
+      }
     }
 
     currentChunk.push(processedLine)
+    inQuotedField = updateQuoteState(processedLine, inQuotedField)
+    if (!inQuotedField) {
+      completedRowsInChunk++
+    }
 
-    if (currentChunk.length >= chunkLines) {
+    // Only split when we are at a record boundary to avoid breaking
+    // multiline quoted CSV cells across chunks.
+    if (completedRowsInChunk >= chunkLines && !inQuotedField) {
       state.buffer.push(currentChunk)
       currentChunk = []
+      completedRowsInChunk = 0
       // Pause stream if buffer gets too large (backpressure)
       if (state.buffer.length >= 3) {
         rl.pause()
@@ -361,8 +400,15 @@ ipcMain.handle('files:streamNext', async (_event, streamId: string) => {
 
   if (state.buffer.length > 0) {
     const chunk = state.buffer.shift()!
-    const isFirstChunk = chunk[0] === state.headerLine
-    const data = isFirstChunk ? chunk.join('\n') : state.headerLine + '\n' + chunk.join('\n')
+    const chunkText = chunk.join('\n')
+    let data = chunkText
+    if (state.hasHeader) {
+      if (state.firstChunkPending) {
+        state.firstChunkPending = false
+      } else {
+        data = state.headerLine ? `${state.headerLine}\n${chunkText}` : chunkText
+      }
+    }
 
     // Resume stream if buffer low
     if (state.buffer.length < 2) {

@@ -5,7 +5,7 @@
  *
  * Features:
  * - Adaptive retry: splits failed batches to isolate failing rows
- * - Batch size restricted to 10-200 for stability
+ * - Batch size restricted to 1-100 for stability
  */
 
 import { useSessionStore } from '@/stores/session'
@@ -16,7 +16,7 @@ import { BatchSizeAdapter } from '@/importer/batchSizeAdapter'
 import { logger } from '@/utils/logger'
 
 // Batch size constraints for standalone mode
-export const STANDALONE_MIN_BATCH_SIZE = 10
+export const STANDALONE_MIN_BATCH_SIZE = 1
 export const STANDALONE_MAX_BATCH_SIZE = 100
 export const STANDALONE_DEFAULT_BATCH_SIZE = 50
 
@@ -24,8 +24,8 @@ export const STANDALONE_DEFAULT_BATCH_SIZE = 50
 const STANDALONE_TIMEOUT_BASE_MS = 10_000
 const STANDALONE_TIMEOUT_PER_ROW_MS = 1_000
 const STANDALONE_TIMEOUT_MIN_MS = 15_000
-const STANDALONE_TIMEOUT_MAX_MS = 120_000
-const STANDALONE_TIMEOUT_ESCALATED_MAX_MS = 600_000
+const STANDALONE_TIMEOUT_MAX_MS = 300_000
+const STANDALONE_TIMEOUT_ESCALATED_MAX_MS = 900_000
 
 function computeStandaloneTimeoutMs(rowCount: number, timeoutEscalationLevel: number): number {
   const baseRaw = STANDALONE_TIMEOUT_BASE_MS + STANDALONE_TIMEOUT_PER_ROW_MS * rowCount
@@ -254,7 +254,6 @@ async function executeLoadBatch(
   }
 
   // Process results
-  const results: BatchResult[] = []
   const ids = response.ids || []
   const messages = response.messages || []
 
@@ -277,13 +276,27 @@ async function executeLoadBatch(
     )
   }
 
+  if (!idsAligned) {
+    const ambiguousError =
+      `Ambiguous model.load response: received ${ids.length} ids for ${rows.length} rows. ` +
+      'Retrying with smaller chunks to isolate row outcomes.'
+    return {
+      ok: false,
+      results: rows.map((row, idx) => ({
+        ok: false,
+        error: errorMap.get(idx) || ambiguousError,
+        rowIndex: row.index
+      })),
+      errorRowIndices: errorMap.size > 0 ? new Set(errorMap.keys()) : undefined
+    }
+  }
+
+  const results: BatchResult[] = []
   for (let i = 0; i < rows.length; i++) {
     const hasError = errorMap.has(i)
-    const createdId = idsAligned && i < ids.length ? ids[i] : undefined
-    const ok = !hasError && (idsAligned ? createdId !== undefined : ids.length > 0)
-
+    const createdId = i < ids.length ? ids[i] : undefined
     results.push({
-      ok,
+      ok: !hasError && createdId !== undefined,
       error: errorMap.get(i),
       rowIndex: rows[i].index,
       createdId
@@ -350,7 +363,6 @@ async function executeWithAdaptiveRetry(
 
   // Try the batch — with concurrency retry (backoff + jitter) before falling through to splitting
   let result: Awaited<ReturnType<typeof executeLoadBatch>>
-  let isConcurrencyFallthrough = false
   for (let attempt = 0; ; attempt++) {
     try {
       result = await executeLoadBatch(
@@ -383,7 +395,6 @@ async function executeWithAdaptiveRetry(
         logger.import.warn(
           `[standalone] Concurrency error persisted after ${CONCURRENCY_MAX_RETRIES} attempts, falling through to batch splitting`
         )
-        isConcurrencyFallthrough = true
         result = {
           ok: false,
           results: rows.map(row => ({ ok: false, error: err.message, rowIndex: row.index })),
@@ -420,12 +431,6 @@ async function executeWithAdaptiveRetry(
 
   // All rows known-bad — no point splitting further
   if (result.errorRowIndices && result.errorRowIndices.size >= rows.length) {
-    return result.results
-  }
-
-  // No per-row info and every result failed — systematic error, splitting won't help.
-  // Exception: concurrency errors are transient — smaller batches may succeed.
-  if (!isConcurrencyFallthrough && !result.errorRowIndices && result.results.every(r => !r.ok)) {
     return result.results
   }
 

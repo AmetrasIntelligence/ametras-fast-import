@@ -32,6 +32,16 @@ export interface ImportRowError {
   timestamp: number
 }
 
+export interface TimeoutMitigationStatus {
+  mode: 'standalone' | 'addon'
+  currentBatchSize: number
+  timeoutEscalationLevel: number
+  retriesAtMinimumBatch: number
+  nextRetryDelayMs: number
+  elapsedMs: number
+  budgetMs: number
+}
+
 export const useRunStore = defineStore('run', () => {
   const state = ref<ImportState>(ImportState.IDLE)
   const isDryRun = ref(false)
@@ -39,6 +49,7 @@ export const useRunStore = defineStore('run', () => {
   const logId = ref<number | null>(null)
   const connectionStatus = ref<ConnectionStatus>('online')
   const timeoutMitigationActive = ref(false)
+  const timeoutMitigationStatus = ref<TimeoutMitigationStatus | null>(null)
   const resumeLogId = ref<number | null>(null)
 
   // Transitional UI flags — true while an action is draining in-flight work
@@ -116,6 +127,7 @@ export const useRunStore = defineStore('run', () => {
     isHistoricalLog.value = false
     isDryRun.value = dryRun
     timeoutMitigationActive.value = false
+    timeoutMitigationStatus.value = null
     const files: Record<string, FileProgress> = {}
     for (const f of filenames) {
       files[f] = {
@@ -185,6 +197,14 @@ export const useRunStore = defineStore('run', () => {
 
   function setTimeoutMitigationActive(active: boolean) {
     timeoutMitigationActive.value = active
+    if (!active) {
+      timeoutMitigationStatus.value = null
+    }
+  }
+
+  function updateTimeoutMitigationStatus(status: TimeoutMitigationStatus) {
+    timeoutMitigationStatus.value = status
+    timeoutMitigationActive.value = true
   }
 
   function reset() {
@@ -201,6 +221,7 @@ export const useRunStore = defineStore('run', () => {
     logId.value = null
     connectionStatus.value = 'online'
     timeoutMitigationActive.value = false
+    timeoutMitigationStatus.value = null
     resumeLogId.value = null
     isInitiating.value = false
     isPausing.value = false
@@ -220,6 +241,7 @@ export const useRunStore = defineStore('run', () => {
     const log = await getImportLog(id)
     if (!log) return false
     timeoutMitigationActive.value = false
+    timeoutMitigationStatus.value = null
 
     // Populate file progress
     const files: Record<string, FileProgress> = {}
@@ -276,6 +298,7 @@ export const useRunStore = defineStore('run', () => {
     logId,
     connectionStatus,
     timeoutMitigationActive,
+    timeoutMitigationStatus,
     resumeLogId,
     isInitiating,
     isPausing,
@@ -300,6 +323,7 @@ export const useRunStore = defineStore('run', () => {
     addError,
     setState,
     setTimeoutMitigationActive,
+    updateTimeoutMitigationStatus,
     setEngine,
     reset,
     loadFromServerLog

@@ -156,7 +156,7 @@
       "batchSizeMax": "Batch size must not exceed 1000",
       "workersMin": "Workers must be at least 1",
       "workersMax": "Exceeds maximum worker count",
-      "batchSizeStandaloneRange": "Standalone mode: 10-100"
+      "batchSizeStandaloneRange": "Standalone mode: 1-100"
     },
     "standalone": {
       "dryRunUnavailable": "Not available in standalone mode",
@@ -200,6 +200,7 @@
     "reconnecting": "Checking connection...",
     "timeoutMitigationTitle": "Experiencing server timeouts",
     "timeoutMitigationDetail": "Reducing batch size and increasing timeout. Please be patient.",
+    "timeoutMitigationLive": "Batch {batchSize}, timeout level {level}, retries at minimum {minRetries}, next retry in {nextDelay}s, waited {elapsed}s/{budget}s.",
     "fileProgress": "{completed} / {total} files",
     "tryAgain": "Try Again",
     "startupTimeout": "Import startup timed out (90s). The server may be slow or a network call hung. Please try again."
@@ -334,6 +335,6 @@
     "title": "Standalone Mode",
     "description": "ametras_fast_import addon not installed - using direct Odoo API",
     "limitations": "Some features unavailable: search key upsert, per-row error handling",
-    "batchSizeNote": "Batch size limited to 10-100 in standalone mode"
+    "batchSizeNote": "Batch size limited to 1-100 in standalone mode"
   }
 }

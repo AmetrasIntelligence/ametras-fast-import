@@ -102,7 +102,7 @@ class FileController(http.Controller):
         '/ametras_fast_import/file/stream_chunk',
         type='json', auth='user', methods=['POST'],
     )
-    def stream_chunk(self, file_id, chunk_lines=1000, offset=0, encoding='utf-8', **kwargs):
+    def stream_chunk(self, file_id, chunk_lines=1000, offset=0, encoding='utf-8', has_header=True, **kwargs):
         """Return a specific chunk of lines from an attachment (stateless).
 
         Each chunk includes the CSV header as the first line.
@@ -119,21 +119,29 @@ class FileController(http.Controller):
         raw = base64.b64decode(attachment.datas)
         chunk_lines = int(chunk_lines)
         offset = int(offset)
+        if isinstance(has_header, str):
+            has_header = has_header.strip().lower() not in ('0', 'false', 'no', 'off', '')
+        else:
+            has_header = bool(has_header)
 
-        # Find header boundary
-        header_end = raw.find(b'\n')
-        if header_end == -1:
-            return {'data': self._decode(raw, encoding), 'done': True}
+        if has_header:
+            # Find header boundary
+            header_end = raw.find(b'\n')
+            if header_end == -1:
+                return {'data': self._decode(raw, encoding), 'done': True}
 
-        # Scan to byte offset of the target data line
-        pos = header_end + 1
-        for _ in range(offset):
-            nl = raw.find(b'\n', pos)
-            if nl == -1:
-                return {'data': '', 'done': True}
-            pos = nl + 1
+            # Scan to byte offset of the target data line
+            pos = header_end + 1
+            for _ in range(offset):
+                nl = raw.find(b'\n', pos)
+                if nl == -1:
+                    return {'data': '', 'done': True}
+                pos = nl + 1
+        else:
+            header_end = -1
+            pos = 0
 
-        # Scan chunk_lines more lines for end boundary
+        # Scan chunk_lines lines for end boundary
         end = pos
         lines_found = 0
         while lines_found < chunk_lines:
@@ -146,13 +154,16 @@ class FileController(http.Controller):
 
         done = end >= len(raw)
 
-        # Decode only header + chunk slice
-        header_text = self._decode(raw[:header_end], encoding)
         chunk_text = self._decode(raw[pos:end], encoding).rstrip('\n')
 
-        if not chunk_text:
-            return {'data': header_text, 'done': True}
-        return {'data': header_text + '\n' + chunk_text, 'done': done}
+        if has_header:
+            # Decode only header + chunk slice
+            header_text = self._decode(raw[:header_end], encoding)
+            if not chunk_text:
+                return {'data': header_text, 'done': True}
+            return {'data': header_text + '\n' + chunk_text, 'done': done}
+
+        return {'data': chunk_text, 'done': done}
 
     # ------------------------------------------------------------------
     # Helpers

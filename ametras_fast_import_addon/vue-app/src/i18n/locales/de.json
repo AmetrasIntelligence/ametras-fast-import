@@ -156,7 +156,7 @@
       "batchSizeMax": "Stapelgröße darf 1000 nicht überschreiten",
       "workersMin": "Prozesse muss mindestens 1 sein",
       "workersMax": "Maximale Prozessanzahl überschritten",
-      "batchSizeStandaloneRange": "Standalone-Modus: 10-100"
+      "batchSizeStandaloneRange": "Standalone-Modus: 1-100"
     },
     "standalone": {
       "dryRunUnavailable": "Im Standalone-Modus nicht verfügbar",
@@ -200,6 +200,7 @@
     "reconnecting": "Verbindung wird geprüft...",
     "timeoutMitigationTitle": "Server-Timeouts werden erkannt",
     "timeoutMitigationDetail": "Die Stapelgröße wird reduziert und das Timeout erhöht. Bitte haben Sie Geduld.",
+    "timeoutMitigationLive": "Stapel {batchSize}, Timeout-Stufe {level}, Wiederholungen bei Mindestgröße {minRetries}, nächster Versuch in {nextDelay}s, gewartet {elapsed}s/{budget}s.",
     "fileProgress": "{completed} / {total} Dateien",
     "tryAgain": "Erneut versuchen",
     "startupTimeout": "Import-Start hat das Zeitlimit überschritten (90s). Der Server ist möglicherweise langsam oder ein Netzwerkaufruf hängt. Bitte erneut versuchen."
@@ -334,6 +335,6 @@
     "title": "Standalone-Modus",
     "description": "ametras_fast_import Addon nicht installiert - verwende direkte Odoo API",
     "limitations": "Einige Funktionen nicht verfügbar: Suchschlüssel-Upsert, Fehlerbehandlung pro Zeile",
-    "batchSizeNote": "Stapelgröße auf 10-100 im Standalone-Modus begrenzt"
+    "batchSizeNote": "Stapelgröße auf 1-100 im Standalone-Modus begrenzt"
   }
 }

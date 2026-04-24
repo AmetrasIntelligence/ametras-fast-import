@@ -37,7 +37,7 @@ interface ElectronAPI {
         readHead: (id: string, bytes: number, encoding?: string) => Promise<string>;
         countLines: (id: string) => Promise<number>;
         streamChunks: (id: string, chunkLines: number, onChunk: (chunk: ChunkData) => void, encoding?: string) => Promise<void>;
-        streamStart: (id: string, chunkLines: number, encoding?: string) => Promise<string>;
+        streamStart: (id: string, chunkLines: number, encoding?: string, hasHeader?: boolean) => Promise<string>;
         streamNext: (streamId: string) => Promise<ChunkData>;
         streamClose: (streamId: string) => Promise<void>;
         getPathForFile: (file: File) => string;

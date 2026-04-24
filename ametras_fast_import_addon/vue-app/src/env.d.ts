@@ -96,7 +96,7 @@ interface StandaloneLoadResult {
     field?: string
   }>
   error?: string
-  errorCode?: 'NETWORK_ERROR' | 'TIMEOUT' | 'DATA_ERROR' | 'AUTH_ERROR' | 'UNKNOWN'
+  errorCode?: 'NETWORK_ERROR' | 'TIMEOUT' | 'DATA_ERROR' | 'CONCURRENCY_ERROR' | 'AUTH_ERROR' | 'UNKNOWN'
 }
 
 interface ElectronAPI {
@@ -108,7 +108,7 @@ interface ElectronAPI {
     countLines: (id: string) => Promise<number>
     streamChunks: (id: string, chunkLines: number, onChunk: (chunk: ChunkData) => void) => Promise<void>
     // Async streaming with backpressure support
-    streamStart: (id: string, chunkLines: number, encoding?: string) => Promise<string>
+    streamStart: (id: string, chunkLines: number, encoding?: string, hasHeader?: boolean) => Promise<string>
     streamNext: (streamId: string) => Promise<ChunkData>
     streamClose: (streamId: string) => Promise<void>
     cleanupStreams: () => Promise<void>
