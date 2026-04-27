@@ -12,12 +12,14 @@ import ImportView from '@/views/ImportView.vue'
 import RunView from '@/views/RunView.vue'
 import ResultsView from '@/views/ResultsView.vue'
 import SavedProfilesView from '@/views/SavedProfilesView.vue'
+import ProfileWizardView from '@/views/ProfileWizardView.vue'
 
 const routes = [
   { path: '/', redirect: '/login' },
   { path: '/login', component: LoginView },
   { path: '/import', component: ImportView },
   { path: '/profiles', component: SavedProfilesView },
+  { path: '/profile-editor', component: ProfileWizardView },
   { path: '/run', component: RunView },
   { path: '/results', component: ResultsView },
   // Backward compat redirects for legacy routes

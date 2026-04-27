@@ -4,10 +4,12 @@ import { useI18n } from 'vue-i18n'
 import { useConfigStore, type RunSettings } from '@/stores/config'
 import { usePlatformStore } from '@/stores/platform'
 import { validateWorkerConfig } from '@/importer/workerPool'
+import { useRunSettingOptions } from '@/composables/useRunSettingOptions'
 
 const { t } = useI18n()
 const config = useConfigStore()
 const platform = usePlatformStore()
+const { delimiterOptions, encodingOptions } = useRunSettingOptions(t)
 
 const workerWarning = computed(() => {
   const { warning } = validateWorkerConfig(config.settings.workers, config.settings.batchSize)
@@ -35,19 +37,6 @@ const workersError = computed(() => {
   return null
 })
 
-const delimiterOptions = computed(() => [
-  { value: ',', label: t('settings.delimiter_options.comma') },
-  { value: ';', label: t('settings.delimiter_options.semicolon') },
-  { value: '\t', label: t('settings.delimiter_options.tab') },
-  { value: '', label: t('settings.delimiter_options.auto') }
-])
-
-const encodingOptions = computed(() => [
-  { value: 'utf-8', label: t('settings.encoding_options.utf-8') },
-  { value: 'utf-8-sig', label: t('settings.encoding_options.utf-8-sig') },
-  { value: 'latin-1', label: t('settings.encoding_options.latin-1') },
-  { value: 'cp1252', label: t('settings.encoding_options.cp1252') }
-])
 </script>
 
 <template>

@@ -38,7 +38,7 @@ describe('ProfilesStore', () => {
   })
 
   describe('cacheProfile', () => {
-    it('adds a profile to the cache', () => {
+    it('adds a profile to the active-mode cache (standalone by default)', () => {
       const store = useProfilesStore()
       store.cacheProfile({
         id: 1,
@@ -53,8 +53,30 @@ describe('ProfilesStore', () => {
         createdAt: 1000,
         updatedAt: 2000
       })
-      expect(store.profiles.size).toBe(1)
+      expect(store.standaloneProfiles.size).toBe(1)
+      expect(store.profiles.size).toBe(0)
       expect(store.getProfile(1)?.name).toBe('Test')
+    })
+
+    it('adds to server cache in embedded mode', () => {
+      setupSession()
+      const store = useProfilesStore()
+      store.cacheProfile({
+        id: 2,
+        name: 'Embedded Test',
+        version: '1.0',
+        mappings: [],
+        sequence: [],
+        runSettings: {
+          batchSize: 200,
+          encoding: 'utf-8-sig', delimiter: ',', skipHeader: true, dryRun: false, lang: 'de_DE'
+        },
+        createdAt: 1000,
+        updatedAt: 2000
+      })
+      expect(store.profiles.size).toBe(1)
+      expect(store.standaloneProfiles.size).toBe(0)
+      expect(store.getProfile(2)?.name).toBe('Embedded Test')
     })
   })
 

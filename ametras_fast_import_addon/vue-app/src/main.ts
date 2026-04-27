@@ -26,6 +26,7 @@ import ImportView from './views/ImportView.vue'
 import RunView from './views/RunView.vue'
 import ResultsView from './views/ResultsView.vue'
 import SavedProfilesView from './views/SavedProfilesView.vue'
+import ProfileWizardView from './views/ProfileWizardView.vue'
 
 let app: App | null = null
 let router: Router | null = null
@@ -54,6 +55,7 @@ export function mountApp(el: HTMLElement, options: OdooMountOptions): () => void
     { path: '/', redirect: '/import' },
     { path: '/import', component: ImportView },
     { path: '/profiles', component: SavedProfilesView },
+    { path: '/profile-editor', component: ProfileWizardView },
     { path: '/run', component: RunView },
     { path: '/results', component: ResultsView },
   ]
@@ -170,6 +172,8 @@ function resolveDefaultView(defaultView?: string): string {
     case 'profiles':
     case 'profile_detail':
       return '/profiles'
+    case 'profile_editor':
+      return '/profile-editor'
     case 'run':
       return '/run'
     case 'results':

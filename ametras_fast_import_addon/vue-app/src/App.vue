@@ -57,6 +57,15 @@ function logout() {
               {{ $t('nav.profiles') }}
             </router-link>
           </li>
+          <li class="nav-item">
+            <router-link
+              to="/profile-editor"
+              class="nav-link"
+              :class="{ 'active fw-semibold': route?.path === '/profile-editor' }"
+            >
+              {{ $t('nav.profileEditor') }}
+            </router-link>
+          </li>
           <li v-if="run.isActive || run.isCompleted" class="nav-item">
             <router-link
               :to="run.isCompleted ? '/results' : '/run'"

@@ -13,6 +13,7 @@ import { createRunConfig } from '@/types/runConfig'
 import type { ImportProfile } from '@/types/importProfile'
 import { Button, Card } from '@/ui'
 import ProfileEditor from '@/components/ProfileEditor.vue'
+import ProfileWizardModal from '@/components/ProfileWizardModal.vue'
 import { importStandaloneProfile } from '@/services/standaloneProfiles'
 import { exportProfileToZip, downloadBlob } from '@/utils/profileUtils'
 import { generateProfileCSV, generateMappingsCSV, generateSequenceCSV, generateFieldMappingsCSV, generateRunSettingsCSV } from '@/utils/profileExporter'
@@ -24,8 +25,12 @@ const session = useSessionStore()
 const platform = usePlatformStore()
 const { importing, error: importError, importProfile } = useProfileImport()
 
-const importingLocal = ref(false)
 const localImportError = ref<string | null>(null)
+const showProfileWizard = ref(false)
+const wizardMode = ref<'create' | 'edit'>('create')
+const wizardEditProfile = ref<ImportProfile | null>(null)
+const wizardInitialSource = ref<'scratch' | 'sample' | 'clone'>('scratch')
+const wizardInitialCloneProfileId = ref<number | null>(null)
 
 // Track expanded profile and its full data
 const expandedProfileId = ref<number | null>(null)
@@ -54,37 +59,36 @@ onMounted(async () => {
 })
 
 async function handleImportProfile() {
-  const result = await importProfile()
-  if (result) {
-    profiles.invalidateCache()
-    await profiles.loadProfiles(true)
-  }
-}
-
-async function handleImportLocalProfile() {
   localImportError.value = null
 
-  // Create file input and trigger click
+  if (platform.capabilities.serverProfiles) {
+    try {
+      const result = await importProfile()
+      if (result) {
+        profiles.invalidateCache()
+        await profiles.loadProfiles(true)
+      }
+    } catch (e) {
+      localImportError.value = t('profiles.importFailed', { error: e instanceof Error ? e.message : String(e) })
+    }
+    return
+  }
+
+  // Standalone mode without addon endpoint: import ZIP and persist as attachment profile.
   const input = document.createElement('input')
   input.type = 'file'
   input.accept = '.zip'
-
   input.onchange = async () => {
     const file = input.files?.[0]
     if (!file) return
-
-    importingLocal.value = true
     try {
       const profile = await importStandaloneProfile(file)
       profiles.cacheProfile(profile)
-      await profiles.loadLocalProfiles()
+      await profiles.loadProfiles(true)
     } catch (e) {
       localImportError.value = t('profiles.importFailed', { error: e instanceof Error ? e.message : String(e) })
-    } finally {
-      importingLocal.value = false
     }
   }
-
   input.click()
 }
 
@@ -104,21 +108,6 @@ async function handleExportLocalProfile(profile: ImportProfile, event: Event) {
     downloadBlob(blob, `${profile.name}.zip`)
   } catch (e) {
     showAlert(t('profiles.failedToExport', { error: (e as Error).message }))
-  }
-}
-
-async function handlePushToServer(profile: ImportProfile, event: Event) {
-  event.stopPropagation()
-  try {
-    const serverProfile = await profiles.pushToServer(profile.id)
-    // If expanded profile was pushed, update the reference
-    if (expandedProfileId.value === profile.id) {
-      expandedProfileId.value = serverProfile.id
-      expandedProfile.value = serverProfile
-    }
-    showAlert(t('profiles.pushedToServer', { name: profile.name }))
-  } catch (e) {
-    showAlert(t('profiles.failedToPush', { error: (e as Error).message }))
   }
 }
 
@@ -153,6 +142,54 @@ function getCompatibility(profile: { odooMinVersion?: string }) {
     profile as Parameters<typeof checkOdooCompatibility>[0],
     session.serverVersion
   )
+}
+
+async function openCreateWizard() {
+  wizardMode.value = 'create'
+  wizardEditProfile.value = null
+  wizardInitialSource.value = 'scratch'
+  wizardInitialCloneProfileId.value = null
+  showProfileWizard.value = true
+}
+
+async function openCloneWizard(profileId: number, event: Event) {
+  event.stopPropagation()
+  wizardMode.value = 'create'
+  wizardEditProfile.value = null
+  wizardInitialSource.value = 'clone'
+  wizardInitialCloneProfileId.value = profileId
+  showProfileWizard.value = true
+}
+
+async function openEditWizard(profileId: number, event: Event) {
+  event.stopPropagation()
+  try {
+    wizardMode.value = 'edit'
+    wizardInitialSource.value = 'scratch'
+    wizardInitialCloneProfileId.value = null
+    wizardEditProfile.value = await profiles.loadProfile(profileId)
+    showProfileWizard.value = true
+  } catch (e) {
+    showAlert(t('profiles.failedToLoad', { error: (e as Error).message }))
+  }
+}
+
+function closeProfileWizard() {
+  showProfileWizard.value = false
+}
+
+async function handleProfileWizardSaved(profile: ImportProfile) {
+  showProfileWizard.value = false
+  profiles.invalidateCache()
+  await profiles.loadProfiles(true)
+  expandedProfileId.value = profile.id
+  expandedProfile.value = profile
+
+  if (wizardMode.value === 'create') {
+    showAlert(t('profileWizard.createdSuccess', { name: profile.name }))
+  } else {
+    showAlert(t('profileWizard.updatedSuccess', { name: profile.name }))
+  }
 }
 
 async function toggleProfileExpand(profileId: number) {
@@ -194,24 +231,20 @@ function createViewRunConfig(profileId: number) {
         >
           {{ importError || localImportError }}
         </small>
-        <!-- Server profile import (hidden in standalone mode) -->
         <Button
-          v-if="platform.capabilities.serverProfiles"
+          variant="outline"
+          size="sm"
+          @click="openCreateWizard"
+        >
+          {{ $t('profiles.createProfile') }}
+        </Button>
+        <Button
           variant="outline"
           size="sm"
           :disabled="importing"
           @click="handleImportProfile"
         >
           {{ importing ? $t('profiles.uploading') : $t('profiles.uploadZip') }}
-        </Button>
-        <!-- Local profile import (always available) -->
-        <Button
-          variant="outline"
-          size="sm"
-          :disabled="importingLocal"
-          @click="handleImportLocalProfile"
-        >
-          {{ importingLocal ? $t('profiles.uploading') : $t('profiles.uploadLocalZip') }}
         </Button>
       </div>
     </div>
@@ -246,13 +279,7 @@ function createViewRunConfig(profileId: number) {
               </span>
               {{ profile.name }}
               <span
-                v-if="profile.isStandalone && profile.id < 0"
-                class="badge rounded-pill csv-compat-badge--local"
-              >
-                {{ $t('profiles.local') }}
-              </span>
-              <span
-                v-else-if="profile.isStandalone && profile.id > 0"
+                v-if="profile.isStandalone"
                 class="badge rounded-pill csv-compat-badge--server"
               >
                 {{ $t('profiles.server') }}
@@ -281,26 +308,23 @@ function createViewRunConfig(profileId: number) {
 
           <div class="d-flex gap-1" @click.stop>
             <Button
-              v-if="profile.isStandalone && profile.id < 0"
               variant="outline"
               size="sm"
-              @click="handlePushToServer(profile, $event)"
+              @click="openEditWizard(profile.id, $event)"
             >
-              {{ $t('profiles.pushToServer') }}
+              {{ $t('profiles.edit') }}
             </Button>
             <Button
-              v-if="profile.isStandalone"
               variant="outline"
               size="sm"
-              @click="handleExportLocalProfile(profile, $event)"
+              @click="openCloneWizard(profile.id, $event)"
             >
-              {{ $t('profiles.exportZip') }}
+              {{ $t('profiles.clone') }}
             </Button>
             <Button
-              v-else
               variant="outline"
               size="sm"
-              @click="handleExportProfile(profile.id, profile.name, $event)"
+              @click="profile.isStandalone ? handleExportLocalProfile(profile, $event) : handleExportProfile(profile.id, profile.name, $event)"
             >
               {{ $t('profiles.exportZip') }}
             </Button>
@@ -338,6 +362,17 @@ function createViewRunConfig(profileId: number) {
         </div>
       </Card>
     </div>
+
+    <ProfileWizardModal
+      :open="showProfileWizard"
+      :mode="wizardMode"
+      :edit-profile="wizardEditProfile"
+      :allow-sample="false"
+      :initial-source="wizardInitialSource"
+      :initial-clone-profile-id="wizardInitialCloneProfileId"
+      @close="closeProfileWizard"
+      @saved="handleProfileWizardSaved"
+    />
   </div>
 </template>
 
@@ -402,13 +437,6 @@ function createViewRunConfig(profileId: number) {
 .csv-compat-badge--incompatible {
   background: var(--bs-danger-bg-subtle);
   color: var(--bs-danger-text-emphasis);
-  font-size: 0.625rem;
-  font-weight: 500;
-}
-
-.csv-compat-badge--local {
-  background: var(--bs-info-bg-subtle);
-  color: var(--bs-info-text-emphasis);
   font-size: 0.625rem;
   font-weight: 500;
 }

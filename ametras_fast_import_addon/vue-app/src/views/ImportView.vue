@@ -15,12 +15,14 @@ import {
 } from '@/types/importProfile'
 import { createRunConfig, type RunConfig } from '@/types/runConfig'
 import type { FieldMapping, FieldTransform } from '@/types/fieldMapping'
+import type { ProfileWizardSeed } from '@/types/profileWizard'
 import { useSavedMappingsStore } from '@/stores/savedMappings'
 import { fetchModels, fetchModelFields, type OdooModel, type OdooField } from '@/api/odooClient'
 import { analyzeCSV } from '@/importer/csvParser'
 import { suggestModel } from '@/utils/smartMapping'
 import { autoMapFields } from '@/utils/smartFieldMapping'
-import { showAlert, showConfirm, showPrompt } from '@/composables/useDialog'
+import { buildFieldLookup, computeFieldMetadata as computeFieldMetadataFromLookup } from '@/utils/fieldMappingMetadata'
+import { showAlert, showConfirm } from '@/composables/useDialog'
 import { transformRowData } from '@/utils/rowTransform'
 import { Button, Card } from '@/ui'
 import FileDropZone from '@/components/FileDropZone.vue'
@@ -30,6 +32,7 @@ import ImportSettings from '@/components/ImportSettings.vue'
 import FieldMappingTable from '@/components/FieldMappingTable.vue'
 import FileList, { type FileListItem } from '@/components/FileList.vue'
 import ProfileSelect from '@/components/ProfileSelect.vue'
+import ProfileWizardModal from '@/components/ProfileWizardModal.vue'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -65,6 +68,12 @@ const profileLoadedAt = ref<number>(0)
 const lastEditAt = ref<number>(0)
 const isApplyingProfile = ref(false)
 const profileMissingFiles = ref<Set<string>>(new Set())
+const showProfileWizard = ref(false)
+const wizardMode = ref<'create' | 'edit'>('create')
+const wizardEditProfile = ref<ImportProfile | null>(null)
+const wizardSampleSeed = ref<ProfileWizardSeed | null>(null)
+const wizardInitialSource = ref<'scratch' | 'sample' | 'clone'>('scratch')
+const wizardInitialCloneProfileId = ref<number | null>(null)
 
 // Mark as edited when config changes
 watch(
@@ -300,11 +309,7 @@ function getFieldsForFile(filename: string): OdooField[] {
 
 // Build field lookup for a file
 function getFieldLookup(filename: string): Map<string, OdooField> {
-  const map = new Map<string, OdooField>()
-  for (const f of getFieldsForFile(filename)) {
-    map.set(f.name, f)
-  }
-  return map
+  return buildFieldLookup(getFieldsForFile(filename))
 }
 
 // Build set of all valid Odoo field values for a model (mirrors FieldSelect's allOptions)
@@ -404,32 +409,7 @@ function updateRichMappingForFile(filename: string, csvHeader: string, odooField
 }
 
 function computeFieldMetadataForFile(filename: string, csvHeader: string, odooField: string): { transform: FieldTransform; required: boolean } {
-  const baseName = odooField.endsWith('/.id')
-    ? odooField.slice(0, -4)
-    : odooField.endsWith('/id')
-      ? odooField.slice(0, -3)
-      : odooField
-
-  const fieldLookup = getFieldLookup(filename)
-  const field = fieldLookup.get(baseName)
-  const isRelational = field?.type === 'many2one' || field?.type === 'many2many'
-
-  let transform: FieldTransform = { type: 'passthrough' }
-  let required = field?.required ?? false
-
-  if (odooField.endsWith('/id') && isRelational && field?.relation) {
-    transform = field.type === 'many2many'
-      ? { type: 'm2m_ref', model: field.relation }
-      : { type: 'm2o_ref', model: field.relation }
-  } else if (odooField.endsWith('/.id') && isRelational && field?.relation) {
-    transform = { type: 'db_id', model: field.relation }
-  }
-
-  if (csvHeader === 'id' || odooField === 'id') {
-    required = true
-  }
-
-  return { transform, required }
+  return computeFieldMetadataFromLookup(csvHeader, odooField, getFieldLookup(filename))
 }
 
 function updateTransformForFile(filename: string, csvHeader: string, transform: FieldTransform) {
@@ -755,19 +735,9 @@ function buildRichFieldMappings(filename: string, fieldMappingsRecord: Record<st
 }
 
 /**
- * Strip any version suffix (e.g., " v1.2", " v2.0") from a profile name.
- * Returns the base name without version suffix.
+ * Build profile mapping payload from current config.
  */
-function stripVersionSuffix(name: string): string {
-  // Match patterns like " v1.2", " v2", " v1.0.3" at the end of the string
-  return name.replace(/\s+v\d+(\.\d+)*$/i, '')
-}
-
-/**
- * Build profile payload (mappings, richFieldMappings, sequence) from current config.
- * Shared between saveAsProfile and updateExistingProfile.
- */
-function buildProfilePayload() {
+function buildProfileMappingsPayload() {
   const mappings: ProfileMapping[] = []
   const richMappingsArr: FieldMapping[] = []
 
@@ -800,107 +770,72 @@ function buildProfilePayload() {
   return { mappings, richMappingsArr, sequence }
 }
 
-async function saveAsProfile() {
-  let suggestedName = ''
-  let suggestedVersion = '1.0'
+function buildSampleSeedFromCurrentConfig(): ProfileWizardSeed | null {
+  if (filesStore.files.length === 0) return null
 
-  if (activeProfile.value) {
-    const versionParts = activeProfile.value.version.split('.')
-    if (versionParts.length >= 2) {
-      const minor = parseInt(versionParts[1], 10) || 0
-      suggestedVersion = `${versionParts[0]}.${minor + 1}`
-    }
-    // Strip any existing version suffix from the name before appending new version
-    const baseName = stripVersionSuffix(activeProfile.value.name)
-    suggestedName = `${baseName} v${suggestedVersion}`
-  }
+  const { mappings, richMappingsArr, sequence } = buildProfileMappingsPayload()
+  const samples = filesStore.files
+    .map(file => ({
+      filename: file.name,
+      headers: filesStore.getAnalysis(file.id)?.headers || []
+    }))
+    .filter(sample => sample.headers.length > 0)
 
-  const name = await showPrompt(t('config.profileName'), suggestedName)
-  if (!name) return
-
-  const { mappings, richMappingsArr, sequence } = buildProfilePayload()
-
-  // In standalone mode, ask user where to save
-
-  let target: 'local' | 'server' | undefined
-  if (!platform.capabilities.serverProfiles) {
-    const saveToServer = await showConfirm(t('config.saveLocationPrompt'))
-    target = saveToServer ? 'server' : 'local'
-  }
-
-  try {
-    const newProfile = await profiles.createProfile({
-      name,
-      version: suggestedVersion,
-      description: activeProfile.value?.description || '',
-      odooMinVersion: activeProfile.value?.odooMinVersion,
-      mappings,
-      sequence,
-      runSettings: { ...config.settings },
-      fieldMappings: richMappingsArr.length > 0 ? richMappingsArr : undefined
-    }, target)
-
-    activeProfile.value = newProfile
-    config.setActiveProfileId(newProfile.id)
-    runConfig.value = createRunConfig(newProfile.id)
-
-    // Reset dirty state after save
-    profileLoadedAt.value = Date.now()
-    lastEditAt.value = 0
-
-    showAlert(target === 'local'
-      ? t('config.profileSavedLocal', { name })
-      : t('config.profileSavedServer', { name }))
-  } catch (e) {
-    showAlert(t('config.failedToSaveProfile', { error: (e as Error).message }))
+  return {
+    name: activeProfile.value?.name || '',
+    version: activeProfile.value?.version || '1.0',
+    description: activeProfile.value?.description || '',
+    odooMinVersion: activeProfile.value?.odooMinVersion,
+    mappings,
+    sequence,
+    runSettings: { ...config.settings },
+    richFieldMappings: richMappingsArr.length > 0 ? richMappingsArr : undefined,
+    samples: samples.length > 0 ? samples : undefined
   }
 }
 
-/**
- * Increment the minor version (last digit) of a version string.
- * E.g., "1.5" → "1.6", "2.0" → "2.1", "1" → "1.1"
- * Major version (first digit) is only changed manually for bigger changes.
- */
-function incrementMinorVersion(version: string): string {
-  const parts = version.split('.')
-  if (parts.length === 1) {
-    // No minor version yet, add .1
-    return `${parts[0]}.1`
-  }
-  // Increment the last part (minor version)
-  const minor = parseInt(parts[parts.length - 1], 10) || 0
-  parts[parts.length - 1] = String(minor + 1)
-  return parts.join('.')
+function openCreateProfileWizard(initialSource: 'scratch' | 'sample' | 'clone' = 'scratch', cloneProfileId: number | null = null) {
+  wizardMode.value = 'create'
+  wizardEditProfile.value = null
+  wizardSampleSeed.value = buildSampleSeedFromCurrentConfig()
+  wizardInitialSource.value = initialSource === 'sample' && !wizardSampleSeed.value
+    ? 'scratch'
+    : initialSource
+  wizardInitialCloneProfileId.value = cloneProfileId
+  showProfileWizard.value = true
 }
 
-async function updateExistingProfile() {
+async function openEditProfileWizard() {
   if (!activeProfile.value) return
-
-  // Auto-increment minor version on every update
-  const newVersion = incrementMinorVersion(activeProfile.value.version)
-
-  const { mappings, richMappingsArr, sequence } = buildProfilePayload()
-
   try {
-    const updatedProfile = await profiles.updateProfile(activeProfile.value.id, {
-      version: newVersion,
-      mappings,
-      sequence,
-      runSettings: { ...config.settings },
-      fieldMappings: richMappingsArr.length > 0 ? richMappingsArr : undefined
-    })
-
-    activeProfile.value = updatedProfile
-    config.setActiveProfileId(updatedProfile.id)
-    runConfig.value = createRunConfig(updatedProfile.id)
-
-    // Reset dirty state after save
-    profileLoadedAt.value = Date.now()
-    lastEditAt.value = 0
-
-    showAlert(t('config.profileUpdated', { name: updatedProfile.name, version: updatedProfile.version }))
+    wizardMode.value = 'edit'
+    wizardSampleSeed.value = null
+    wizardInitialSource.value = 'scratch'
+    wizardInitialCloneProfileId.value = null
+    wizardEditProfile.value = await profiles.loadProfile(activeProfile.value.id)
+    showProfileWizard.value = true
   } catch (e) {
-    showAlert(t('config.failedToSaveProfile', { error: (e as Error).message }))
+    showAlert(t('profileWizard.failedToLoadEdit', { error: (e as Error).message }))
+  }
+}
+
+function closeProfileWizard() {
+  showProfileWizard.value = false
+}
+
+async function handleProfileWizardSaved(profile: ImportProfile) {
+  await profiles.loadProfiles(true)
+  activeProfile.value = profile
+  config.setActiveProfileId(profile.id)
+  runConfig.value = createRunConfig(profile.id)
+  profileLoadedAt.value = Date.now()
+  lastEditAt.value = 0
+  showProfileWizard.value = false
+
+  if (wizardMode.value === 'create') {
+    showAlert(t('profileWizard.createdSuccess', { name: profile.name }))
+  } else {
+    showAlert(t('profileWizard.updatedSuccess', { name: profile.name }))
   }
 }
 </script>
@@ -909,21 +844,25 @@ async function updateExistingProfile() {
   <div class="p-4 d-flex flex-column gap-4">
     <div class="d-flex justify-content-between align-items-center">
       <h1 class="fs-4 fw-semibold mb-0">{{ $t('nav.import') }}</h1>
-      <div v-if="hasFiles" class="d-flex gap-2 align-items-center">
+      <div class="d-flex gap-2 align-items-center">
         <small v-if="activeProfile" :class="hasUnsavedChanges ? 'text-warning' : 'text-body-secondary'">
           {{ activeProfile.name }} v{{ activeProfile.version }}
           <span v-if="hasUnsavedChanges" class="csv-edited-badge">{{ $t('config.edited') }}</span>
         </small>
         <Button
+          variant="outline"
+          size="sm"
+          @click="openCreateProfileWizard(hasFiles ? 'sample' : 'scratch')"
+        >
+          {{ $t('config.createProfile') }}
+        </Button>
+        <Button
           v-if="activeProfile"
           variant="outline"
           size="sm"
-          @click="updateExistingProfile"
+          @click="openEditProfileWizard"
         >
-          {{ $t('config.updateProfile') }}
-        </Button>
-        <Button variant="outline" size="sm" @click="saveAsProfile">
-          {{ $t('config.saveAsProfile') }}
+          {{ $t('config.editProfile') }}
         </Button>
       </div>
     </div>
@@ -1102,6 +1041,18 @@ async function updateExistingProfile() {
         </Button>
       </div>
     </template>
+
+    <ProfileWizardModal
+      :open="showProfileWizard"
+      :mode="wizardMode"
+      :edit-profile="wizardEditProfile"
+      :sample-seed="wizardSampleSeed"
+      :allow-sample="wizardSampleSeed !== null"
+      :initial-source="wizardInitialSource"
+      :initial-clone-profile-id="wizardInitialCloneProfileId"
+      @close="closeProfileWizard"
+      @saved="handleProfileWizardSaved"
+    />
   </div>
 </template>
 

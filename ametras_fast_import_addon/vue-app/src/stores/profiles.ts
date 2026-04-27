@@ -12,12 +12,10 @@ import {
 } from '@/api/profileApi'
 import {
   loadStandaloneProfiles,
-  deleteStandaloneProfile as deleteLocalProfile,
+  deleteStandaloneProfile,
   getStandaloneProfile,
   createStandaloneProfile,
-  updateStandaloneProfile,
-  pushProfileToServer,
-  type StandaloneTarget
+  updateStandaloneProfile
 } from '@/services/standaloneProfiles'
 
 const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
@@ -29,20 +27,12 @@ export const useProfilesStore = defineStore('profiles', () => {
   const lastFetch = ref<number>(0)
 
   /**
-   * Load all profiles from the server. Uses cache if not expired.
-   * Also loads standalone profiles from local storage.
+   * Load profiles for the active mode.
+   * - Embedded addon mode: `csv.import.profile`
+   * - Standalone mode: `ir.attachment` profiles
    */
   async function loadProfiles(force = false) {
-  
     const session = useSessionStore()
-
-    // Always load standalone profiles from local storage
-    await loadLocalProfiles()
-
-    if (!session.isEmbedded) {
-      // Server profiles not available in standalone mode (addon not installed)
-      return
-    }
 
     const now = Date.now()
     if (!force && lastFetch.value > 0 && now - lastFetch.value < CACHE_TTL) {
@@ -51,18 +41,29 @@ export const useProfilesStore = defineStore('profiles', () => {
 
     loading.value = true
     try {
-      const serverProfiles = await fetchProfiles()
-      const newMap = new Map<number, ImportProfile>()
-      for (const p of serverProfiles) {
-        // Preserve full data if already cached
-        const existing = profiles.value.get(p.id)
-        if (existing && existing.mappings.length > 0) {
-          newMap.set(p.id, { ...existing, ...p, mappings: existing.mappings, sequence: existing.sequence, runSettings: existing.runSettings })
-        } else {
+      if (session.isEmbedded) {
+        const serverProfiles = await fetchProfiles()
+        const newMap = new Map<number, ImportProfile>()
+        for (const p of serverProfiles) {
+          // Preserve full data if already cached
+          const existing = profiles.value.get(p.id)
+          if (existing && existing.mappings.length > 0) {
+            newMap.set(p.id, { ...existing, ...p, mappings: existing.mappings, sequence: existing.sequence, runSettings: existing.runSettings })
+          } else {
+            newMap.set(p.id, p)
+          }
+        }
+        profiles.value = newMap
+        standaloneProfiles.value = new Map()
+      } else {
+        const serverAttachmentProfiles = await loadStandaloneProfiles()
+        const newMap = new Map<number, ImportProfile>()
+        for (const p of serverAttachmentProfiles) {
           newMap.set(p.id, p)
         }
+        standaloneProfiles.value = newMap
+        profiles.value = new Map()
       }
-      profiles.value = newMap
       lastFetch.value = now
     } finally {
       loading.value = false
@@ -70,30 +71,17 @@ export const useProfilesStore = defineStore('profiles', () => {
   }
 
   /**
-   * Load standalone profiles from local storage.
-   */
-  async function loadLocalProfiles() {
-    const localProfiles = await loadStandaloneProfiles()
-    const newMap = new Map<number, ImportProfile>()
-    for (const p of localProfiles) {
-      newMap.set(p.id, p)
-    }
-    standaloneProfiles.value = newMap
-  }
-
-  /**
    * Load a single profile with full data from the server.
    */
   async function loadProfile(id: number): Promise<ImportProfile> {
-  
-    // Check if it's a standalone profile (stored as ir.attachment)
-    if (standaloneProfiles.value.has(id)) {
-      const localProfile = await getStandaloneProfile(id)
-      if (localProfile) {
-        standaloneProfiles.value.set(id, localProfile)
-        return localProfile
+    const session = useSessionStore()
+    if (!session.isEmbedded) {
+      const profile = await getStandaloneProfile(id)
+      if (!profile) {
+        throw new Error('Profile not found')
       }
-      throw new Error('Standalone profile not found')
+      standaloneProfiles.value.set(id, profile)
+      return profile
     }
 
     const profile = await fetchProfile(id)
@@ -105,8 +93,8 @@ export const useProfilesStore = defineStore('profiles', () => {
    * Add a profile to the local cache (e.g. after upload).
    */
   function cacheProfile(profile: ImportProfile) {
-  
-    if (profile.isStandalone) {
+    const session = useSessionStore()
+    if (!session.isEmbedded || profile.isStandalone) {
       standaloneProfiles.value.set(profile.id, profile)
     } else {
       profiles.value.set(profile.id, profile)
@@ -117,20 +105,20 @@ export const useProfilesStore = defineStore('profiles', () => {
    * Get a profile from the cache.
    */
   function getProfile(id: number): ImportProfile | undefined {
-  
-    if (standaloneProfiles.value.has(id)) {
+    const session = useSessionStore()
+    if (!session.isEmbedded) {
       return standaloneProfiles.value.get(id)
     }
     return profiles.value.get(id)
   }
 
   /**
-   * Delete a profile from the server (or local storage for standalone).
+   * Delete a profile from the active server backend.
    */
   async function deleteProfile(id: number) {
-  
-    if (standaloneProfiles.value.has(id)) {
-      await deleteLocalProfile(id)
+    const session = useSessionStore()
+    if (!session.isEmbedded) {
+      await deleteStandaloneProfile(id)
       standaloneProfiles.value.delete(id)
       return
     }
@@ -139,12 +127,12 @@ export const useProfilesStore = defineStore('profiles', () => {
   }
 
   /**
-   * Create a new profile on the server (or local storage in standalone mode).
+   * Create a profile on the active server backend.
    */
-  async function createProfile(data: ProfileCreateData, target?: StandaloneTarget): Promise<ImportProfile> {
+  async function createProfile(data: ProfileCreateData): Promise<ImportProfile> {
     const session = useSessionStore()
     if (!session.isEmbedded) {
-      const profile = await createStandaloneProfile(data, target || 'server')
+      const profile = await createStandaloneProfile(data)
       standaloneProfiles.value.set(profile.id, profile)
       return profile
     }
@@ -154,21 +142,11 @@ export const useProfilesStore = defineStore('profiles', () => {
   }
 
   /**
-   * Push a local standalone profile to the server (ir.attachment).
-   * Removes the local copy and returns the new server-stored profile.
-   */
-  async function pushToServer(localId: number): Promise<ImportProfile> {
-    const serverProfile = await pushProfileToServer(localId)
-    standaloneProfiles.value.delete(localId)
-    standaloneProfiles.value.set(serverProfile.id, serverProfile)
-    return serverProfile
-  }
-
-  /**
-   * Update an existing profile on the server (or local storage for standalone).
+   * Update an existing profile on the active server backend.
    */
   async function updateProfile(id: number, data: Partial<ProfileCreateData>): Promise<ImportProfile> {
-    if (standaloneProfiles.value.has(id)) {
+    const session = useSessionStore()
+    if (!session.isEmbedded) {
       const profile = await updateStandaloneProfile(id, data)
       standaloneProfiles.value.set(id, profile)
       return profile
@@ -187,30 +165,15 @@ export const useProfilesStore = defineStore('profiles', () => {
 
   /**
    * Sorted profile list (by updatedAt desc).
-   * Includes both server and standalone profiles.
+   * Returns the active backend list for the current mode.
    */
   const profileList = computed(() => {
-  
-    const all = [
-      ...Array.from(profiles.value.values()),
-      ...Array.from(standaloneProfiles.value.values())
-    ]
-    return all.sort((a, b) => b.updatedAt - a.updatedAt)
-  })
-
-  /**
-   * Standalone profiles only (sorted by updatedAt desc).
-   */
-  const standaloneProfileList = computed(() => {
+    const session = useSessionStore()
+    if (session.isEmbedded) {
+      return Array.from(profiles.value.values())
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+    }
     return Array.from(standaloneProfiles.value.values())
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-  })
-
-  /**
-   * Server profiles only (sorted by updatedAt desc).
-   */
-  const serverProfileList = computed(() => {
-    return Array.from(profiles.value.values())
       .sort((a, b) => b.updatedAt - a.updatedAt)
   })
 
@@ -220,17 +183,13 @@ export const useProfilesStore = defineStore('profiles', () => {
     loading,
     lastFetch,
     loadProfiles,
-    loadLocalProfiles,
     loadProfile,
     cacheProfile,
     getProfile,
     deleteProfile,
     createProfile,
     updateProfile,
-    pushToServer,
     invalidateCache,
-    profileList,
-    standaloneProfileList,
-    serverProfileList
+    profileList
   }
 })
