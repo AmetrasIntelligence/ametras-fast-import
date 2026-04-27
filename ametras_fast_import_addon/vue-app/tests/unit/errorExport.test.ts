@@ -55,7 +55,7 @@ describe('errorExport utilities', () => {
     expect(grouped.get('a.csv')?.get(0)).toBeUndefined()
   })
 
-  it('buildFailedRowsCsv creates .csv.fail content with error column', () => {
+  it('buildFailedRowsCsv creates CSV content with error column', () => {
     const csv = buildFailedRowsCsv(
       ['id', 'name'],
       [

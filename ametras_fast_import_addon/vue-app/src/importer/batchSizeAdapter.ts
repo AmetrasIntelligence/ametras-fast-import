@@ -10,7 +10,8 @@
  * Levels: [1, min(10, max), max] — starts at level 1 (middle).
  * Increase: after 30 consecutive successful rows, step up one level.
  * Decrease: after 3 consecutive concurrency failures, step down one level.
- * Timeout: immediately step down one level.
+ * Timeout: immediately step down one level and optionally require a larger
+ * post-timeout success threshold before ramping up again.
  */
 export class BatchSizeAdapter {
   currentSize: number
@@ -18,6 +19,7 @@ export class BatchSizeAdapter {
   private levelIndex: number
   private successfulRows: number = 0
   private consecutiveFailures: number = 0
+  private successThreshold: number = BatchSizeAdapter.SUCCESS_THRESHOLD
 
   static readonly SUCCESS_THRESHOLD = 30
   static readonly FAILURE_THRESHOLD = 3
@@ -36,7 +38,7 @@ export class BatchSizeAdapter {
     this.consecutiveFailures = 0
     if (this.levelIndex >= this.levels.length - 1) return // already at max
     this.successfulRows += rowCount
-    if (this.successfulRows >= BatchSizeAdapter.SUCCESS_THRESHOLD) {
+    if (this.successfulRows >= this.successThreshold) {
       this.levelIndex++
       this.currentSize = this.levels[this.levelIndex]
       this.successfulRows = 0
@@ -56,9 +58,19 @@ export class BatchSizeAdapter {
 
   /**
    * Immediately step down one level — used for timeouts where the batch is clearly too large.
+   * Optionally increases the success threshold required for ramp-up after timeout.
    * Returns true if the size actually changed (stepped down), false if already at minimum.
    */
-  recordTimeout(): boolean {
+  recordTimeout(successThresholdAfterTimeout?: number): boolean {
+    const hasCustomThreshold =
+      typeof successThresholdAfterTimeout === 'number' &&
+      Number.isFinite(successThresholdAfterTimeout)
+    this.successThreshold = hasCustomThreshold
+      ? Math.max(
+          BatchSizeAdapter.SUCCESS_THRESHOLD,
+          Math.round(successThresholdAfterTimeout)
+        )
+      : BatchSizeAdapter.SUCCESS_THRESHOLD
     this.successfulRows = 0
     this.consecutiveFailures = 0
     if (this.levelIndex > 0) {

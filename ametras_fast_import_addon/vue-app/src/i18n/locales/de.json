@@ -214,7 +214,7 @@
     "duration": "Dauer",
     "export": "Exportieren",
     "downloadErrors": "Einheitliches Fehlerlog herunterladen (CSV)",
-    "downloadFailedRowsZip": "Fehlzeilen-ZIP herunterladen (.csv.fail)",
+    "downloadFailedRowsZip": "Fehlzeilen-ZIP herunterladen (.csv)",
     "noFailedRowsToExport": "Keine fehlgeschlagenen Zeilen zum Exportieren vorhanden.",
     "failedRowsExportNoFiles": "Fehlzeilen sind vorhanden, aber Quelldateien sind nicht verfügbar: {files}",
     "failedRowsExportPartial": "Fehlzeilen-ZIP wurde exportiert, aber einige Dateien waren nicht verfügbar: {files}",

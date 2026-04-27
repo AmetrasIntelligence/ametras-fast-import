@@ -115,7 +115,8 @@ async function exportFailedRowsZip() {
       }))
 
       if (failedRows.length === 0) continue
-      zip.file(`${filename}.fail`, buildFailedRowsCsv(headerOrder, failedRows))
+      const exportName = filename.toLowerCase().endsWith('.csv') ? filename : `${filename}.csv`
+      zip.file(exportName, buildFailedRowsCsv(headerOrder, failedRows))
     }
 
     if (Object.keys(zip.files).length === 0) {

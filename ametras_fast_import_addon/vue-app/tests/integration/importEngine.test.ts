@@ -764,6 +764,7 @@ describe('ImportEngine Integration', () => {
       expect(run.state).toBe(ImportState.COMPLETED)
       expect(timeoutExecuteBatch).toHaveBeenCalledTimes(1)
       expect(adapter.recordTimeout).toHaveBeenCalledTimes(1)
+      expect(adapter.recordTimeout).toHaveBeenCalledWith(300)
 
       const fileProgress = run.progress.files['partners.csv']
       expect(fileProgress?.processedRows).toBe(2)

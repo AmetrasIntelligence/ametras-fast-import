@@ -100,6 +100,7 @@ const STANDALONE_TIMEOUT_RETRY_BUDGET_MS = 30 * 60 * 1000
 const ADDON_TIMEOUT_RETRY_BUDGET_MS = 10 * 60 * 1000
 const STANDALONE_TIMEOUT_RETRY_DELAY_BASE_MS = 1500
 const ADDON_TIMEOUT_RETRY_DELAY_BASE_MS = 500
+const STANDALONE_POST_TIMEOUT_SUCCESS_THRESHOLD = 300
 const TIMEOUT_RETRY_DELAY_MAX_MS = 30_000
 const TIMEOUT_RETRY_DELAY_SLICE_MS = 250
 
@@ -620,7 +621,9 @@ export class ImportEngine {
             MAX_TIMEOUT_ESCALATION_LEVEL
           )
           const adapter = this.batchSizeAdapter as BatchSizeAdapter | null
-          const steppedDown = adapter?.recordTimeout() ?? false
+          const steppedDown = adapter?.recordTimeout(
+            isStandaloneMode ? STANDALONE_POST_TIMEOUT_SUCCESS_THRESHOLD : undefined
+          ) ?? false
           const elapsedMs = Date.now() - timeoutMitigationStartedAt
 
           if (isStandaloneMode) {
@@ -1173,7 +1176,9 @@ export class ImportEngine {
                 MAX_TIMEOUT_ESCALATION_LEVEL
               )
               const adapter = retryAdapter as BatchSizeAdapter | undefined
-              const steppedDown = adapter?.recordTimeout() ?? false
+              const steppedDown = adapter?.recordTimeout(
+                isStandaloneMode ? STANDALONE_POST_TIMEOUT_SUCCESS_THRESHOLD : undefined
+              ) ?? false
               const elapsedMs = Date.now() - timeoutMitigationStartedAt
 
               if (isStandaloneMode) {

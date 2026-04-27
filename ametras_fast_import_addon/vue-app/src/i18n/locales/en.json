@@ -214,7 +214,7 @@
     "duration": "Duration",
     "export": "Export",
     "downloadErrors": "Download Unified Error Log (CSV)",
-    "downloadFailedRowsZip": "Download Failed Rows ZIP (.csv.fail)",
+    "downloadFailedRowsZip": "Download Failed Rows ZIP (.csv)",
     "noFailedRowsToExport": "No failed rows available to export.",
     "failedRowsExportNoFiles": "Failed rows exist, but source files are unavailable: {files}",
     "failedRowsExportPartial": "Failed-row ZIP exported, but some files were unavailable: {files}",
