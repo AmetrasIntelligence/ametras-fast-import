@@ -130,6 +130,7 @@ function updateThroughput() {
 
 async function startImport() {
   initError.value = null
+  const pendingResumeLogId = run.resumeLogId
 
   // Always reset before starting: clears stuck, completed, or failed state
   // from a previous attempt. The live-import guard in onMounted ensures this
@@ -152,8 +153,8 @@ async function startImport() {
 
     // Check for resume context
     let resumeState: ResumeState | undefined
-    if (run.resumeLogId) {
-      const logData = await getImportLog(run.resumeLogId)
+    if (pendingResumeLogId) {
+      const logData = await getImportLog(pendingResumeLogId)
       if (logData) {
         resumeState = {
           logId: logData.id,
@@ -162,7 +163,6 @@ async function startImport() {
         }
         logger.import.info(`[resume] Resuming import from log #${logData.id}`)
       }
-      run.resumeLogId = null // Clear after use
     }
 
     // Watchdog: if still stuck in VALIDATING/IDLE after the timeout, the

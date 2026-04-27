@@ -54,6 +54,41 @@ describe('RunStore', () => {
       expect(store.errors).toEqual([])
       expect(store.runStartTime).toBeGreaterThanOrEqual(before)
     })
+
+    it('clears transient state from previous runs', () => {
+      const store = useRunStore()
+      store.connectionStatus = 'offline'
+      store.updateTimeoutMitigationStatus({
+        mode: 'standalone',
+        currentBatchSize: 10,
+        timeoutEscalationLevel: 2,
+        retriesAtMinimumBatch: 3,
+        nextRetryDelayMs: 1500,
+        elapsedMs: 7000,
+        budgetMs: 20000,
+      })
+      store.isInitiating = true
+      store.isPausing = true
+      store.isSkipping = true
+      store.logId = 111
+      store.resumeLogId = 222
+      store.isHistoricalLog = true
+      store.addError({ filename: 'old.csv', rowNumber: 1, rawData: {}, error: 'Old error', timestamp: Date.now() })
+
+      store.initRun(['new.csv'], new Map([['new.csv', 5]]), true)
+
+      expect(store.connectionStatus).toBe('online')
+      expect(store.timeoutMitigationActive).toBe(false)
+      expect(store.timeoutMitigationStatus).toBeNull()
+      expect(store.isInitiating).toBe(false)
+      expect(store.isPausing).toBe(false)
+      expect(store.isSkipping).toBe(false)
+      expect(store.logId).toBeNull()
+      expect(store.resumeLogId).toBeNull()
+      expect(store.isHistoricalLog).toBe(false)
+      expect(store.errors).toEqual([])
+      expect(store.isDryRun).toBe(true)
+    })
   })
 
   describe('file progress', () => {
@@ -177,6 +212,21 @@ describe('RunStore', () => {
       const store = useRunStore()
       store.initRun(['file.csv'], new Map([['file.csv', 100]]))
       store.setState(ImportState.RUNNING_FILE)
+      store.connectionStatus = 'offline'
+      store.updateTimeoutMitigationStatus({
+        mode: 'addon',
+        currentBatchSize: 50,
+        timeoutEscalationLevel: 1,
+        retriesAtMinimumBatch: 0,
+        nextRetryDelayMs: 0,
+        elapsedMs: 0,
+        budgetMs: 1000,
+      })
+      store.logId = 10
+      store.resumeLogId = 20
+      store.isInitiating = true
+      store.isPausing = true
+      store.isSkipping = true
       store.startFile('file.csv')
       store.updateFileProgress('file.csv', { processedRows: 50 })
       store.addError({ filename: 'file.csv', rowNumber: 1, rawData: {}, error: 'Error', timestamp: Date.now() })
@@ -188,6 +238,14 @@ describe('RunStore', () => {
       expect(Object.keys(store.progress.files).length).toBe(0)
       expect(store.errors).toEqual([])
       expect(store.runStartTime).toBeNull()
+      expect(store.connectionStatus).toBe('online')
+      expect(store.timeoutMitigationActive).toBe(false)
+      expect(store.timeoutMitigationStatus).toBeNull()
+      expect(store.logId).toBeNull()
+      expect(store.resumeLogId).toBeNull()
+      expect(store.isInitiating).toBe(false)
+      expect(store.isPausing).toBe(false)
+      expect(store.isSkipping).toBe(false)
     })
   })
 
