@@ -1,8 +1,8 @@
 /** @odoo-module **/
 
-import { registry } from "@web/core/registry";
+import {registry} from "@web/core/registry";
 
-const { Component, onMounted, onWillUnmount, useRef } = owl;
+const {Component, onMounted, onWillUnmount, useRef} = owl;
 
 const SCRIPT_SRC = "/ametras_fast_import_addon/static/vue/app.js";
 
@@ -45,12 +45,18 @@ class CsvImportVueApp extends Component {
                 // Dynamic actions use params; stored XML actions use context.
                 const params = action.params || {};
                 const ctx = action.context || {};
-                const defaultView = params.default_view || ctx.default_view || 'import';
+                const defaultView = params.default_view || ctx.default_view || "import";
                 const resumeLogId = params.resume_log_id || ctx.resume_log_id || null;
                 const logId = params.log_id || ctx.log_id || null;
                 const profileId = params.profile_id || ctx.profile_id || null;
-                const inDialog = action.target === 'new' || false;
-                console.log("[CsvImportVueApp] mount", { defaultView, logId, profileId, resumeLogId, inDialog });
+                const inDialog = action.target === "new" || false;
+                console.log("[CsvImportVueApp] mount", {
+                    defaultView,
+                    logId,
+                    profileId,
+                    resumeLogId,
+                    inDialog,
+                });
                 this._unmount = mod.mountApp(el, {
                     uid: uid,
                     baseUrl: "",
@@ -61,7 +67,9 @@ class CsvImportVueApp extends Component {
                     profileId: profileId,
                     inDialog: inDialog,
                     closeDialog: () => {
-                        this.env.services.action.doAction({ type: 'ir.actions.act_window_close' });
+                        this.env.services.action.doAction({
+                            type: "ir.actions.act_window_close",
+                        });
                     },
                 });
             } catch (err) {
@@ -81,6 +89,4 @@ class CsvImportVueApp extends Component {
 
 CsvImportVueApp.template = "ametras_fast_import_addon.CsvImportAction";
 
-registry
-    .category("actions")
-    .add("ametras_csv_import_vue_app", CsvImportVueApp);
+registry.category("actions").add("ametras_csv_import_vue_app", CsvImportVueApp);

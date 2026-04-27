@@ -1,5 +1,6 @@
 import logging
 from collections import defaultdict
+
 from odoo import http
 from odoo.http import request
 
@@ -13,15 +14,21 @@ STANDARD_DB_ID_MODELS = {
     "uom.uom",
     "res.lang",
     "res.country.state",
-    "res.partner.title"
+    "res.partner.title",
 }
 
 
 class CSVImportController(http.Controller):
-
-    @http.route('/ametras_fast_import/run', type='json', auth='user', methods=['POST'])
-    def run_import(self, model, rows, use_external_id=False, search_keys=None,
-                   dry_run=False, strict=False):
+    @http.route("/ametras_fast_import/run", type="json", auth="user", methods=["POST"])
+    def run_import(
+        self,
+        model,
+        rows,
+        use_external_id=False,
+        search_keys=None,
+        dry_run=False,
+        strict=False,
+    ):
         """
         Import rows into specified model with deterministic upsert logic.
 
@@ -49,22 +56,23 @@ class CSVImportController(http.Controller):
         Model = request.env[model]
 
         # Security check
-        Model.check_access_rights('create')
-        Model.check_access_rights('write')
+        Model.check_access_rights("create")
+        Model.check_access_rights("write")
 
         # Validate search_keys exist on model
         if search_keys:
             model_fields = Model._fields
             for key in search_keys:
                 if key not in model_fields:
-                    return {'error': f"Search key '{key}' not found on model {model}"}
+                    return {"error": f"Search key '{key}' not found on model {model}"}
 
         return self._run_standard_import(
             Model, rows, use_external_id, search_keys, dry_run, strict
         )
 
-    def _run_standard_import(self, Model, rows, use_external_id, search_keys,
-                              dry_run, strict, warning=None):
+    def _run_standard_import(
+        self, Model, rows, use_external_id, search_keys, dry_run, strict, warning=None
+    ):
         """
         Standard row-by-row import with savepoint per row.
 
@@ -75,7 +83,7 @@ class CSVImportController(http.Controller):
         try:
             ref_map = self._prefetch_references(Model, rows)
         except ValueError as e:
-            return {'error': str(e)}
+            return {"error": str(e)}
 
         results = []
         warnings = []
@@ -98,22 +106,26 @@ class CSVImportController(http.Controller):
                     # Dry run: rollback this savepoint but report success
                     if dry_run:
                         sp.rollback()
-                        result['dry_run'] = True
+                        result["dry_run"] = True
 
             except Exception as e:
                 _logger.warning(f"Import error for {Model._name}: {e}")
-                results.append({
-                    'ok': False,
-                    'error': str(e)
-                })
+                results.append({"ok": False, "error": str(e)})
 
-        response = {'results': results}
+        response = {"results": results}
         if warnings:
-            response['warnings'] = warnings
+            response["warnings"] = warnings
         return response
 
-    def _resolve_record(self, Model, row, use_external_id=False,
-                         external_id=None, search_keys=None, db_id=None):
+    def _resolve_record(
+        self,
+        Model,
+        row,
+        use_external_id=False,
+        external_id=None,
+        search_keys=None,
+        db_id=None,
+    ):
         """
         Find an existing record using the standard lookup chain:
         1. External ID  2. Natural Key Search  3. Database ID (legacy)
@@ -125,7 +137,7 @@ class CSVImportController(http.Controller):
         if use_external_id and external_id:
             record = self._find_by_external_id(Model, external_id)
             if record:
-                return record, 'external_id', []
+                return record, "external_id", []
 
         # Strategy 2: Natural Key Search
         missing_keys = []
@@ -134,13 +146,13 @@ class CSVImportController(http.Controller):
             if not missing_keys:
                 record = self._find_by_search_keys(Model, row, search_keys)
                 if record:
-                    return record, 'search_keys', []
+                    return record, "search_keys", []
 
         # Fallback: Database ID lookup (legacy)
         if db_id:
             record = Model.browse(int(db_id)).exists()
             if record:
-                return record, 'db_id', []
+                return record, "db_id", []
 
         return None, None, missing_keys
 
@@ -154,9 +166,9 @@ class CSVImportController(http.Controller):
         3. Else → Create (or fail if strict mode)
         """
         row = dict(row)  # Make a copy
-        external_id = row.pop('__external_id__', None)
-        db_id = row.pop('id', None)
-        operation = row.pop('__op__', None)  # Strategy 3: explicit operation column
+        external_id = row.pop("__external_id__", None)
+        db_id = row.pop("id", None)
+        operation = row.pop("__op__", None)  # Strategy 3: explicit operation column
 
         # Strategy 3: Explicit Operation Column (if provided)
         if operation:
@@ -171,19 +183,19 @@ class CSVImportController(http.Controller):
         # Strict mode: fail if search keys configured but missing
         if not record and strict and missing_keys:
             return {
-                'ok': False,
-                'error': f"Missing search keys: {', '.join(missing_keys)}"
+                "ok": False,
+                "error": f"Missing search keys: {', '.join(missing_keys)}",
             }
 
         if record:
             # Update existing
             record.write(row)
             return {
-                'ok': True,
-                'id': record.id,
-                'external_id': external_id,
-                'action': 'updated',
-                'strategy': strategy_used
+                "ok": True,
+                "id": record.id,
+                "external_id": external_id,
+                "action": "updated",
+                "strategy": strategy_used,
             }
         else:
             # Create new
@@ -194,64 +206,58 @@ class CSVImportController(http.Controller):
                 self._create_external_id(Model, new_record.id, external_id)
 
             return {
-                'ok': True,
-                'id': new_record.id,
-                'external_id': external_id,
-                'action': 'created',
-                'strategy': 'create'
+                "ok": True,
+                "id": new_record.id,
+                "external_id": external_id,
+                "action": "created",
+                "strategy": "create",
             }
 
-    def _handle_explicit_operation(self, Model, row, operation, external_id,
-                                    use_external_id, search_keys):
+    def _handle_explicit_operation(
+        self, Model, row, operation, external_id, use_external_id, search_keys
+    ):
         """
         Strategy 3: Handle explicit operation column.
         Valid operations: create, update, skip
         """
         operation = operation.lower().strip()
 
-        if operation == 'skip':
-            return {
-                'ok': True,
-                'action': 'skipped',
-                'strategy': 'explicit_op'
-            }
+        if operation == "skip":
+            return {"ok": True, "action": "skipped", "strategy": "explicit_op"}
 
-        elif operation == 'create':
+        elif operation == "create":
             new_record = Model.create(row)
             if use_external_id and external_id:
                 self._create_external_id(Model, new_record.id, external_id)
             return {
-                'ok': True,
-                'id': new_record.id,
-                'external_id': external_id,
-                'action': 'created',
-                'strategy': 'explicit_op'
+                "ok": True,
+                "id": new_record.id,
+                "external_id": external_id,
+                "action": "created",
+                "strategy": "explicit_op",
             }
 
-        elif operation == 'update':
+        elif operation == "update":
             record, _, _ = self._resolve_record(
                 Model, row, use_external_id, external_id, search_keys
             )
 
             if not record:
-                return {
-                    'ok': False,
-                    'error': 'Update requested but record not found'
-                }
+                return {"ok": False, "error": "Update requested but record not found"}
 
             record.write(row)
             return {
-                'ok': True,
-                'id': record.id,
-                'external_id': external_id,
-                'action': 'updated',
-                'strategy': 'explicit_op'
+                "ok": True,
+                "id": record.id,
+                "external_id": external_id,
+                "action": "updated",
+                "strategy": "explicit_op",
             }
 
         else:
             return {
-                'ok': False,
-                'error': f"Unknown operation: {operation}. Valid: create, update, skip"
+                "ok": False,
+                "error": f"Unknown operation: {operation}. Valid: create, update, skip",
             }
 
     def _find_by_search_keys(self, Model, row, search_keys):
@@ -259,7 +265,7 @@ class CSVImportController(http.Controller):
         Strategy 2: Find record by natural key search.
         All keys must match exactly.
         """
-        domain = [(key, '=', row[key]) for key in search_keys if key in row]
+        domain = [(key, "=", row[key]) for key in search_keys if key in row]
         if len(domain) != len(search_keys):
             return None  # Missing keys
 
@@ -276,16 +282,23 @@ class CSVImportController(http.Controller):
 
     def _find_by_external_id(self, Model, external_id):
         """Find record by external ID (module.name format)."""
-        if '.' not in external_id:
-            external_id = f'__import__.{external_id}'
+        if "." not in external_id:
+            external_id = f"__import__.{external_id}"
 
-        module, name = external_id.split('.', 1)
+        module, name = external_id.split(".", 1)
 
-        imd = request.env['ir.model.data'].sudo().search([
-            ('module', '=', module),
-            ('name', '=', name),
-            ('model', '=', Model._name)
-        ], limit=1)
+        imd = (
+            request.env["ir.model.data"]
+            .sudo()
+            .search(
+                [
+                    ("module", "=", module),
+                    ("name", "=", name),
+                    ("model", "=", Model._name),
+                ],
+                limit=1,
+            )
+        )
 
         if imd:
             return Model.browse(imd.res_id).exists()
@@ -293,17 +306,14 @@ class CSVImportController(http.Controller):
 
     def _create_external_id(self, Model, record_id, external_id):
         """Create ir.model.data entry for external ID."""
-        if '.' in external_id:
-            module, name = external_id.split('.', 1)
+        if "." in external_id:
+            module, name = external_id.split(".", 1)
         else:
-            module, name = '__import__', external_id
+            module, name = "__import__", external_id
 
-        request.env['ir.model.data'].sudo().create({
-            'module': module,
-            'name': name,
-            'model': Model._name,
-            'res_id': record_id
-        })
+        request.env["ir.model.data"].sudo().create(
+            {"module": module, "name": name, "model": Model._name, "res_id": record_id}
+        )
 
     # -------------------------------------------------------------------------
     # Reference Resolution Methods
@@ -325,7 +335,7 @@ class CSVImportController(http.Controller):
         for row in rows:
             for field_name, value in row.items():
                 # Skip special fields and empty values
-                if field_name in ('__external_id__', '__op__', 'id') or not value:
+                if field_name in ("__external_id__", "__op__", "id") or not value:
                     continue
                 if field_name not in model_fields:
                     continue
@@ -333,11 +343,11 @@ class CSVImportController(http.Controller):
                 field = model_fields[field_name]
 
                 # Only process relational fields with string values (external IDs)
-                if field.type == 'many2one' and isinstance(value, str):
+                if field.type == "many2one" and isinstance(value, str):
                     if self._is_external_id(value):
                         refs_by_model[field.comodel_name].add(value)
 
-                elif field.type == 'many2many' and isinstance(value, str):
+                elif field.type == "many2many" and isinstance(value, str):
                     if self._is_external_id(value):
                         for ref in self._parse_refs(value):
                             refs_by_model[field.comodel_name].add(ref)
@@ -348,13 +358,19 @@ class CSVImportController(http.Controller):
             # Parse and group by module for efficient querying
             parsed = [(self._normalize_ext_id(x), x) for x in ext_ids]
             names = [p[0][1] for p in parsed]
-            modules = list(set(p[0][0] for p in parsed))
+            modules = list({p[0][0] for p in parsed})
 
-            imd_records = request.env["ir.model.data"].sudo().search([
-                ("model", "=", model_name),
-                ("module", "in", modules),
-                ("name", "in", names)
-            ])
+            imd_records = (
+                request.env["ir.model.data"]
+                .sudo()
+                .search(
+                    [
+                        ("model", "=", model_name),
+                        ("module", "in", modules),
+                        ("name", "in", names),
+                    ]
+                )
+            )
 
             for imd in imd_records:
                 ref_map[(model_name, imd.module, imd.name)] = imd.res_id
@@ -374,7 +390,7 @@ class CSVImportController(http.Controller):
 
         for field_name, value in row.items():
             # Pass through special fields unchanged
-            if field_name in ('__external_id__', '__op__'):
+            if field_name in ("__external_id__", "__op__"):
                 resolved[field_name] = value
                 continue
 
@@ -391,7 +407,7 @@ class CSVImportController(http.Controller):
             field = model_fields[field_name]
 
             # Many2One field resolution
-            if field.type == 'many2one':
+            if field.type == "many2one":
                 if isinstance(value, str) and self._is_external_id(value):
                     # External ID reference - resolve via ref_map
                     resolved[field_name] = self._lookup_ref(
@@ -420,7 +436,7 @@ class CSVImportController(http.Controller):
                     resolved[field_name] = value
 
             # Many2Many field resolution
-            elif field.type == 'many2many':
+            elif field.type == "many2many":
                 if isinstance(value, str) and self._is_external_id(value):
                     # Pipe or comma-delimited external IDs
                     refs = self._parse_refs(value)
@@ -489,33 +505,29 @@ class CSVImportController(http.Controller):
         module, name = self._normalize_ext_id(value)
         key = (model_name, module, name)
         if key not in ref_map:
-            raise ValueError(
-                f"External ID '{value}' not found for model {model_name}"
-            )
+            raise ValueError(f"External ID '{value}' not found for model {model_name}")
         return ref_map[key]
 
-    @http.route('/ametras_fast_import/models', type='json', auth='user', methods=['POST'])
+    @http.route(
+        "/ametras_fast_import/models", type="json", auth="user", methods=["POST"]
+    )
     def list_models(self):
         """List importable models for current user."""
-        models = request.env['ir.model'].search([
-            ('transient', '=', False)
-        ])
+        models = request.env["ir.model"].search([("transient", "=", False)])
 
         result = []
         for model in models:
             try:
-                request.env[model.model].check_access_rights('create')
-                result.append({
-                    'id': model.id,
-                    'model': model.model,
-                    'name': model.name
-                })
+                request.env[model.model].check_access_rights("create")
+                result.append(
+                    {"id": model.id, "model": model.model, "name": model.name}
+                )
             except Exception:
                 pass  # User has no access
 
         return result
 
-    @http.route('/ametras_fast_import/info', type='json', auth='user', methods=['POST'])
+    @http.route("/ametras_fast_import/info", type="json", auth="user", methods=["POST"])
     def get_info(self):
         """
         Return addon information including version.
@@ -525,27 +537,36 @@ class CSVImportController(http.Controller):
             dict with version and other metadata
         """
         # Get the module's installed version from ir.module.module
-        module = request.env['ir.module.module'].sudo().search([
-            ('name', '=', 'ametras_fast_import_addon'),
-            ('state', '=', 'installed')
-        ], limit=1)
+        module = (
+            request.env["ir.module.module"]
+            .sudo()
+            .search(
+                [
+                    ("name", "=", "ametras_fast_import_addon"),
+                    ("state", "=", "installed"),
+                ],
+                limit=1,
+            )
+        )
 
         if module:
             # Full version is like "16.0.1.0.0", extract module version "1.0.0"
-            full_version = module.installed_version or ''
-            parts = full_version.split('.')
+            full_version = module.installed_version or ""
+            parts = full_version.split(".")
             # Skip Odoo version prefix (e.g., "16.0") and take the rest
             if len(parts) >= 3:
-                module_version = '.'.join(parts[2:])  # "1.0.0"
+                module_version = ".".join(parts[2:])  # "1.0.0"
             else:
                 module_version = full_version
         else:
-            module_version = 'unknown'
+            module_version = "unknown"
 
         return {
-            'version': module_version,
-            'name': 'CSV Import API',
-            'odoo_version': request.env['ir.module.module'].sudo().search([
-                ('name', '=', 'base')
-            ], limit=1).installed_version or 'unknown'
+            "version": module_version,
+            "name": "CSV Import API",
+            "odoo_version": request.env["ir.module.module"]
+            .sudo()
+            .search([("name", "=", "base")], limit=1)
+            .installed_version
+            or "unknown",
         }

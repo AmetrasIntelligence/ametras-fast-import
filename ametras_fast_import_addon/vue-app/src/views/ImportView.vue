@@ -137,7 +137,6 @@ const fileListItems = computed<FileListItem[]>(() => {
 
 // Whether we have files selected
 const hasFiles = computed(() => filesStore.files.length > 0)
-const isStandaloneMode = computed(() => !platform.capabilities.searchKeys)
 
 // Compute overall mapping status per file
 function getFileStatus(filename: string): 'valid' | 'partial' | 'none' {
@@ -931,23 +930,6 @@ async function updateExistingProfile() {
 
     <div v-if="loadError" class="alert alert-danger py-2 small mb-0">
       {{ loadError }}
-    </div>
-
-    <div v-if="isStandaloneMode" class="alert alert-warning py-2 mb-0">
-      <div class="fw-semibold">{{ $t('standalone.title') }}</div>
-      <div class="small">{{ $t('standalone.description') }}</div>
-      <div class="small mt-1">{{ $t('standalone.batchSizeNote') }}</div>
-      <div
-        v-if="platform.limitations.length > 0"
-        class="small text-body-secondary mt-1"
-      >
-        <div
-          v-for="(limitation, idx) in platform.limitations"
-          :key="`platform-limitation-${idx}`"
-        >
-          - {{ limitation }}
-        </div>
-      </div>
     </div>
 
     <!-- Show drop zone only when no files yet -->

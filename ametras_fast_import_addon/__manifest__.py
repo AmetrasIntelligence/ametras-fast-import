@@ -1,9 +1,9 @@
 {
-    'name': 'CSV Import',
-    'version': '16.0.1.1.1',
-    'category': 'Tools',
-    'summary': 'CSV Import Tool with embedded Vue frontend',
-    'description': '''
+    "name": "CSV Import",
+    "version": "16.0.1.1.1",
+    "category": "Tools",
+    "summary": "CSV Import Tool with embedded Vue frontend",
+    "description": """
         Provides JSON-RPC endpoints and an embedded Vue frontend for CSV importing.
         - Import endpoint: /ametras_fast_import/run
         - Profile management: upload, list, get, delete, export
@@ -11,26 +11,26 @@
         - Savepoint per row (one failure doesn't kill the batch)
         - External ID (xml_id) upsert support
         - ACL checks before import
-    ''',
-    'author': 'Ametras',
-    'depends': ['base', 'web'],
-    'data': [
-        'security/ir.model.access.csv',
-        'views/actions.xml',
-        'views/menu.xml',
-        'data/cron.xml',
+    """,
+    "author": "Ametras",
+    "depends": ["base", "web"],
+    "data": [
+        "security/ir.model.access.csv",
+        "views/actions.xml",
+        "views/menu.xml",
+        "data/cron.xml",
     ],
-    'assets': {
-        'web.assets_backend': [
-            'ametras_fast_import_addon/static/vue/style.css',
-            'ametras_fast_import_addon/static/src/css/csv_import_dialog.css',
-            'ametras_fast_import_addon/static/src/js/csv_import_action.js',
-            'ametras_fast_import_addon/static/src/js/csv_import_log_list.js',
-            'ametras_fast_import_addon/static/src/js/csv_import_profile_list.js',
-            'ametras_fast_import_addon/static/src/xml/csv_import_action.xml',
+    "assets": {
+        "web.assets_backend": [
+            "ametras_fast_import_addon/static/vue/style.css",
+            "ametras_fast_import_addon/static/src/css/csv_import_dialog.css",
+            "ametras_fast_import_addon/static/src/js/csv_import_action.js",
+            "ametras_fast_import_addon/static/src/js/csv_import_log_list.js",
+            "ametras_fast_import_addon/static/src/js/csv_import_profile_list.js",
+            "ametras_fast_import_addon/static/src/xml/csv_import_action.xml",
         ],
     },
-    'installable': True,
-    'application': True,
-    'license': 'LGPL-3',
+    "installable": True,
+    "application": True,
+    "license": "LGPL-3",
 }

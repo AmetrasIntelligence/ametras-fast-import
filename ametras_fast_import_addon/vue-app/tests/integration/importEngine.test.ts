@@ -707,6 +707,69 @@ describe('ImportEngine Integration', () => {
       expect(rowErrors).toEqual([1, 2])
       expect(run.errors.filter(e => e.filename === 'partners.csv' && e.rowNumber > 0)).toHaveLength(2)
     })
+
+    it('records timeout step-down before failing non-idempotent standalone rows', async () => {
+      const config = useConfigStore()
+      const run = useRunStore()
+      const filesStore = useFilesStore()
+
+      const timeoutExecuteBatch = vi.fn<ExecuteBatchFn>(async (_model, rows) => {
+        throw new TimeoutBatchError('Request timed out', rows)
+      })
+
+      const adapter = {
+        currentSize: 10,
+        recordSuccess: vi.fn(),
+        recordFailure: vi.fn(),
+        recordTimeout: vi.fn(function (this: { currentSize: number }) {
+          this.currentSize = 1
+          return true
+        }),
+        get isAtMinimum() {
+          return this.currentSize <= 1
+        },
+      }
+
+      const platform = usePlatformStore()
+      platform.configure({
+        executeBatch: timeoutExecuteBatch,
+        maxWorkers: 1,
+        batchSizeRange: { min: 1, max: 1000 },
+        createBatchAdapter: () => adapter,
+        capabilities: {
+          dryRun: true,
+          rowValidation: true,
+          searchKeys: false,
+          serverLogs: false,
+          serverProfiles: true,
+          multipleWorkers: false,
+          lang: true,
+        },
+        limitations: [],
+      })
+
+      config.setSequence(['partners.csv'])
+      config.setFileMapping('partners.csv', {
+        filename: 'partners.csv',
+        model: 'res.partner',
+        fieldMappings: { name: 'name' },
+      })
+
+      filesStore.addFiles([{ id: 'file-1', name: 'partners.csv', size: 32 }])
+      setupMockStream('name\nAlice\nBob')
+
+      currentEngine = new ImportEngine()
+      await currentEngine.start([{ id: 'file-1', name: 'partners.csv' }])
+
+      expect(run.state).toBe(ImportState.COMPLETED)
+      expect(timeoutExecuteBatch).toHaveBeenCalledTimes(1)
+      expect(adapter.recordTimeout).toHaveBeenCalledTimes(1)
+
+      const fileProgress = run.progress.files['partners.csv']
+      expect(fileProgress?.processedRows).toBe(2)
+      expect(fileProgress?.failedCount).toBe(2)
+      expect(run.timeoutMitigationActive).toBe(false)
+    })
   })
 
   describe('external ID handling', () => {

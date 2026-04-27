@@ -1,4 +1,3 @@
-import json
 import logging
 
 from odoo import api, fields, models
@@ -7,50 +6,65 @@ _logger = logging.getLogger(__name__)
 
 
 class CsvImportLog(models.Model):
-    _name = 'csv.import.log'
-    _description = 'CSV Import Log'
-    _order = 'create_date desc'
+    _name = "csv.import.log"
+    _description = "CSV Import Log"
+    _order = "create_date desc"
 
     # Metadata
-    profile_name = fields.Char(string='Profile')
-    profile_id = fields.Many2one('csv.import.profile', string='Profile Record', ondelete='set null')
-    user_id = fields.Many2one('res.users', string='User', default=lambda self: self.env.user, required=True)
-    is_dry_run = fields.Boolean(string='Dry Run', default=False)
-    state = fields.Selection([
-        ('running', 'Running'),
-        ('completed', 'Completed'),
-        ('failed', 'Failed'),
-        ('interrupted', 'Interrupted'),
-    ], string='State', default='running')
+    profile_name = fields.Char(string="Profile")
+    profile_id = fields.Many2one(
+        "csv.import.profile", string="Profile Record", ondelete="set null"
+    )
+    user_id = fields.Many2one(
+        "res.users", string="User", default=lambda self: self.env.user, required=True
+    )
+    is_dry_run = fields.Boolean(string="Dry Run", default=False)
+    state = fields.Selection(
+        [
+            ("running", "Running"),
+            ("completed", "Completed"),
+            ("failed", "Failed"),
+            ("interrupted", "Interrupted"),
+        ],
+        string="State",
+        default="running",
+    )
 
     # Timing
-    started_at = fields.Datetime(string='Started', required=True)
-    finished_at = fields.Datetime(string='Finished')
-    duration_seconds = fields.Integer(string='Duration (s)', compute='_compute_duration', store=True)
-    heartbeat = fields.Datetime(string='Last Heartbeat')
+    started_at = fields.Datetime(string="Started", required=True)
+    finished_at = fields.Datetime(string="Finished")
+    duration_seconds = fields.Integer(
+        string="Duration (s)", compute="_compute_duration", store=True
+    )
+    heartbeat = fields.Datetime(string="Last Heartbeat")
 
     # Files
-    filenames = fields.Text(string='Filenames (JSON)', default='[]')
+    filenames = fields.Text(string="Filenames (JSON)", default="[]")
     attachment_ids = fields.Many2many(
-        'ir.attachment', 'csv_import_log_attachment_rel',
-        'log_id', 'attachment_id', string='Import Files',
+        "ir.attachment",
+        "csv_import_log_attachment_rel",
+        "log_id",
+        "attachment_id",
+        string="Import Files",
     )
 
     # Results
-    total_rows = fields.Integer(string='Total Rows')
-    success_rows = fields.Integer(string='Successful')
-    failed_rows = fields.Integer(string='Failed')
+    total_rows = fields.Integer(string="Total Rows")
+    success_rows = fields.Integer(string="Successful")
+    failed_rows = fields.Integer(string="Failed")
     pending_rows = fields.Integer(
-        string='Pending', compute='_compute_pending_rows', store=True,
+        string="Pending",
+        compute="_compute_pending_rows",
+        store=True,
     )
 
     # Progress tracking (JSON: per-file processed ranges + counts)
-    file_progress = fields.Text(string='File Progress (JSON)', default='{}')
+    file_progress = fields.Text(string="File Progress (JSON)", default="{}")
 
     # Error log
-    error_log = fields.Text(string='Error Log (JSON)', default='[]')
+    error_log = fields.Text(string="Error Log (JSON)", default="[]")
 
-    @api.depends('started_at', 'finished_at')
+    @api.depends("started_at", "finished_at")
     def _compute_duration(self):
         for rec in self:
             if rec.started_at and rec.finished_at:
@@ -59,54 +73,56 @@ class CsvImportLog(models.Model):
             else:
                 rec.duration_seconds = 0
 
-    @api.depends('total_rows', 'success_rows', 'failed_rows')
+    @api.depends("total_rows", "success_rows", "failed_rows")
     def _compute_pending_rows(self):
         for rec in self:
-            rec.pending_rows = max(0, rec.total_rows - rec.success_rows - rec.failed_rows)
+            rec.pending_rows = max(
+                0, rec.total_rows - rec.success_rows - rec.failed_rows
+            )
 
     @api.model
     def action_start_new_import(self):
         """Open the import wizard in a dialog."""
         return {
-            'type': 'ir.actions.client',
-            'tag': 'ametras_csv_import_vue_app',
-            'name': 'CSV Import',
-            'target': 'new',
-            'params': {'default_view': 'import'},
-            'context': {'dialog_size': 'extra-large'},
+            "type": "ir.actions.client",
+            "tag": "ametras_csv_import_vue_app",
+            "name": "CSV Import",
+            "target": "new",
+            "params": {"default_view": "import"},
+            "context": {"dialog_size": "extra-large"},
         }
 
     def action_open_log(self):
         """Open the appropriate Vue view based on log state."""
         self.ensure_one()
         params = {}
-        if self.state == 'running':
-            params.update(default_view='run', resume_log_id=self.id)
-        elif self.state in ('completed', 'failed'):
-            params.update(default_view='results', log_id=self.id)
-        elif self.state == 'interrupted':
-            params.update(default_view='import', resume_log_id=self.id)
+        if self.state == "running":
+            params.update(default_view="run", resume_log_id=self.id)
+        elif self.state in ("completed", "failed"):
+            params.update(default_view="results", log_id=self.id)
+        elif self.state == "interrupted":
+            params.update(default_view="import", resume_log_id=self.id)
         else:
-            params['default_view'] = 'import'
+            params["default_view"] = "import"
         return {
-            'type': 'ir.actions.client',
-            'tag': 'ametras_csv_import_vue_app',
-            'name': 'Import',
-            'target': 'new',
-            'params': params,
-            'context': {'dialog_size': 'extra-large'},
+            "type": "ir.actions.client",
+            "tag": "ametras_csv_import_vue_app",
+            "name": "Import",
+            "target": "new",
+            "params": params,
+            "context": {"dialog_size": "extra-large"},
         }
 
     def action_retry_failed(self):
         """Open the Import client action for retrying failed rows."""
         self.ensure_one()
         return {
-            'type': 'ir.actions.client',
-            'tag': 'ametras_csv_import_vue_app',
-            'name': 'Retry Import',
-            'params': {
-                'default_view': 'import',
-                'retry_log_id': self.id,
+            "type": "ir.actions.client",
+            "tag": "ametras_csv_import_vue_app",
+            "name": "Retry Import",
+            "params": {
+                "default_view": "import",
+                "retry_log_id": self.id,
             },
         }
 
@@ -114,12 +130,12 @@ class CsvImportLog(models.Model):
         """Open Import Vue app with context to resume this import."""
         self.ensure_one()
         return {
-            'type': 'ir.actions.client',
-            'tag': 'ametras_csv_import_vue_app',
-            'name': 'Resume Import',
-            'params': {
-                'default_view': 'import',
-                'resume_log_id': self.id,
+            "type": "ir.actions.client",
+            "tag": "ametras_csv_import_vue_app",
+            "name": "Resume Import",
+            "params": {
+                "default_view": "import",
+                "resume_log_id": self.id,
             },
         }
 
@@ -127,9 +143,9 @@ class CsvImportLog(models.Model):
         """Download error log as CSV file."""
         self.ensure_one()
         return {
-            'type': 'ir.actions.act_url',
-            'url': f'/ametras_fast_import/log/{self.id}/error_csv',
-            'target': 'self',
+            "type": "ir.actions.act_url",
+            "url": f"/ametras_fast_import/log/{self.id}/error_csv",
+            "target": "self",
         }
 
     @api.model
@@ -137,18 +153,22 @@ class CsvImportLog(models.Model):
         """Find logs that are still 'running' but haven't sent a heartbeat
         in over 2 hours — mark them as 'interrupted'."""
         cutoff = fields.Datetime.subtract(fields.Datetime.now(), hours=2)
-        stale = self.search([
-            ('state', '=', 'running'),
-            '|',
-            ('heartbeat', '<', cutoff),
-            ('heartbeat', '=', False),
-        ])
+        stale = self.search(
+            [
+                ("state", "=", "running"),
+                "|",
+                ("heartbeat", "<", cutoff),
+                ("heartbeat", "=", False),
+            ]
+        )
         if stale:
             _logger.info("Marking %d stale import logs as interrupted", len(stale))
-            stale.write({
-                'state': 'interrupted',
-                'finished_at': fields.Datetime.now(),
-            })
+            stale.write(
+                {
+                    "state": "interrupted",
+                    "finished_at": fields.Datetime.now(),
+                }
+            )
 
     @api.model
     def _cron_cleanup_attachments(self, retention_days=7):
@@ -157,32 +177,39 @@ class CsvImportLog(models.Model):
         cutoff = fields.Datetime.subtract(fields.Datetime.now(), days=retention_days)
 
         # 1. Logs with attachments that are old and finished
-        old_logs = self.search([
-            ('state', 'in', ['completed', 'failed']),
-            ('finished_at', '<', cutoff),
-        ])
+        old_logs = self.search(
+            [
+                ("state", "in", ["completed", "failed"]),
+                ("finished_at", "<", cutoff),
+            ]
+        )
         for log in old_logs:
             if log.attachment_ids:
                 _logger.info(
                     "Cleaning up %d attachments from log #%d",
-                    len(log.attachment_ids), log.id,
+                    len(log.attachment_ids),
+                    log.id,
                 )
                 attachments = log.attachment_ids
-                log.write({'attachment_ids': [(5, 0, 0)]})
+                log.write({"attachment_ids": [(5, 0, 0)]})
                 attachments.unlink()
 
         # 2. Orphaned attachments (res_model = 'ametras_fast_import.file', res_id = 0)
-        orphans = self.env['ir.attachment'].search([
-            ('res_model', '=', 'ametras_fast_import.file'),
-            ('res_id', '=', 0),
-            ('create_date', '<', cutoff),
-        ])
+        orphans = self.env["ir.attachment"].search(
+            [
+                ("res_model", "=", "ametras_fast_import.file"),
+                ("res_id", "=", 0),
+                ("create_date", "<", cutoff),
+            ]
+        )
         # Exclude those linked to any log
         if orphans:
-            linked = self.env['ir.attachment'].search([
-                ('id', 'in', orphans.ids),
-                ('csv_import_log_attachment_rel.log_id', '!=', False),
-            ])
+            linked = self.env["ir.attachment"].search(
+                [
+                    ("id", "in", orphans.ids),
+                    ("csv_import_log_attachment_rel.log_id", "!=", False),
+                ]
+            )
             to_delete = orphans - linked
             if to_delete:
                 _logger.info("Deleting %d orphaned import attachments", len(to_delete))

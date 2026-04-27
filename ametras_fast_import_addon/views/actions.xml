@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="UTF-8" ?>
 <odoo>
     <!-- Client action for Import view (default) -->
     <record id="action_csv_import_vue_app" model="ir.actions.client">
@@ -19,7 +19,9 @@
         <field name="name">Start Import</field>
         <field name="tag">ametras_csv_import_vue_app</field>
         <field name="target">new</field>
-        <field name="context">{'default_view': 'import', 'dialog_size': 'extra-large'}</field>
+        <field
+            name="context"
+        >{'default_view': 'import', 'dialog_size': 'extra-large'}</field>
     </record>
 
     <!-- Tree view for Logs (landing page) -->
@@ -28,20 +30,22 @@
         <field name="model">csv.import.log</field>
         <field name="arch" type="xml">
             <tree create="false" js_class="csv_import_log_list">
-                <field name="create_date" string="Date"/>
-                <field name="user_id"/>
-                <field name="profile_name"/>
-                <field name="state"
-                       decoration-success="state == 'completed'"
-                       decoration-danger="state == 'failed'"
-                       decoration-warning="state == 'interrupted'"
-                       decoration-info="state == 'running'"/>
-                <field name="is_dry_run"/>
-                <field name="total_rows"/>
-                <field name="success_rows"/>
-                <field name="failed_rows"/>
-                <field name="pending_rows"/>
-                <field name="duration_seconds" widget="float_time"/>
+                <field name="create_date" string="Date" />
+                <field name="user_id" />
+                <field name="profile_name" />
+                <field
+                    name="state"
+                    decoration-success="state == 'completed'"
+                    decoration-danger="state == 'failed'"
+                    decoration-warning="state == 'interrupted'"
+                    decoration-info="state == 'running'"
+                />
+                <field name="is_dry_run" />
+                <field name="total_rows" />
+                <field name="success_rows" />
+                <field name="failed_rows" />
+                <field name="pending_rows" />
+                <field name="duration_seconds" widget="float_time" />
             </tree>
         </field>
     </record>
@@ -53,53 +57,72 @@
         <field name="arch" type="xml">
             <form create="false" edit="false">
                 <header>
-                    <button name="action_resume_import" type="object" string="Resume Import"
-                            class="btn-primary"
-                            attrs="{'invisible': ['|', ('state', 'not in', ['interrupted', 'failed']), '&amp;', ('pending_rows', '=', 0), ('failed_rows', '=', 0)]}"/>
-                    <button name="action_retry_failed" type="object" string="Retry Failed Rows"
-                            class="btn-primary"
-                            attrs="{'invisible': [('failed_rows', '=', 0)]}"/>
-                    <button name="action_download_errors" type="object" string="Download Error Log"
-                            class="btn-secondary"
-                            attrs="{'invisible': [('failed_rows', '=', 0)]}"/>
-                    <field name="state" widget="statusbar"
-                           statusbar_visible="running,completed,failed,interrupted"/>
+                    <button
+                        name="action_resume_import"
+                        type="object"
+                        string="Resume Import"
+                        class="btn-primary"
+                        attrs="{'invisible': ['|', ('state', 'not in', ['interrupted', 'failed']), '&amp;', ('pending_rows', '=', 0), ('failed_rows', '=', 0)]}"
+                    />
+                    <button
+                        name="action_retry_failed"
+                        type="object"
+                        string="Retry Failed Rows"
+                        class="btn-primary"
+                        attrs="{'invisible': [('failed_rows', '=', 0)]}"
+                    />
+                    <button
+                        name="action_download_errors"
+                        type="object"
+                        string="Download Error Log"
+                        class="btn-secondary"
+                        attrs="{'invisible': [('failed_rows', '=', 0)]}"
+                    />
+                    <field
+                        name="state"
+                        widget="statusbar"
+                        statusbar_visible="running,completed,failed,interrupted"
+                    />
                 </header>
                 <sheet>
                     <group string="Summary">
                         <group>
-                            <field name="profile_name"/>
-                            <field name="profile_id"/>
-                            <field name="user_id"/>
-                            <field name="is_dry_run"/>
+                            <field name="profile_name" />
+                            <field name="profile_id" />
+                            <field name="user_id" />
+                            <field name="is_dry_run" />
                         </group>
                         <group>
-                            <field name="total_rows"/>
-                            <field name="success_rows"/>
-                            <field name="failed_rows"/>
-                            <field name="pending_rows"/>
+                            <field name="total_rows" />
+                            <field name="success_rows" />
+                            <field name="failed_rows" />
+                            <field name="pending_rows" />
                         </group>
                     </group>
                     <group string="Timing">
                         <group>
-                            <field name="started_at"/>
-                            <field name="finished_at"/>
-                            <field name="duration_seconds"/>
-                            <field name="heartbeat"/>
+                            <field name="started_at" />
+                            <field name="finished_at" />
+                            <field name="duration_seconds" />
+                            <field name="heartbeat" />
                         </group>
                     </group>
                     <group string="Files">
-                        <field name="attachment_ids" widget="many2many_tags" nolabel="1"/>
+                        <field
+                            name="attachment_ids"
+                            widget="many2many_tags"
+                            nolabel="1"
+                        />
                     </group>
                     <notebook>
                         <page string="Files">
-                            <field name="filenames" widget="text"/>
+                            <field name="filenames" widget="text" />
                         </page>
                         <page string="File Progress">
-                            <field name="file_progress" widget="text"/>
+                            <field name="file_progress" widget="text" />
                         </page>
                         <page string="Error Log">
-                            <field name="error_log" widget="text"/>
+                            <field name="error_log" widget="text" />
                         </page>
                     </notebook>
                 </sheet>
@@ -120,11 +143,11 @@
         <field name="model">csv.import.profile</field>
         <field name="arch" type="xml">
             <tree create="false" js_class="csv_import_profile_list">
-                <field name="name"/>
-                <field name="version"/>
-                <field name="description"/>
-                <field name="odoo_min_version"/>
-                <field name="write_date" string="Updated"/>
+                <field name="name" />
+                <field name="version" />
+                <field name="description" />
+                <field name="odoo_min_version" />
+                <field name="write_date" string="Updated" />
             </tree>
         </field>
     </record>

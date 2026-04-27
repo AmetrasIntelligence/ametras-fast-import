@@ -427,9 +427,9 @@ export class ImportEngine {
     }
 
     // Create worker pool
-    // Standalone mode uses a single worker to reduce timeout pressure and lock contention.
+    // Worker parallelism is controlled by platform capability.
     const configuredWorkers = Math.max(1, Math.min(platform.maxWorkers, settings.workers || 1))
-    const workers = !platform.capabilities.searchKeys ? 1 : configuredWorkers
+    const workers = platform.capabilities.multipleWorkers ? configuredWorkers : 1
     this.workerPool = new WorkerPool(workers)
 
     this.workerPool.start(
@@ -615,6 +615,14 @@ export class ImportEngine {
             timeoutMitigationStartedAt = Date.now()
           }
 
+          timeoutEscalationLevel = Math.min(
+            timeoutEscalationLevel + 1,
+            MAX_TIMEOUT_ESCALATION_LEVEL
+          )
+          const adapter = this.batchSizeAdapter as BatchSizeAdapter | null
+          const steppedDown = adapter?.recordTimeout() ?? false
+          const elapsedMs = Date.now() - timeoutMitigationStartedAt
+
           if (isStandaloneMode) {
             run.setTimeoutMitigationActive(true)
             const assessment = assessTimeoutRetryIdempotency(batch.rows, mapping.fieldMappings)
@@ -654,14 +662,6 @@ export class ImportEngine {
               return [...safeResults, ...unsafeResults].sort((a, b) => a.rowIndex - b.rowIndex)
             }
           }
-
-          timeoutEscalationLevel = Math.min(
-            timeoutEscalationLevel + 1,
-            MAX_TIMEOUT_ESCALATION_LEVEL
-          )
-          const adapter = this.batchSizeAdapter as BatchSizeAdapter | null
-          const steppedDown = adapter?.recordTimeout() ?? false
-          const elapsedMs = Date.now() - timeoutMitigationStartedAt
 
           if (steppedDown) {
             timeoutsAtMinimum = 0
@@ -1168,6 +1168,14 @@ export class ImportEngine {
                 timeoutMitigationStartedAt = Date.now()
               }
 
+              timeoutEscalationLevel = Math.min(
+                timeoutEscalationLevel + 1,
+                MAX_TIMEOUT_ESCALATION_LEVEL
+              )
+              const adapter = retryAdapter as BatchSizeAdapter | undefined
+              const steppedDown = adapter?.recordTimeout() ?? false
+              const elapsedMs = Date.now() - timeoutMitigationStartedAt
+
               if (isStandaloneMode) {
                 run.setTimeoutMitigationActive(true)
                 const assessment = assessTimeoutRetryIdempotency(rowsToProcess, mapping.fieldMappings)
@@ -1200,14 +1208,6 @@ export class ImportEngine {
                   rowsToProcess = assessment.safeRows
                 }
               }
-
-              timeoutEscalationLevel = Math.min(
-                timeoutEscalationLevel + 1,
-                MAX_TIMEOUT_ESCALATION_LEVEL
-              )
-              const adapter = retryAdapter as BatchSizeAdapter | undefined
-              const steppedDown = adapter?.recordTimeout() ?? false
-              const elapsedMs = Date.now() - timeoutMitigationStartedAt
 
               if (steppedDown) {
                 timeoutsAtMinimum = 0

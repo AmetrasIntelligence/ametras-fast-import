@@ -54,17 +54,23 @@ describe('assessTimeoutRetryIdempotency', () => {
     })
   })
 
-  it('prefers external id mapping when both id and .id are present', () => {
+  it('treats id and .id as row-level alternatives when both are mapped', () => {
     const rows = [
       row(1, { ext: 'e1', db: '' }),
       row(2, { ext: '', db: '12' }),
+      row(3, { ext: '', db: 'abc' }),
+      row(4, { ext: 'e4', db: '0' }),
+      row(5, { ext: '', db: '' }),
     ]
     const result = assessTimeoutRetryIdempotency(rows, { ext: 'id', db: '.id' })
 
     expect(result.keyType).toBe('id')
     expect(result.keyColumn).toBe('ext')
-    expect(result.safeRows.map(r => r.index)).toEqual([1])
-    expect(result.unsafeRows.map(r => r.index)).toEqual([2])
-    expect(result.unsafeReasonCounts).toEqual({ empty_external_id: 1 })
+    expect(result.safeRows.map(r => r.index)).toEqual([1, 2, 4])
+    expect(result.unsafeRows.map(r => r.index)).toEqual([3, 5])
+    expect(result.unsafeReasonCounts).toEqual({
+      invalid_database_id: 1,
+      empty_external_and_database_id: 1,
+    })
   })
 })

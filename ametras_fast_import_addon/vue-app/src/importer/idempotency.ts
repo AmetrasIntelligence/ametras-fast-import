@@ -24,18 +24,31 @@ function countReason(map: Record<string, number>, key: string): void {
   map[key] = (map[key] || 0) + 1
 }
 
+function readTrimmedValue(row: ParsedRow, column: string | null): string {
+  if (!column) return ''
+  const raw = row.data[column]
+  return typeof raw === 'string' ? raw.trim() : ''
+}
+
+function isValidDatabaseId(value: string): boolean {
+  return /^\d+$/.test(value) && Number(value) > 0
+}
+
 /**
  * Row-level timeout idempotency assessment for standalone mode.
  *
  * Mapping-level checks are not sufficient: retries are safe only when each row
- * actually carries a usable key value (id or .id).
+ * actually carries a usable key value (id or .id). When both are mapped, rows
+ * may safely retry with either key:
+ * - prefer non-empty external ID ('id')
+ * - otherwise fallback to valid database ID ('.id')
  */
 export function assessTimeoutRetryIdempotency(
   rows: ParsedRow[],
   fieldMappings: Record<string, string>
 ): TimeoutRetryIdempotencyAssessment {
   const externalIdColumn = findMappedCsvColumn(fieldMappings, 'id')
-  const dbIdColumn = externalIdColumn ? null : findMappedCsvColumn(fieldMappings, '.id')
+  const dbIdColumn = findMappedCsvColumn(fieldMappings, '.id')
 
   const keyType: TimeoutIdempotencyKeyType =
     externalIdColumn ? 'id' : dbIdColumn ? '.id' : null
@@ -45,7 +58,7 @@ export function assessTimeoutRetryIdempotency(
   const unsafeRows: ParsedRow[] = []
   const unsafeReasonCounts: Record<string, number> = {}
 
-  if (!keyType || !keyColumn) {
+  if (!externalIdColumn && !dbIdColumn) {
     for (const row of rows) {
       unsafeRows.push(row)
       countReason(unsafeReasonCounts, 'missing_key_mapping')
@@ -60,31 +73,36 @@ export function assessTimeoutRetryIdempotency(
   }
 
   for (const row of rows) {
-    const raw = row.data[keyColumn]
-    const value = typeof raw === 'string' ? raw.trim() : ''
+    const externalIdValue = readTrimmedValue(row, externalIdColumn)
+    const databaseIdValue = readTrimmedValue(row, dbIdColumn)
 
-    if (keyType === 'id') {
-      if (value.length > 0) {
-        safeRows.push(row)
-      } else {
-        unsafeRows.push(row)
-        countReason(unsafeReasonCounts, 'empty_external_id')
-      }
-      continue
-    }
-
-    if (value.length === 0) {
-      unsafeRows.push(row)
-      countReason(unsafeReasonCounts, 'empty_database_id')
-      continue
-    }
-
-    if (/^\d+$/.test(value) && Number(value) > 0) {
+    if (externalIdValue.length > 0) {
       safeRows.push(row)
-    } else {
+      continue
+    }
+
+    if (dbIdColumn) {
+      if (databaseIdValue.length === 0) {
+        unsafeRows.push(row)
+        countReason(
+          unsafeReasonCounts,
+          externalIdColumn ? 'empty_external_and_database_id' : 'empty_database_id'
+        )
+        continue
+      }
+
+      if (isValidDatabaseId(databaseIdValue)) {
+        safeRows.push(row)
+        continue
+      }
+
       unsafeRows.push(row)
       countReason(unsafeReasonCounts, 'invalid_database_id')
+      continue
     }
+
+    unsafeRows.push(row)
+    countReason(unsafeReasonCounts, 'empty_external_id')
   }
 
   return {
