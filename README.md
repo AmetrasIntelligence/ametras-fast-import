@@ -1,5 +1,7 @@
 # Ametras Fast Import for Odoo
 
+Language: **[EN](README.md)** | **[DE](README-GER.md)**
+
 Ametras Fast Import helps you import large CSV files into Odoo with a guided UI, reusable profiles, and import progress tracking.
 
 This README is focused on **end users** (installation and daily usage), not internal architecture.
