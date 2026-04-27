@@ -1,311 +1,174 @@
 # Ametras Fast Import for Odoo
 
-A high-performance CSV import tool for Odoo, available as both an **Odoo addon** (embedded client action) and a standalone **Electron desktop client**.
+Ametras Fast Import helps you import large CSV files into Odoo with a guided UI, reusable profiles, and import progress tracking.
 
-## Features
+This README is focused on **end users** (installation and daily usage), not internal architecture.
 
-- **Streaming CSV Processing** - Handles files >1GB with constant memory usage
-- **Parallel Batch Processing** - 1-4 configurable workers for high throughput
-- **Automatic Retries** - Failed rows automatically retried with configurable limits
-- **External ID Support** - Upsert via `ir.model.data` for migration-safe imports
-- **Reference Resolution** - Bulk prefetch of external IDs for O(1) lookups
-- **Per-Row Savepoints** - One failed row doesn't kill the entire batch
-- **Pause/Resume** - Import can be paused and resumed at any time
-- **Network Resilience** - Auto-pause on network errors, exponential backoff health checks, automatic resume on reconnection
-- **Import Log Lifecycle** - Server-side log records with heartbeat, tracking `running -> completed/failed/interrupted` states
-- **Resume Interrupted Imports** - Resume from where you left off after browser close, network outage, or crash
-- **Cron Jobs** - Automatic stale log detection and old file cleanup
-- **Error Export** - Failed rows can be exported as CSV for manual review
-- **Multi-File Imports** - Process multiple files in sequence with dependencies
-- **Import Profiles** - Named configurations stored server-side in Odoo, with ZIP upload/download and RunConfig overrides
-- **Smart Mapping** - Filename-to-model and header-to-field suggestions with confidence scoring
-- **Drag & Drop** - File import via drag & drop with `.csv` filter
-- **Saved Mappings** - Per-server filename-to-model associations with glob support
+## What You Need
 
-## Documentation
-
-Detailed documentation is available in the `docs/` directory:
-
-*   **[Introduction](docs/index.md)** - Overview and Key Features
-*   **[Getting Started](docs/getting-started/installation.md)** - Installation and Quickstart
-*   **[User Guide](docs/user-guide/connection.md)** - Comprehensive usage instructions
-*   **[Technical Reference](docs/reference/strategies.md)** - Strategies, transforms, and settings
-*   **[Developer Guide](docs/developer-guide/architecture.md)** - Architecture, testing, and extending
-
-## Architecture
-
-The project is split into two packages that share Vue source code via path aliases:
-
-```
-                    ametras_fast_import_addon/vue-app/src/
-                    (shared Vue components, stores, engine)
-                         /                    \
-                        /                      \
-   ametras_fast_import_addon/          ametras_fast_import_client/
-   (Odoo client action,               (Electron desktop app,
-    IIFE lib build)                    hash routing, login)
-```
-
-### Odoo Embedded Mode
-
-```
-+---------------------------------------------------------+
-|  Odoo 16+ Backend                                       |
-|  csv_import_action.js (OWL) -> mountApp() / unmountApp()|
-|  /ametras_fast_import/run (savepoint per row, upsert)   |
-|  /ametras_fast_import/log/* (create, update, finalize)  |
-|  /ametras_fast_import/profile/* (CRUD, ZIP)             |
-|  Cron: stale log detection (hourly), file cleanup       |
-+---------------------------------------------------------+
-        |
-        v  IIFE (static/vue/app.js)
-+---------------------------------------------------------+
-|  Vue App (Persistent Pinia, memory history)             |
-|  Import Engine, Worker Pool, Connection Monitor         |
-|  Stores: session / config / run / files / profiles      |
-+---------------------------------------------------------+
-```
-
-### Electron Desktop Mode
-
-```
-+---------------------------------------------------------+
-|  Electron Main Process                                  |
-|  File Dialog + Streaming, OdooSession, Credential Store |
-+----------------------------+----------------------------+
-                             | IPC Bridge
-+----------------------------v----------------------------+
-|  Vue Renderer (Context Isolated)                        |
-|  UI Components, Import Engine, Pinia Stores             |
-+---------------------------------------------------------+
-        |
-        v  JSON-RPC
-+---------------------------------------------------------+
-|  Odoo 16+ Backend                                       |
-+---------------------------------------------------------+
-```
-
-## Tech Stack
-
-- **Frontend**: Vue 3 + TypeScript + Pinia
-- **Styling**: Bootstrap 5 (bundled in Electron, provided by Odoo in embedded mode)
-- **Desktop**: Electron with context isolation
-- **Build**: Vite (IIFE lib for addon, standard for client) + electron-builder
-- **Linting**: ESLint 10 (flat config) + typescript-eslint + eslint-plugin-vue
-- **Testing**: Vitest (unit/integration) + Playwright (e2e)
-- **Backend**: Odoo 16+ addon (Python)
-- **i18n**: vue-i18n (runtime-only), locales: German (`de`), English (`en`)
-
-## Prerequisites
-
-- Node.js 18+
-- npm 9+
-- Odoo 16+ instance with the `ametras_fast_import_addon` installed
+- Access to an Odoo 16+ server
+- An Odoo user with import permissions for the target models
+- CSV files to import
+- Optional (for full feature set): the `ametras_fast_import_addon` installed on your Odoo server
 
 ## Installation
 
-### Odoo Addon
+You can use Ametras Fast Import in two ways:
 
-```bash
-# Copy the addon to your Odoo addons path
-cp -r ametras_fast_import_addon /path/to/odoo/addons/
-# Then install via Odoo Apps menu
-```
+1. **Desktop App (Electron client)**
+2. **Inside Odoo (Addon / embedded view)**
 
-### Vue App (Odoo Embedded)
+### Option 1: Desktop App
 
-```bash
-cd ametras_fast_import_addon/vue-app
-npm install
-npm run build    # outputs to ../static/vue/app.js + style.css
-```
+Install the app package provided by your team (typically `.dmg` on macOS, `.exe` on Windows, `.AppImage` on Linux).
 
-### Electron Client
+The app is currently **not code-signed by Apple/Microsoft**. This means macOS and Windows may block it on first run.
 
-```bash
-cd ametras_fast_import_client
-npm install
-npm run electron:build   # packages for macOS/Windows/Linux
-```
+#### macOS: "App can't be opened" / "developer cannot be verified"
 
-## Development
+Use one of these methods:
 
-### Vue App (shared source)
+1. In Finder, locate the app, then **Control-click** it and choose **Open**.
+2. Click **Open** again in the warning dialog.
 
-```bash
-cd ametras_fast_import_addon/vue-app
+If it is still blocked:
 
-npm run dev              # Vite dev server with Odoo proxy
-npm run typecheck        # Type checking
-npm run lint             # ESLint check
-npm run lint:fix         # ESLint auto-fix
-npm run test:unit        # 561 unit tests
-npm run test:watch       # Re-run on file changes
-npm run test:coverage    # Coverage report
-npm run build            # Production build -> ../static/vue/
-```
+1. Open **System Settings**.
+2. Go to **Privacy & Security**.
+3. In the Security section, find the blocked app message.
+4. Click **Open Anyway**.
+5. Confirm by clicking **Open**.
 
-### Electron Client
+#### Windows: "Windows protected your PC"
 
-```bash
-cd ametras_fast_import_client
+1. Start the installer/app.
+2. In the SmartScreen dialog, click **More info**.
+3. Click **Run anyway**.
+4. Continue installation.
 
-npm run dev              # Vite dev server
-npm run dev:electron     # Electron dev mode
-npm run typecheck        # Type checking
-npm run lint             # ESLint check
-npm run lint:fix         # ESLint auto-fix
-npm run build            # Production build
-npm run electron:build   # Package desktop app
-npm run test:e2e         # Playwright e2e tests
-npm run test:e2e:ui      # Interactive e2e UI
-```
+### Option 2: Odoo Addon (embedded mode)
 
-## Project Structure
+If your administrator provides the addon mode, install `ametras_fast_import_addon` in your Odoo addons path and install it from Odoo Apps.
 
-```
-ametras-fast-import/
-├── ametras_fast_import_addon/            # Odoo addon (works independently)
-│   ├── __init__.py, __manifest__.py
-│   ├── controllers/
-│   │   ├── import_controller.py          # Import run endpoints
-│   │   ├── log_controller.py             # Log lifecycle endpoints
-│   │   ├── file_controller.py            # File upload/management
-│   │   └── profile_controller.py         # Profile CRUD + ZIP
-│   ├── models/
-│   │   ├── csv_import_profile.py         # Profile storage model
-│   │   └── csv_import_log.py             # Import log model
-│   ├── views/, data/, security/          # Odoo metadata
-│   ├── static/
-│   │   ├── src/js/csv_import_action.js   # OWL bridge
-│   │   ├── src/xml/csv_import_action.xml
-│   │   └── vue/app.js + style.css        # Built Vue output
-│   ├── tests/                            # Python tests
-│   └── vue-app/                          # Vue source
-│       ├── package.json, vite.config.ts
-│       ├── tsconfig.json, vitest.config.ts
-│       ├── eslint.config.js              # ESLint 10 flat config
-│       ├── src/
-│       │   ├── main.ts                   # mountApp()/unmountApp()
-│       │   ├── App.vue
-│       │   ├── api/                      # Odoo API client
-│       │   ├── importer/                 # Engine, parser, workers
-│       │   │   ├── engine.ts             # Main orchestrator
-│       │   │   ├── csvParser.ts          # Streaming CSV parser
-│       │   │   ├── workerPool.ts         # Parallel batch workers
-│       │   │   ├── connectionMonitor.ts  # Network health check
-│       │   │   ├── batchExecutor.ts      # Batch processing
-│       │   │   ├── retryQueue.ts         # Failed row handling
-│       │   │   ├── stateMachine.ts       # Import state FSM
-│       │   │   └── standalone/           # Standalone mode executor
-│       │   ├── stores/                   # Pinia state management
-│       │   ├── components/               # Vue components
-│       │   ├── composables/              # Vue composables
-│       │   ├── services/                 # Import mode, profiles
-│       │   ├── types/                    # TypeScript types
-│       │   ├── utils/                    # Helpers and utilities
-│       │   ├── ui/                       # Bootstrap wrappers
-│       │   ├── views/                    # Route views
-│       │   ├── i18n/                     # vue-i18n (de, en)
-│       │   └── constants/                # Default settings
-│       └── tests/
-│           ├── setup.ts                  # Test configuration
-│           ├── fixtures/                 # Demo CSV data
-│           ├── unit/                     # 561 Vitest unit tests
-│           └── integration/              # Integration tests
-├── ametras_fast_import_client/           # Electron client
-│   ├── package.json, vite.config.ts
-│   ├── tsconfig.json, playwright.config.ts
-│   ├── eslint.config.js                 # ESLint 10 flat config
-│   ├── index.html
-│   ├── electron/
-│   │   ├── main.ts                       # Electron main process
-│   │   ├── preload.ts                    # IPC bridge
-│   │   └── ipc/                          # IPC handlers
-│   │       ├── files.ts                  # File streaming
-│   │       ├── odoo.ts                   # Odoo RPC proxy
-│   │       ├── store.ts                  # Persistent storage
-│   │       ├── profile.ts               # Profile ZIP handling
-│   │       └── standalone/               # Standalone mode IPC
-│   ├── src/
-│   │   ├── main.ts                       # Electron entry (login, routing)
-│   │   └── views/LoginView.vue
-│   └── tests/e2e/                        # Playwright e2e tests
-└── docs/                                 # Project documentation
-```
+Embedded mode provides all server-side features (for example dry-run/row validation, server logs, and server profile management).
 
-### Code Sharing
+## First Login (Desktop App)
 
-The client's `@/` path alias resolves to `../ametras_fast_import_addon/vue-app/src/`, so both packages share the same Vue components, stores, engine, and utilities. The client adds only Electron-specific code (login, IPC, file system access).
+On the login screen:
 
-## Import State Machine
+1. Enter **Server Host** (example: `mycompany.odoo.com` or `192.168.1.100/odoo`).
+2. Optionally open **Port & SSL** and adjust if needed.
+3. Enter **Database**, **Username**, **Password**.
+4. Click **Connect**.
 
-```
-IDLE -> VALIDATING -> RUNNING_FILE <-> RUNNING_BATCH -> COMPLETED
-                         |              |
-                      PAUSED      -> RETRYING
-                         |
-                       IDLE (abort)
-```
+Tips:
 
-## Configuration Options
+- You can save/reuse **Saved Connections**.
+- You can remove a saved connection with the `x` button.
 
-| Setting | Default | Range | Description |
-|---------|---------|-------|-------------|
-| `batchSize` | 200 | 1-1000 | Rows per batch sent to Odoo (standalone: 10-100) |
-| `workers` | 1 | 1-4 | Parallel workers for batch processing |
-| `retryLimit` | 3 | 0-10 | Max retry attempts per row |
-| `retryDelayMs` | 500 | 100+ | Delay between retry attempts |
-| `encoding` | utf-8-sig | - | CSV file encoding (utf-8-sig, utf-8, latin-1, cp1252) |
-| `delimiter` | , | - | CSV delimiter (auto-detect supported) |
-| `dryRun` | false | - | Validate without committing |
+## Import Workflow
 
-## External ID Handling
+### 1) Open `Import`
 
-The tool supports two ID column types for the record being imported:
+- Go to **Import**.
+- Add files with **Add Files** or drag and drop CSV files.
 
-- **`id` column**: Uses Odoo's `ir.model.data` for upsert. Records are identified by external ID (xml_id), making imports migration-safe and repeatable.
-- **`.id` column**: Direct database ID. Only use for same-database operations.
+### 2) Choose Profile and Settings
 
-### Relational Field References
+At the top of Import:
 
-For Many2One and Many2Many fields, use suffixed column headers:
+- **Profile tab**: select an existing import profile (optional).
+- **Settings tab**: configure import behavior (see settings section below).
 
-| Pattern | Example | Resolution |
-|---------|---------|------------|
-| `field/id` | `partner_id/id` | External ID |
-| `field/.id` | `country_id/.id` | Database ID (standard models only) |
+### 3) Configure Each File
 
-**Standard models for `/.id`:** `res.country`, `res.currency`, `uom.uom`, `res.lang`
+For every uploaded file:
 
-**Many2Many:** Use pipe-delimited IDs: `tag_ids/id` -> `tag_a|tag_b|tag_c`
+1. Check **CSV Preview**.
+2. Select **Target Model**.
+3. Review and adjust **Field Mappings**.
+4. (Optional) Click **Validate Random Row (Dry Run)** when available.
 
-See [docs/reference/transforms.md](docs/reference/transforms.md) for full documentation.
+When mappings are ready, click **Start Import**.
 
-## Test Suite
+### 4) Monitor in `Run`
 
-The project includes 561 unit/integration tests and Playwright e2e tests.
+During import you can:
 
-See **[Testing Strategy](docs/developer-guide/testing.md)** for details.
+- **Pause** / **Resume**
+- **Skip File**
+- **Abort**
 
-## Design Decisions
+You can also monitor per-file progress, success count, and failed count.
 
-1. **Two-package split** - Shared Vue source in the addon's `vue-app/`, client adds only Electron-specific code
-2. **Path alias sharing** - Client's `@/` resolves to addon's `vue-app/src/` via vite/tsconfig aliases
-3. **IIFE lib build** - Vue app built as self-executing library for Odoo embedding
-4. **Vue owns import logic** - Odoo only validates and writes, keeping the backend simple
-5. **Bootstrap 5** - Uses Bootstrap classes and CSS variables so the app inherits Odoo's theme when embedded
-6. **Context isolation** - Secure IPC bridge, no Node.js in renderer
-7. **Savepoint per row** - Transactional safety without batch-level rollbacks
-8. **Streaming** - Memory efficiency for large files
-9. **State machine** - Deterministic, pausable, resumable imports
-10. **Parallel batches, sequential files** - Worker pool for throughput, file order for dependencies
-11. **Reference prefetch** - Bulk resolve external IDs for O(1) lookups during import
-12. **Server-side profile storage** - Profiles in Odoo, client is cache only
-13. **Persistent Pinia** - Store survives mount/unmount in Odoo embedded mode
-14. **Log lifecycle** - Server-side log records track import progress with 30s heartbeat
-15. **i18n** - vue-i18n runtime-only with German (default/fallback) and English; locale auto-detected from Odoo's `lang` attribute in embedded mode
+### 5) Review in `Result`
 
-## License
+After import, the Result page shows:
 
-Proprietary - Ametras GmbH
+- Total rows
+- Successful rows
+- Failed rows
+- Duration
+
+If there are errors, you can:
+
+- **Download Unified Error Log (CSV)**
+- **Download Failed Rows ZIP (.csv)**
+- **Retry Failed Rows** (when available)
+
+## Settings Explained
+
+In `Import -> Settings`, you can control:
+
+- **Batch Size**: rows per request batch.
+- **Workers**: parallel processing workers.
+- **Encoding**: CSV text encoding (`UTF-8`, `UTF-8 BOM`, `Latin-1`, `CP1252`).
+- **Delimiter**: comma, semicolon, tab, or auto-detect.
+- **Skip header row**: usually enabled for normal CSV files.
+- **Dry run (validate only)**: validates without writing data (available in addon/embedded mode).
+- **Language**: optional Odoo language code (for example `de_DE`) in addon/embedded mode.
+
+Default settings are safe for most imports. Tune `Batch Size` and `Workers` only if you need different performance behavior.
+
+## Profiles
+
+Profiles help you reuse import configuration (model mapping, field mapping, sequence, settings).
+
+### Create or Update from `Import`
+
+- **Save as New Profile**: save current setup as a new profile.
+- **Update Profile**: update the selected profile with your latest changes.
+
+### Manage in `Profiles`
+
+In the **Profiles** page, you can:
+
+- **Import Profile (ZIP)** (server profiles, when available)
+- **Import Local Profile (ZIP)**
+- **Export Profile (ZIP)**
+- **Delete** profile
+- **Push to Server** for local profiles
+
+Important:
+
+- Profile file matching is based on filenames.
+- If required files are missing, the app warns you.
+- You can still import extra files not listed in the profile.
+
+## Embedded vs Desktop Differences
+
+- **Embedded (Addon in Odoo)**: full feature set.
+- **Desktop Standalone**: works without the addon, but some features are unavailable (for example dry run/row validation, server logs, and server-side profile features).
+
+## Quick Troubleshooting
+
+- Connection fails:
+  - Re-check host, port, SSL, DB, username/password.
+  - Test login in the normal Odoo web UI first.
+- Many row errors:
+  - Verify delimiter/encoding.
+  - Re-check field mappings and required fields.
+  - Export failed rows and re-import only corrected rows.
+- Profile not applying as expected:
+  - Ensure CSV filenames match the profile names.
+  - Review mapping and import sequence in the Profiles page.
