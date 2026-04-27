@@ -52,7 +52,7 @@ describe('ConfigStore', () => {
     it('has correct defaults', () => {
       const store = useConfigStore()
 
-      expect(store.settings.batchSize).toBe(200)
+      expect(store.settings.batchSize).toBe(20)
       expect(store.settings.encoding).toBe('utf-8-sig')
       expect(store.settings.delimiter).toBe(',')
       expect(store.settings.skipHeader).toBe(true)

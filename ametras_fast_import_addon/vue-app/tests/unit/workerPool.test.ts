@@ -129,14 +129,14 @@ describe('WorkerPool', () => {
 })
 
 describe('validateWorkerConfig', () => {
-  it('warns when workers > 2 and batch size < 50', () => {
-    const result = validateWorkerConfig(3, 30)
+  it('warns when batch size is above 50 (timeout risk)', () => {
+    const result = validateWorkerConfig(3, 60)
     expect(result.valid).toBe(true)
-    expect(result.warning).toContain('inefficient')
+    expect(result.warning).toContain('timeouts')
   })
 
   it('returns valid for reasonable config', () => {
-    const result = validateWorkerConfig(2, 200)
+    const result = validateWorkerConfig(2, 50)
     expect(result.valid).toBe(true)
     expect(result.warning).toBeUndefined()
   })

@@ -153,8 +153,8 @@ export const mockServerProfiles = [
 // Run settings variations
 export const mockRunSettings = {
   default: {
-    batchSize: 200,
-    workers: 1,
+    batchSize: 20,
+    workers: 3,
     encoding: 'utf-8-sig' as const,
     delimiter: ',' as const,
     skipHeader: true,

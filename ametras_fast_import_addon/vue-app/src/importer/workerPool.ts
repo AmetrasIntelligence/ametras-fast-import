@@ -373,23 +373,23 @@ export class WorkerPool {
 
 /**
  * Calculate optimal worker count based on batch size.
- * Warns if configuration is inefficient.
+ * Warns when configuration increases timeout risk.
  */
 export function validateWorkerConfig(
   workers: number,
   batchSize: number
 ): { valid: boolean; warning?: string } {
-  if (workers > 2 && batchSize < 50) {
-    return {
-      valid: true,
-      warning: 'Workers may be inefficient with small batch sizes (< 50 rows)'
-    }
-  }
-
   if (workers > 4) {
     return {
       valid: false,
       warning: 'Maximum 4 workers allowed'
+    }
+  }
+
+  if (workers >= 1 && batchSize > 50) {
+    return {
+      valid: true,
+      warning: 'Batch sizes above 50 rows can lead to server timeouts'
     }
   }
 

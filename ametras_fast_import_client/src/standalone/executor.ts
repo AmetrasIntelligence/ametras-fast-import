@@ -18,7 +18,7 @@ import { logger } from '@/utils/logger'
 // Batch size constraints for standalone mode
 export const STANDALONE_MIN_BATCH_SIZE = 1
 export const STANDALONE_MAX_BATCH_SIZE = 100
-export const STANDALONE_DEFAULT_BATCH_SIZE = 50
+export const STANDALONE_DEFAULT_BATCH_SIZE = 20
 
 // Standalone request timeout model (must stay aligned with IPC defaults)
 const STANDALONE_TIMEOUT_BASE_MS = 10_000

@@ -1,6 +1,6 @@
 {
     "name": "CSV Import",
-    "version": "16.0.1.1.1",
+    "version": "16.0.3",
     "category": "Tools",
     "summary": "CSV Import Tool with embedded Vue frontend",
     "description": """

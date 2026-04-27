@@ -200,7 +200,6 @@
     "reconnecting": "Verbindung wird geprüft...",
     "timeoutMitigationTitle": "Server-Timeouts werden erkannt",
     "timeoutMitigationDetail": "Die Stapelgröße wird reduziert und das Timeout erhöht. Bitte haben Sie Geduld.",
-    "timeoutMitigationLive": "Stapel {batchSize}, Timeout-Stufe {level}, Wiederholungen bei Mindestgröße {minRetries}, nächster Versuch in {nextDelay}s, gewartet {elapsed}s/{budget}s.",
     "fileProgress": "{completed} / {total} Dateien",
     "tryAgain": "Erneut versuchen",
     "startupTimeout": "Import-Start hat das Zeitlimit überschritten (90s). Der Server ist möglicherweise langsam oder ein Netzwerkaufruf hängt. Bitte erneut versuchen."

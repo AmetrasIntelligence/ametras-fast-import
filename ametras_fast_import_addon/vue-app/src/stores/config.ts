@@ -8,7 +8,7 @@ export interface RunSettings {
   skipHeader: boolean
   dryRun: boolean
   lang: string
-  /** Number of parallel workers for batch processing (1-4). Default: 1 */
+  /** Number of parallel workers for batch processing (1-4). Default: 3 */
   workers: number
 }
 
@@ -27,7 +27,7 @@ export interface FileMapping {
  * Single source of truth for initial configuration values.
  */
 export const DEFAULT_RUN_SETTINGS: RunSettings = {
-  batchSize: 200,
+  batchSize: 20,
   encoding: 'utf-8-sig',
   delimiter: ',',
   skipHeader: true,

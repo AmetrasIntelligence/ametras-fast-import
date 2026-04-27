@@ -30,7 +30,7 @@ function getManifestVersion(): string {
   const manifest = fs.readFileSync(
     path.resolve(__dirname, '../ametras_fast_import_addon/__manifest__.py'), 'utf-8'
   )
-  const match = manifest.match(/'version'\s*:\s*'([^']+)'/)
+  const match = manifest.match(/["']version["']\s*:\s*["']([^"']+)["']/)
   return match?.[1] ?? 'unknown'
 }
 

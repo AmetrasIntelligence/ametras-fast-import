@@ -8,7 +8,6 @@ import { useFilesStore } from '@/stores/files'
 import { ImportState } from '@/importer/stateMachine'
 import { ImportEngine, type ResumeState } from '@/importer/engine'
 import { getImportLog } from '@/api/odooClient'
-import { formatNumber } from '@/utils/formatters'
 import { logger } from '@/utils/logger'
 import { Button, Progress, Card, Table } from '@/ui'
 
@@ -87,6 +86,10 @@ const etaDisplay = computed(() => {
   return `${minutes}m ${secs}s`
 })
 
+function formatNumber(value: number): string {
+  return value.toLocaleString()
+}
+
 const fileProgressList = computed(() =>
   Object.values(run.progress.files)
 )
@@ -94,19 +97,6 @@ const fileProgressList = computed(() =>
 const isRunning = computed(() =>
   [ImportState.VALIDATING, ImportState.RUNNING_FILE, ImportState.RUNNING_BATCH, ImportState.RETRYING].includes(run.state)
 )
-
-const timeoutMitigationLiveDetail = computed(() => {
-  const status = run.timeoutMitigationStatus
-  if (!status) return ''
-  return t('run.timeoutMitigationLive', {
-    batchSize: formatNumber(status.currentBatchSize),
-    level: status.timeoutEscalationLevel,
-    minRetries: formatNumber(status.retriesAtMinimumBatch),
-    nextDelay: Math.max(0, Math.round(status.nextRetryDelayMs / 1000)),
-    elapsed: Math.max(0, Math.round(status.elapsedMs / 1000)),
-    budget: Math.max(0, Math.round(status.budgetMs / 1000)),
-  })
-})
 
 // Auto-navigate to results when import completes or fails.
 // Also clears the startup watchdog once the import is past VALIDATING.
@@ -287,9 +277,6 @@ function viewResults() {
       <div>
         <strong>{{ $t('run.timeoutMitigationTitle') }}</strong>
         <div class="small">{{ $t('run.timeoutMitigationDetail') }}</div>
-        <div v-if="timeoutMitigationLiveDetail" class="small text-body-secondary mt-1">
-          {{ timeoutMitigationLiveDetail }}
-        </div>
       </div>
     </div>
 
