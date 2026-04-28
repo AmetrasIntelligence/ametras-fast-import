@@ -89,9 +89,18 @@ export function useDropdown(options: DropdownOptions = {}) {
     }
   }
 
-  // Close dropdown on scroll so it doesn't detach from the trigger.
-  // Use capture phase to catch scroll on any ancestor (including overflow containers).
-  function handleScroll() {
+  function isEventInsideDropdown(target: EventTarget | null): boolean {
+    if (!(target instanceof Node)) return false
+    return Boolean(
+      triggerRef.value?.contains(target) ||
+      dropdownRef.value?.contains(target)
+    )
+  }
+
+  // Close dropdown on outside scroll so it doesn't detach from the trigger.
+  // Keep open when the user scrolls inside the dropdown list itself.
+  function handleScroll(event: Event) {
+    if (isEventInsideDropdown(event.target)) return
     close()
   }
 
