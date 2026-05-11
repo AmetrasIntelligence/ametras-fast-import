@@ -403,7 +403,18 @@ async function executeWithAdaptiveRetry(
         }
         break
       }
-      throw err // re-throw NetworkBatchError and others
+      if (err instanceof TimeoutBatchError) {
+        const hasIdempotencyKey = !!(mapping.searchKeys?.length || detectIdColumn(mapping.fieldMappings))
+        if (!hasIdempotencyKey) {
+          logger.import.warn('[standalone] Timeout without idempotency key — failing batch to avoid duplicates')
+          return rows.map(row => ({
+            ok: false,
+            error: 'Request timed out. Add external IDs or search keys to enable safe retry.',
+            rowIndex: row.index,
+          }))
+        }
+      }
+      throw err // re-throw NetworkBatchError, TimeoutBatchError (with key), and others
     }
   }
 
