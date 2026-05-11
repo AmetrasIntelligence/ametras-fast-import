@@ -106,7 +106,9 @@ const isTransitioning = ref(false)
 
 // Auto-navigate when import reaches a terminal state
 watch(() => run.state, (newState) => {
-  if (newState === ImportState.COMPLETED || newState === ImportState.FAILED) {
+  if (newState === ImportState.RUNNING_FILE) {
+    startWatchdog() // restart 90s from when job actually begins, not from user click
+  } else if (newState === ImportState.COMPLETED || newState === ImportState.FAILED) {
     stopPolling()
     if (watchdogTimer) { clearTimeout(watchdogTimer); watchdogTimer = null }
     window.api?.odoo?.pinSession?.({ baseUrl: session.baseUrl || '', pinned: false })
@@ -231,7 +233,7 @@ function startWatchdog() {
   clearWatchdog()
   watchdogTimer = setTimeout(() => {
     const hasProgress = Object.values(run.progress.files).some(f => f.processedRows > 0)
-    if (!hasProgress && run.isActive) {
+    if (!hasProgress && run.state === ImportState.RUNNING_FILE) {
       // Cancel the stuck import so "Try Again" doesn't double-start
       controlImport('cancel')
       stopPolling()
