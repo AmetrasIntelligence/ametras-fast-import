@@ -161,6 +161,9 @@ export const useRunStore = defineStore('run', () => {
   function initRun(filenames: string[], rowCounts: Map<string, number>, dryRun = false) {
     isHistoricalLog.value = false
     isDryRun.value = dryRun
+    connectionStatus.value = 'online'
+    logId.value = null
+    resumeLogId.value = null
     const files: Record<string, FileProgress> = {}
     for (const f of filenames) {
       files[f] = {
