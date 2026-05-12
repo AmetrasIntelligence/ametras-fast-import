@@ -18,7 +18,7 @@ from typing import Any, Optional
 
 from .constants import (
     RPC_TIMEOUT_SECONDS, RPC_MAX_RETRIES, RPC_RETRY_BACKOFF_MULTIPLIER,
-    RPC_RECONNECT_TIMEOUT, RPC_RECONNECT_CHECK_INTERVAL,
+    RPC_RECONNECT_TIMEOUT,
     XMLRPC_OBJECT_PATH, XMLRPC_COMMON_PATH,
 )
 from .progress import ProgressReporter, NullReporter
@@ -151,10 +151,13 @@ class RpcBackend(OdooBackend):
             "Server unreachable after quick retries. "
             "Waiting up to %ds for connectivity...", RPC_RECONNECT_TIMEOUT
         )
+        delay = 1  # exponential backoff: 1, 2, 4, 8, 16, 30, 30, ...
         while _time.monotonic() < deadline:
             if self._is_cancelled():
                 return False
-            _time.sleep(RPC_RECONNECT_CHECK_INTERVAL)
+            remaining = deadline - _time.monotonic()
+            _time.sleep(min(delay, max(0.0, remaining)))
+            delay = min(delay * 2, 30)
             if self._check_connectivity():
                 return True
         return False

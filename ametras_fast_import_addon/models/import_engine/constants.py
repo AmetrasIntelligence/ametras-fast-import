@@ -95,6 +95,11 @@ STANDARD_DB_ID_MODELS = frozenset({
 })
 
 # ---------------------------------------------------------------------------
+# Server-side import job
+# ---------------------------------------------------------------------------
+PROGRESS_COMMIT_INTERVAL = 10  # seconds between periodic DB commits during import
+
+# ---------------------------------------------------------------------------
 # Progress reporting (JSON lines protocol types)
 # ---------------------------------------------------------------------------
 PROGRESS_TYPE_FILE_START = 'file_start'

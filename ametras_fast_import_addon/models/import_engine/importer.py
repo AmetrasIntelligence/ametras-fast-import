@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as dc_replace
 from typing import Callable, Optional
 
 from .backend import OdooBackend, FieldInfo
@@ -164,12 +164,13 @@ class Importer:
         Import rows already in Odoo field format (legacy API compatibility).
         """
         parsed = [ParsedRow(index=i + 1, data=row) for i, row in enumerate(rows)]
-        saved = self.config.field_mappings
-        self.config.field_mappings = {}
-        try:
-            return self.import_rows(parsed)
-        finally:
-            self.config.field_mappings = saved
+        temp = Importer(
+            self.backend,
+            dc_replace(self.config, field_mappings={}),
+            self.reporter,
+            self.cancel_check,
+        )
+        return temp.import_rows(parsed)
 
     def import_csv_file(
         self,

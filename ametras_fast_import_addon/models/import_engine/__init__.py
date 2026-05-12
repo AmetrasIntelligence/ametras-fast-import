@@ -20,6 +20,7 @@ from .parser import (
     ParsedRow, ParseOptions,
     parse_csv_file, parse_csv_batched, parse_csv_string,
     analyze_csv, analyze_csv_file,
+    count_csv_rows, extract_rows_by_index,
 )
 from .importer import Importer, ImportConfig, RowResult
 from .progress import ProgressReporter, NullReporter, JsonLinesReporter

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { showAlert, showConfirm, showPrompt, useDialogState } from '@/composables/useDialog'
+import { showAlert, showConfirm, showPrompt, useDialogState } from '@/utils/dialog'
 
 describe('useDialog', () => {
   let dialog: ReturnType<typeof useDialogState>

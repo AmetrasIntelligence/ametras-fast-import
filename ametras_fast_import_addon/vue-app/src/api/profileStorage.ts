@@ -17,7 +17,7 @@ import {
   parseSequenceCSV,
   parseFieldMappingsCSV
 } from '@/types/importProfile'
-import { parseRichFieldMappingsCSV } from '@/services/profileExporter'
+import { parseRichFieldMappingsCSV } from '@/api/profileExport'
 import { importProfileFromZip } from '@/utils/profileUtils'
 import {
   listAttachmentProfiles,
@@ -25,7 +25,7 @@ import {
   createAttachmentProfile,
   updateAttachmentProfile,
   deleteAttachmentProfile
-} from '@/services/attachmentProfiles'
+} from '@/api/attachmentProfiles'
 
 const STORAGE_KEY = 'standalone-profiles'
 

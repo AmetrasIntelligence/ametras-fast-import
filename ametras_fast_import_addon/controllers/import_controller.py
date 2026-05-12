@@ -246,6 +246,6 @@ class CSVImportController(http.Controller):
         if not old_log.exists():
             return {'error': 'Log not found'}
 
-        new_log = old_log._create_retry_log()
+        new_log = old_log._create_resume_log()
         new_log.action_start_import()
         return {'logId': new_log.id, 'state': 'running'}

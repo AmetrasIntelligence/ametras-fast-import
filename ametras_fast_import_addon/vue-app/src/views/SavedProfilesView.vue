@@ -8,14 +8,14 @@ import { useProfileImport } from '@/composables/useProfileImport'
 import { exportProfileClean } from '@/api/profileApi'
 import { checkOdooCompatibility } from '@/utils/profileUtils'
 import { formatTimestamp } from '@/utils/formatters'
-import { showAlert, showConfirm } from '@/composables/useDialog'
+import { showAlert, showConfirm } from '@/utils/dialog'
 import { createRunConfig } from '@/types/runConfig'
 import type { ImportProfile } from '@/types/importProfile'
 import { Button, Card } from '@/ui'
 import ProfileEditor from '@/components/ProfileEditor.vue'
-import { importStandaloneProfile } from '@/services/standaloneProfiles'
+import { importStandaloneProfile } from '@/api/profileStorage'
 import { exportProfileToZip, downloadBlob } from '@/utils/profileUtils'
-import { generateProfileCSV, generateMappingsCSV, generateSequenceCSV, generateFieldMappingsCSV, generateRunSettingsCSV } from '@/services/profileExporter'
+import { generateProfileCSV, generateMappingsCSV, generateSequenceCSV, generateFieldMappingsCSV, generateRunSettingsCSV } from '@/api/profileExport'
 
 const { t } = useI18n()
 
