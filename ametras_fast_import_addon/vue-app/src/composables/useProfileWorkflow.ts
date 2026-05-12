@@ -7,7 +7,7 @@ import { useProfilesStore } from '@/stores/profiles'
 import type { ImportProfile, ProfileMapping, ProfileSequenceItem } from '@/types/importProfile'
 import type { FieldMapping } from '@/types/fieldMapping'
 import { autoMapFields } from '@/utils/smartFieldMapping'
-import { showAlert, showConfirm, showPrompt } from '@/composables/useDialog'
+import { showAlert, showConfirm, showPrompt } from '@/utils/dialog'
 import type { useFieldMetadata } from '@/composables/useFieldMetadata'
 
 export function useProfileWorkflow(fieldMeta: ReturnType<typeof useFieldMetadata>) {

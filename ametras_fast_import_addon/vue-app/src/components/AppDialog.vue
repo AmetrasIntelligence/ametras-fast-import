@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, computed } from 'vue'
-import { useDialogState } from '@/composables/useDialog'
+import { useDialogState } from '@/utils/dialog'
 import { useI18n } from 'vue-i18n'
 import { Button } from '@/ui'
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { suggestModel } from '@/utils/smartMapping'
+import { suggestModel } from '@/utils/smartModelMapping'
 import type { OdooModel } from '@/api/odooClient'
 
 const mockModels: OdooModel[] = [

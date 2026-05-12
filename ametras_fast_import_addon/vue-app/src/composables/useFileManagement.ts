@@ -6,9 +6,9 @@ import { useSessionStore } from '@/stores/session'
 import { usePlatformStore } from '@/stores/platform'
 import { useSavedMappingsStore } from '@/stores/savedMappings'
 import { fetchModels, validateSampleRow, type OdooModel } from '@/api/odooClient'
-import { suggestModel } from '@/utils/smartMapping'
+import { suggestModel } from '@/utils/smartModelMapping'
 import { autoMapFields } from '@/utils/smartFieldMapping'
-import { showConfirm } from '@/composables/useDialog'
+import { showConfirm } from '@/utils/dialog'
 import type { useFieldMetadata } from '@/composables/useFieldMetadata'
 
 export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>) {

@@ -7,7 +7,7 @@ import {
   generateMappingsCSV,
   generateSequenceCSV,
   generateFieldMappingsCSV
-} from '@/services/profileExporter'
+} from '@/api/profileExport'
 import type { ImportProfile } from '@/types/importProfile'
 import { createRunConfig } from '@/types/runConfig'
 
