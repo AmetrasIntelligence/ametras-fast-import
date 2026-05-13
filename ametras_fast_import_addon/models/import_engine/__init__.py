@@ -1,7 +1,9 @@
 # Pure Python import engine — no odoo imports allowed in this package.
 # Works standalone (Electron subprocess) or inside Odoo (via OrmBackend).
 
-from .backend import OdooBackend, RpcBackend, FieldInfo
+from .backend import OdooBackend, RpcBackend, FieldInfo, TransportError
+from .batch_size_adapter import BatchSizeAdapter
+from .idempotency import assess_timeout_retry_idempotency, IdempotencyResult
 from .constants import (
     DEFAULT_BATCH_SIZE, MIN_BATCH_SIZE, MAX_BATCH_SIZE,
     DEFAULT_WORKERS, MIN_WORKERS, MAX_WORKERS,

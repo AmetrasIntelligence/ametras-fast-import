@@ -68,14 +68,13 @@ class TestSpecialCharacters(unittest.TestCase):
         self.assertEqual(rows[1].data['name'], '田中')
 
     def test_empty_fields(self):
-        """Empty fields between delimiters."""
+        """Empty fields between delimiters; all-empty rows are skipped (skipEmptyLines)."""
         csv = 'a,b,c\n1,,3\n,,\n4,5,6'
         rows = list(parse_csv_string(csv))
-        self.assertEqual(len(rows), 3)
-        self.assertEqual(rows[0].data['b'], '')
-        self.assertEqual(rows[1].data['a'], '')
-        self.assertEqual(rows[1].data['b'], '')
-        self.assertEqual(rows[1].data['c'], '')
+        # The parser mirrors PapaParse skipEmptyLines: the ",,\n" row is dropped.
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0].data['b'], '')   # row 1: middle field empty
+        self.assertEqual(rows[1].data['a'], '4')  # row 3 (index 3): normal row
 
     def test_semicolons_in_comma_csv(self):
         """Semicolons as data in a comma-delimited file."""

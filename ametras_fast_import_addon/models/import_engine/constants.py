@@ -95,6 +95,20 @@ STANDARD_DB_ID_MODELS = frozenset({
 })
 
 # ---------------------------------------------------------------------------
+# Adaptive batch sizing (BatchSizeAdapter)
+# ---------------------------------------------------------------------------
+BATCH_SIZE_SUCCESS_THRESHOLD = 30       # rows before stepping up
+BATCH_SIZE_FAILURE_THRESHOLD = 3        # consecutive failures before stepping down
+STANDALONE_POST_TIMEOUT_SUCCESS_THRESHOLD = 300  # elevated threshold after timeout
+
+# ---------------------------------------------------------------------------
+# Timeout retry budget (standalone / RPC mode only)
+# ---------------------------------------------------------------------------
+STANDALONE_TIMEOUT_RETRY_BUDGET_SECONDS = 1800   # 30 minutes
+TIMEOUT_RETRY_BASE_DELAY = 1.0                   # seconds base backoff
+TIMEOUT_RETRY_MAX_DELAY = 30.0                   # seconds cap
+
+# ---------------------------------------------------------------------------
 # Server-side import job
 # ---------------------------------------------------------------------------
 PROGRESS_COMMIT_INTERVAL = 10  # seconds between periodic DB commits during import

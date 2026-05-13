@@ -8,8 +8,8 @@ export interface RunSettings {
   skipHeader: boolean
   dryRun: boolean
   lang: string
-  /** Number of parallel workers for batch processing (1-4). Default: 3 */
-  workers: number
+  /** Number of parallel workers for batch processing (1-4). Standalone (Electron) only; ignored in embedded mode. */
+  standaloneWorkers: number
 }
 
 export interface FileMapping {
@@ -33,7 +33,7 @@ export const DEFAULT_RUN_SETTINGS: RunSettings = {
   skipHeader: true,
   dryRun: false,
   lang: 'de_DE',
-  workers: 3
+  standaloneWorkers: 3
 }
 
 export const useConfigStore = defineStore('config', () => {

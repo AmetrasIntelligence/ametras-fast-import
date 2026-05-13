@@ -54,6 +54,21 @@ const summary = computed(() => {
   }
 })
 
+/** Errors grouped by filename in insertion order. */
+const errorsByFilename = computed(() => {
+  const map = new Map<string, typeof run.errors>()
+  for (const err of run.errors) {
+    const key = err.filename || '(unknown)'
+    if (!map.has(key)) map.set(key, [])
+    map.get(key)!.push(err)
+  }
+  return map
+})
+
+const hasTruncatedErrors = computed(
+  () => run.totalErrorsSeen > run.errors.length
+)
+
 function calculateDuration(): string {
   if (!run.runStartTime) return '--'
   const files = Object.values(run.progress.files)
@@ -323,21 +338,64 @@ function startNew() {
       <!-- Error Details -->
       <Card v-if="run.errors.length > 0" class="p-3">
         <h3 class="fw-semibold mb-3">
-          {{ $t('results.errors') }} ({{ run.errors.length }})
+          {{ $t('results.errors') }} ({{ run.errors.length.toLocaleString() }})
         </h3>
 
-        <div class="overflow-auto" style="max-height: 24rem;">
-          <Table>
+        <!-- Truncation notice: shown when the in-memory cap was hit -->
+        <div
+          v-if="hasTruncatedErrors"
+          class="alert alert-warning d-flex align-items-start gap-2 mb-3 py-2 px-3"
+          role="alert"
+        >
+          <span class="flex-grow-1">
+            {{ $t('results.errorsCap', { shown: run.errors.length.toLocaleString(), total: run.totalErrorsSeen.toLocaleString() }) }}
+          </span>
+          <Button variant="outline" size="sm" @click="exportFailedRows">
+            {{ $t('results.downloadFailedRows') }}
+          </Button>
+        </div>
+
+        <div class="overflow-auto" style="max-height: 32rem;">
+          <!-- One section per file when multiple files have errors -->
+          <template v-if="errorsByFilename.size > 1">
+            <div
+              v-for="[filename, fileErrors] in errorsByFilename"
+              :key="filename"
+              class="mb-4"
+            >
+              <h4 class="fs-6 fw-semibold text-secondary mb-1 d-flex align-items-baseline gap-2">
+                {{ filename }}
+                <span class="badge bg-danger-subtle text-danger-emphasis fw-normal">
+                  {{ fileErrors.length.toLocaleString() }}
+                </span>
+              </h4>
+              <Table>
+                <thead>
+                  <tr>
+                    <th class="text-end" style="width: 5rem;">{{ $t('results.row') }}</th>
+                    <th class="text-start">{{ $t('results.error') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(error, idx) in fileErrors" :key="idx">
+                    <td class="text-end">{{ error.rowNumber }}</td>
+                    <td class="text-danger">{{ error.error }}</td>
+                  </tr>
+                </tbody>
+              </Table>
+            </div>
+          </template>
+
+          <!-- Flat table when only one file -->
+          <Table v-else>
             <thead>
               <tr>
-                <th class="text-start">{{ $t('results.file') }}</th>
-                <th class="text-end">{{ $t('results.row') }}</th>
+                <th class="text-end" style="width: 5rem;">{{ $t('results.row') }}</th>
                 <th class="text-start">{{ $t('results.error') }}</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="(error, idx) in run.errors" :key="idx">
-                <td>{{ error.filename }}</td>
                 <td class="text-end">{{ error.rowNumber }}</td>
                 <td class="text-danger">{{ error.error }}</td>
               </tr>

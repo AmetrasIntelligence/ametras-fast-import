@@ -34,6 +34,8 @@ export interface ImportRowError {
 interface ProgressSample { time: number; progress: number }
 const MAX_SAMPLES = 20
 
+export const MAX_ERRORS = 5_000
+
 export const useRunStore = defineStore('run', () => {
   const state = ref<ImportState>(ImportState.IDLE)
   const isDryRun = ref(false)
@@ -49,9 +51,13 @@ export const useRunStore = defineStore('run', () => {
   })
   const errors = ref<ImportRowError[]>([])
   const errorKeys = new Set<string>()
+  /** Total errors seen lifetime; may exceed errors.length when capped. */
+  const totalErrorsSeen = ref(0)
   const runStartTime = ref<number | null>(null)
   const isHistoricalLog = ref(false)
   const progressSamples = ref<ProgressSample[]>([])
+  /** ISO timestamp of last server heartbeat. null before first poll. */
+  const lastHeartbeat = ref<string | null>(null)
 
   /**
    * Retry data for standalone mode: failed rows grouped by filename.
@@ -158,6 +164,28 @@ export const useRunStore = defineStore('run', () => {
 
   const isWaitingForConnection = computed(() => connectionStatus.value === 'offline')
 
+  /**
+   * Stall threshold in ms, scaled by batch size.
+   * Formula mirrors 16.0's per-batch timeout shape:
+   *   max(90_000, BASE_MS + PER_ROW_MS * batchSize)
+   * The floor is also at least 3× PROGRESS_COMMIT_INTERVAL (30 s) = 90 s,
+   * so the constant 90_000 floor already satisfies both constraints.
+   */
+  function stallThresholdMs(batchSize: number): number {
+    const BASE_MS = 30_000
+    const PER_ROW_MS = 300
+    return Math.max(90_000, BASE_MS + PER_ROW_MS * batchSize)
+  }
+
+  const isStalled = computed(() => {
+    if (!lastHeartbeat.value) return false
+    if (connectionStatus.value === 'offline') return false
+    if (!isActive.value) return false
+    const batchSize = 200  // conservative default; will be configurable once batchSize flows here
+    const age = Date.now() - new Date(lastHeartbeat.value).getTime()
+    return age > stallThresholdMs(batchSize)
+  })
+
   function initRun(filenames: string[], rowCounts: Map<string, number>, dryRun = false) {
     isHistoricalLog.value = false
     isDryRun.value = dryRun
@@ -226,6 +254,10 @@ export const useRunStore = defineStore('run', () => {
   }
 
   function addError(error: ImportRowError) {
+    totalErrorsSeen.value++
+    if (errors.value.length >= MAX_ERRORS) {
+      errors.value.shift()
+    }
     errors.value.push(error)
   }
 
@@ -247,6 +279,8 @@ export const useRunStore = defineStore('run', () => {
     }
     errors.value = []
     errorKeys.clear()
+    totalErrorsSeen.value = 0
+    lastHeartbeat.value = null
     progressSamples.value = []
     runStartTime.value = null
     isHistoricalLog.value = false
@@ -266,6 +300,7 @@ export const useRunStore = defineStore('run', () => {
     current_file: string
     errors: Array<{ filename: string; rowNumber: number; error: string }>
     is_dry_run: boolean
+    heartbeat?: string | null
   }) {
     // Map server state to ImportState enum
     const stateMap: Record<string, ImportState> = {
@@ -279,6 +314,9 @@ export const useRunStore = defineStore('run', () => {
     }
     state.value = stateMap[data.state] || ImportState.RUNNING_FILE
     isDryRun.value = data.is_dry_run
+    if (data.heartbeat !== undefined) {
+      lastHeartbeat.value = data.heartbeat ?? null
+    }
 
     // Update file progress
     const filenames = Object.keys(data.progress)
@@ -384,6 +422,7 @@ export const useRunStore = defineStore('run', () => {
     resumeLogId,
     progress,
     errors,
+    totalErrorsSeen,
     runStartTime,
     isHistoricalLog,
     retryRows,
@@ -395,6 +434,9 @@ export const useRunStore = defineStore('run', () => {
     isCompleted,
     hasRetryableErrors,
     isWaitingForConnection,
+    lastHeartbeat,
+    isStalled,
+    stallThresholdMs,
     initRun,
     startFile,
     updateFileProgress,

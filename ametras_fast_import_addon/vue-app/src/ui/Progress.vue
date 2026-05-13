@@ -6,6 +6,7 @@ const props = defineProps<{
   max?: number
   showLabel?: boolean
   size?: 'sm' | 'md' | 'lg'
+  ariaLabel?: string
 }>()
 
 const percentage = computed(() => {
@@ -24,7 +25,7 @@ const barHeight = computed(() => {
 
 <template>
   <div class="w-100">
-    <div class="progress" role="progressbar" :aria-valuenow="percentage" aria-valuemin="0" aria-valuemax="100" :style="{ height: barHeight }">
+    <div class="progress" role="progressbar" :aria-valuenow="percentage" aria-valuemin="0" aria-valuemax="100" :aria-label="ariaLabel" :style="{ height: barHeight }">
       <div
         class="progress-bar"
         :style="{ width: `${percentage}%` }"

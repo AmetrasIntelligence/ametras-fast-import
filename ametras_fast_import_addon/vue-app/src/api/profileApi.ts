@@ -75,7 +75,7 @@ function toImportProfile(data: ProfileFullData): ImportProfile {
       skipHeader: runSettings.skipHeader !== 'false',
       dryRun: runSettings.dryRun === 'true',
       lang: (runSettings.lang as string) || DEFAULT_RUN_SETTINGS.lang,
-      workers: DEFAULT_RUN_SETTINGS.workers
+      standaloneWorkers: DEFAULT_RUN_SETTINGS.standaloneWorkers
     },
     fieldMappings: data.field_mappings?.filter(
       (fm): fm is BackendFieldMapping & { csvColumn: string } =>
@@ -222,7 +222,7 @@ function toBackendFieldMappings(fieldMappings?: FieldMapping[]): BackendFieldMap
 
 /**
  * Convert frontend run settings to backend format (all values as strings).
- * Note: 'workers' is intentionally NOT included - it's a runtime-only setting
+ * Note: 'standaloneWorkers' is intentionally NOT included - it's a runtime-only setting
  * that depends on infrastructure/network and should not be stored in profiles.
  */
 function toBackendRunSettings(runSettings: Partial<RunSettings>): Record<string, string> {
@@ -233,7 +233,7 @@ function toBackendRunSettings(runSettings: Partial<RunSettings>): Record<string,
   if (runSettings.skipHeader !== undefined) result.skipHeader = String(runSettings.skipHeader)
   if (runSettings.dryRun !== undefined) result.dryRun = String(runSettings.dryRun)
   if (runSettings.lang !== undefined) result.lang = runSettings.lang
-  // Note: 'workers' is intentionally omitted - runtime-only, not stored in profiles
+  // Note: 'standaloneWorkers' is intentionally omitted - runtime-only, not stored in profiles
   return result
 }
 

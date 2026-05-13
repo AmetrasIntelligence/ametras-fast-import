@@ -37,6 +37,9 @@ let watchdogTimer: ReturnType<typeof setTimeout> | null = null
 const offlineElapsed = ref('')
 let offlineSince: number | null = null
 let offlineInterval: ReturnType<typeof setInterval> | null = null
+// Countdown to next retry attempt
+const retryCountdown = ref(0)
+let retryCountdownEnd: number | null = null
 
 watch(() => run.connectionStatus, (status) => {
   if (status === 'offline' || status === 'checking') {
@@ -47,6 +50,9 @@ watch(() => run.connectionStatus, (status) => {
           const secs = Math.floor((Date.now() - offlineSince) / 1000)
           if (secs < 60) offlineElapsed.value = `${secs}s`
           else offlineElapsed.value = `${Math.floor(secs / 60)}m ${secs % 60}s`
+        }
+        if (retryCountdownEnd !== null) {
+          retryCountdown.value = Math.max(0, Math.ceil((retryCountdownEnd - Date.now()) / 1000))
         }
       }, 1000)
     }
@@ -213,7 +219,15 @@ function getPollInterval(): number {
 function schedulePoll() {
   if (pollTimer) clearTimeout(pollTimer)
   if (!run.isActive) return
-  pollTimer = setTimeout(pollProgress, getPollInterval())
+  const delay = getPollInterval()
+  pollTimer = setTimeout(pollProgress, delay)
+  if (consecutivePollFailures > 0) {
+    retryCountdownEnd = Date.now() + delay
+    retryCountdown.value = Math.ceil(delay / 1000)
+  } else {
+    retryCountdownEnd = null
+    retryCountdown.value = 0
+  }
 }
 
 function startPolling() {
@@ -295,6 +309,7 @@ async function startImport() {
         run.logId = resp.result.logId
         run.setState(ImportState.RUNNING_FILE)
         run.runStartTime = Date.now()
+        logger.import.info('job_start', { logId: resp.result.logId, mode: 'embedded', files: importConfig.importSequence?.length ?? 0 })
         startPolling()
         startWatchdog()
       } else {
@@ -352,65 +367,69 @@ type RetryData = Map<string, { rows: Array<{ rowNum: number; data: Record<string
  */
 async function runPythonRetry(retryData: RetryData) {
   pythonCancelled = false
+  const runId = ++currentRunId
   let totalFailed = 0
 
-  for (const [filename, { rows }] of retryData) {
-    if (pythonCancelled) break
-
-    const mapping = config.fileMappings[filename]
-    if (!mapping) continue
-
-    currentPythonFile.value = filename
-    run.startFile(filename)
-
-    // Build raw_rows with original row indices so error reports reference
-    // the original CSV row numbers, not the retry subset indices.
-    const rawRows = rows.map(r => r.data)
-    const rowIndices = rows.map(r => r.rowNum)
-    const importPayload = JSON.parse(JSON.stringify({
-      url: session.baseUrl,
-      db: session.currentServer?.db,
-      model: mapping.model,
-      raw_rows: rawRows,
-      row_indices: rowIndices,
-      field_mappings: mapping.fieldMappings || {},
-      search_keys: mapping.searchKeys || null,
-      use_external_id: mapping.fieldMappings && Object.values(mapping.fieldMappings).includes('id'),
-      dry_run: config.settings.dryRun || false,
-      strict: mapping.strict || false,
-    }))
-
-    const result = await window.api.python.import(importPayload) as unknown as Record<string, unknown>
-    await pollProgress()
-
-    if (result.type === 'done') {
-      const success = (result.success as number) || 0
-      const failed = (result.failed as number) || 0
-      totalFailed += failed
-      run.updateFileProgress(filename, { processedRows: success + failed, successCount: success, failedCount: failed })
-      run.completeFile(filename)
-
-      const errors = (result.errors as Array<{ row: number; error: string }>) || []
-      for (const e of errors) {
-        run.addError({ filename, rowNumber: e.row, rawData: {}, error: e.error, timestamp: Date.now() })
-      }
-    } else if (result.type === 'error') {
-      const errorMsg = (result.message as string) || 'Retry failed'
+  try {
+    for (const [filename, { rows }] of retryData) {
       if (pythonCancelled) break
-      logger.import.error(`${filename}: ${errorMsg}`)
-      run.addError({ filename, rowNumber: 0, rawData: {}, error: errorMsg, timestamp: Date.now() })
-      run.completeFile(filename)
+
+      const mapping = config.fileMappings[filename]
+      if (!mapping) continue
+
+      currentPythonFile.value = filename
+      run.startFile(filename)
+
+      // Build raw_rows with original row indices so error reports reference
+      // the original CSV row numbers, not the retry subset indices.
+      const rawRows = rows.map(r => r.data)
+      const rowIndices = rows.map(r => r.rowNum)
+      const importPayload = JSON.parse(JSON.stringify({
+        url: session.baseUrl,
+        db: session.currentServer?.db,
+        model: mapping.model,
+        raw_rows: rawRows,
+        row_indices: rowIndices,
+        field_mappings: mapping.fieldMappings || {},
+        search_keys: mapping.searchKeys || null,
+        use_external_id: mapping.fieldMappings && Object.values(mapping.fieldMappings).includes('id'),
+        dry_run: config.settings.dryRun || false,
+        strict: mapping.strict || false,
+      }))
+
+      const result = await window.api.python.import(importPayload) as unknown as Record<string, unknown>
+      await pollProgress()
+
+      if (result.type === 'done') {
+        const success = (result.success as number) || 0
+        const failed = (result.failed as number) || 0
+        totalFailed += failed
+        run.updateFileProgress(filename, { processedRows: success + failed, successCount: success, failedCount: failed })
+        run.completeFile(filename)
+
+        const errors = (result.errors as Array<{ row: number; error: string }>) || []
+        for (const e of errors) {
+          run.addError({ filename, rowNumber: e.row, rawData: {}, error: e.error, timestamp: Date.now() })
+        }
+      } else if (result.type === 'error') {
+        const errorMsg = (result.message as string) || 'Retry failed'
+        if (pythonCancelled) break
+        logger.import.error(`${filename}: ${errorMsg}`)
+        run.addError({ filename, rowNumber: 0, rawData: {}, error: errorMsg, timestamp: Date.now() })
+        run.completeFile(filename)
+      }
+
+      if (pythonCancelled) break
     }
 
-    if (pythonCancelled) break
-  }
+    currentPythonFile.value = ''
+    await pollProgress()
 
-  currentPythonFile.value = ''
-  stopPolling()
-  await pollProgress()
-
-  if (run.state !== ImportState.FAILED) {
-    run.setState(totalFailed > 0 || pythonCancelled ? ImportState.FAILED : ImportState.COMPLETED)
+    if (runId === currentRunId && run.state !== ImportState.FAILED) {
+      run.setState(totalFailed > 0 || pythonCancelled ? ImportState.FAILED : ImportState.COMPLETED)
+    }
+  } finally {
+    stopPolling()
   }
 }
 
@@ -421,136 +440,142 @@ async function runPythonRetry(retryData: RetryData) {
 async function runPythonImport() {
   pythonCancelled = false
   pythonSkipRequested = false
+  const runId = ++currentRunId
   let totalFailed = 0
   const allErrors: Array<{ filename: string; rowNumber: number; error: string }> = []
 
-  for (const filename of config.importSequence) {
-    if (pythonCancelled) break
+  try {
+    for (const filename of config.importSequence) {
+      if (pythonCancelled) break
 
-    const file = filesStore.files.find(f => f.name === filename)
-    if (!file) continue
-    const mapping = config.fileMappings[filename]
-    if (!mapping) continue
+      const file = filesStore.files.find(f => f.name === filename)
+      if (!file) continue
+      const mapping = config.fileMappings[filename]
+      if (!mapping) continue
 
-    pythonSkipRequested = false
-    currentPythonFile.value = filename
-    run.startFile(filename)
-
-    const importPayload = JSON.parse(JSON.stringify({
-      url: session.baseUrl,
-      db: session.currentServer?.db,
-      model: mapping.model,
-      file_path: file.id,
-      field_mappings: mapping.fieldMappings || {},
-      search_keys: mapping.searchKeys || null,
-      use_external_id: mapping.fieldMappings && Object.values(mapping.fieldMappings).includes('id'),
-      dry_run: config.settings.dryRun || false,
-      strict: mapping.strict || false,
-      batch_size: config.settings.batchSize || 200,
-      delimiter: config.settings.delimiter || ',',
-      encoding: config.settings.encoding || 'utf-8',
-    }))
-
-    const result = await window.api.python.import(importPayload) as unknown as Record<string, unknown>
-
-    // Flush queued progress messages for this file before processing the result.
-    // Without this, stale progress from file A could be attributed to file B
-    // when the next iteration changes currentPythonFile.
-    await pollProgress()
-
-    // Skip requested: mark file skipped, restart subprocess for next file
-    if (pythonSkipRequested && !pythonCancelled) {
-      logger.import.info(`${filename}: Skipped by user`)
-      run.skipFile(filename)
       pythonSkipRequested = false
-      // Subprocess was killed by controlImport('skip') — it will be restarted
-      // automatically by ensurePythonStarted() on next python:import call
-      continue
-    }
+      currentPythonFile.value = filename
+      run.startFile(filename)
 
-    if (result.type === 'done') {
-      const success = (result.success as number) || 0
-      const failed = (result.failed as number) || 0
-      totalFailed += failed
+      const importPayload = JSON.parse(JSON.stringify({
+        url: session.baseUrl,
+        db: session.currentServer?.db,
+        model: mapping.model,
+        file_path: file.id,
+        field_mappings: mapping.fieldMappings || {},
+        search_keys: mapping.searchKeys || null,
+        use_external_id: mapping.fieldMappings && Object.values(mapping.fieldMappings).includes('id'),
+        dry_run: config.settings.dryRun || false,
+        strict: mapping.strict || false,
+        batch_size: config.settings.batchSize || 200,
+        delimiter: config.settings.delimiter || ',',
+        encoding: config.settings.encoding || 'utf-8',
+      }))
 
-      run.updateFileProgress(filename, {
-        processedRows: success + failed,
-        successCount: success,
-        failedCount: failed,
-      })
-      run.completeFile(filename)
+      const result = await window.api.python.import(importPayload) as unknown as Record<string, unknown>
 
-      if (failed > 0) {
-        logger.import.warn(`${filename}: ${success}/${success + failed} rows imported, ${failed} failed`)
-      } else {
-        logger.import.info(`${filename}: ${success} rows imported successfully`)
+      // Flush queued progress messages for this file before processing the result.
+      // Without this, stale progress from file A could be attributed to file B
+      // when the next iteration changes currentPythonFile.
+      await pollProgress()
+
+      // Skip requested: mark file skipped, restart subprocess for next file
+      if (pythonSkipRequested && !pythonCancelled) {
+        logger.import.info(`${filename}: Skipped by user`)
+        run.skipFile(filename)
+        pythonSkipRequested = false
+        // Subprocess was killed by controlImport('skip') — it will be restarted
+        // automatically by ensurePythonStarted() on next python:import call
+        continue
       }
 
-      const errors = (result.errors as Array<{ row: number; error: string; file?: string }>) || []
-      const seenErrors = new Set<string>()
-      for (const e of errors) {
-        allErrors.push({ filename, rowNumber: e.row, error: e.error })
-        run.addError({
-          filename,
-          rowNumber: e.row,
-          rawData: {},
-          error: e.error,
-          timestamp: Date.now(),
+      if (result.type === 'done') {
+        const success = (result.success as number) || 0
+        const failed = (result.failed as number) || 0
+        totalFailed += failed
+
+        run.updateFileProgress(filename, {
+          processedRows: success + failed,
+          successCount: success,
+          failedCount: failed,
         })
-        const key = e.error.substring(0, 80)
-        if (!seenErrors.has(key)) {
-          seenErrors.add(key)
-          if (seenErrors.size <= 5) {
-            logger.import.warn(`  Row ${e.row}: ${e.error.substring(0, 200)}`)
+        run.completeFile(filename)
+
+        if (failed > 0) {
+          logger.import.warn(`${filename}: import done with errors`, { filename, success, failed, total: success + failed })
+        } else {
+          logger.import.info(`${filename}: import done`, { filename, success })
+        }
+
+        const errors = (result.errors as Array<{ row: number; error: string; file?: string }>) || []
+        const seenErrors = new Set<string>()
+        for (const e of errors) {
+          allErrors.push({ filename, rowNumber: e.row, error: e.error })
+          run.addError({
+            filename,
+            rowNumber: e.row,
+            rawData: {},
+            error: e.error,
+            timestamp: Date.now(),
+          })
+          const key = e.error.substring(0, 80)
+          if (!seenErrors.has(key)) {
+            seenErrors.add(key)
+            if (seenErrors.size <= 5) {
+              logger.import.warn(`  Row ${e.row}: ${e.error.substring(0, 200)}`)
+            }
           }
         }
-      }
-      if (seenErrors.size > 5) {
-        logger.import.warn(`  ... and ${errors.length - 5} more errors`)
-      }
-    } else if (result.type === 'error') {
-      const errorMsg = (result.message as string) || 'Import failed'
+        if (seenErrors.size > 5) {
+          logger.import.warn(`  ... and ${errors.length - 5} more errors`)
+        }
+      } else if (result.type === 'error') {
+        const errorMsg = (result.message as string) || 'Import failed'
 
-      if (pythonCancelled || errorMsg.includes('exited unexpectedly')) {
-        logger.import.info(`${filename}: Import cancelled`)
-        break
+        if (pythonCancelled || errorMsg.includes('exited unexpectedly')) {
+          logger.import.info(`${filename}: Import cancelled`)
+          break
+        }
+
+        // Transport errors: mark as file-level failure (don't retry the whole file —
+        // the Python backend already retried individual RPCs with reconnect wait).
+        // Re-running the entire file would duplicate already-committed rows.
+
+        logger.import.error(`${filename}: ${errorMsg}`)
+        run.addError({
+          filename,
+          rowNumber: 0,
+          rawData: {},
+          error: errorMsg,
+          timestamp: Date.now(),
+        })
+        run.completeFile(filename)
       }
 
-      // Transport errors: mark as file-level failure (don't retry the whole file —
-      // the Python backend already retried individual RPCs with reconnect wait).
-      // Re-running the entire file would duplicate already-committed rows.
-
-      logger.import.error(`${filename}: ${errorMsg}`)
-      run.addError({
-        filename,
-        rowNumber: 0,
-        rawData: {},
-        error: errorMsg,
-        timestamp: Date.now(),
-      })
-      run.completeFile(filename)
+      if (pythonCancelled) break
     }
 
-    if (pythonCancelled) break
-  }
+    currentPythonFile.value = ''
 
-  currentPythonFile.value = ''
-  stopPolling()
+    // Final poll to drain any remaining progress messages
+    await pollProgress()
 
-  // Final poll to drain any remaining progress messages
-  await pollProgress()
-
-  if (run.state !== ImportState.FAILED) {
-    const finalState = totalFailed > 0 || allErrors.length > 0 || pythonCancelled
-      ? ImportState.FAILED
-      : ImportState.COMPLETED
-    run.setState(finalState)
+    if (runId === currentRunId && run.state !== ImportState.FAILED) {
+      const finalState = totalFailed > 0 || allErrors.length > 0 || pythonCancelled
+        ? ImportState.FAILED
+        : ImportState.COMPLETED
+      run.setState(finalState)
+    }
+  } finally {
+    stopPolling()
   }
 }
 
 // Track cancellation/skip for Python subprocess mode
 let pythonCancelled = false
 let pythonSkipRequested = false
+// Monotonic run counter: guards final setState against stale completions after abort
+let currentRunId = 0
 
 async function controlImport(action: string) {
   isTransitioning.value = true
@@ -600,6 +625,29 @@ onMounted(async () => {
     return
   }
 
+  // Guard against page-refresh double-start: check for an already-running job
+  // before starting a new one (embedded mode only — standalone manages its own state)
+  if (session.isEmbedded) {
+    const activeResp = await window.api.odoo.call<{ logs: Array<{ logId: number; state: string; profileName: string }> }>({
+      baseUrl: '',
+      endpoint: '/ametras_fast_import/import/active',
+      params: {}
+    })
+    if (activeResp.ok && activeResp.result?.logs?.length) {
+      const activeLogs = activeResp.result.logs
+      if (activeLogs.length === 1) {
+        // Re-attach to the single running job
+        run.logId = activeLogs[0].logId
+        run.setState(activeLogs[0].state === 'paused' ? ImportState.PAUSED : ImportState.RUNNING_FILE)
+        startPolling()
+        return
+      }
+      // Multiple active logs — surface as an error rather than picking silently
+      initError.value = `Multiple active imports found (IDs: ${activeLogs.map(l => l.logId).join(', ')}). Please cancel the stale jobs before starting a new import.`
+      return
+    }
+  }
+
   // Otherwise, start a new import
   await startImport()
 })
@@ -637,6 +685,8 @@ onBeforeRouteLeave(
       v-if="run.isWaitingForConnection"
       class="alert alert-warning d-flex align-items-center gap-3 mb-0"
       role="alert"
+      aria-live="assertive"
+      aria-atomic="true"
     >
       <div class="spinner-border spinner-border-sm text-warning" role="status">
         <span class="visually-hidden">{{ $t('run.reconnecting') }}</span>
@@ -647,7 +697,31 @@ onBeforeRouteLeave(
         <div v-if="offlineElapsed" class="small text-body-secondary mt-1">
           {{ offlineElapsed }}
         </div>
+        <div v-if="retryCountdown > 0" class="small text-body-secondary mt-1">
+          {{ $t('run.retryingIn', { seconds: retryCountdown }) }}
+        </div>
       </div>
+    </div>
+
+    <!-- Stall Warning Banner -->
+    <div
+      v-if="run.isStalled"
+      class="alert alert-warning d-flex align-items-center gap-3 mb-0"
+      role="alert"
+      aria-live="assertive"
+    >
+      <span class="fs-5">⚠</span>
+      <div class="flex-grow-1">
+        <strong>{{ $t('run.stalledTitle') }}</strong>
+        <div class="small">{{ $t('run.stalledDetail') }}</div>
+      </div>
+      <button
+        type="button"
+        class="btn btn-sm btn-outline-danger"
+        @click="controlImport('cancel')"
+      >
+        {{ $t('run.forceAbort') }}
+      </button>
     </div>
 
     <!-- Init Error -->
@@ -667,7 +741,12 @@ onBeforeRouteLeave(
     </Card>
 
     <!-- Global Progress -->
-    <Card class="p-4">
+    <Card
+      class="p-4"
+      aria-live="polite"
+      aria-atomic="false"
+      :aria-label="$t('run.progressRegionLabel')"
+    >
       <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
           <div class="d-flex align-items-center gap-2">
@@ -699,11 +778,13 @@ onBeforeRouteLeave(
       <Progress
         :value="run.globalProgress * 100"
         size="lg"
+        :aria-label="$t('run.progressRegionLabel') as string"
       />
 
       <div class="d-flex gap-3 mt-3">
         <Button
           v-if="supportsServerControl && run.state === ImportState.PAUSED"
+          :disabled="run.isWaitingForConnection"
           @click="handleResume"
         >
           {{ $t('run.resume') }}
@@ -711,7 +792,7 @@ onBeforeRouteLeave(
         <Button
           v-else-if="supportsServerControl && isRunning"
           variant="outline"
-          :disabled="isTransitioning"
+          :disabled="isTransitioning || run.isWaitingForConnection"
           @click="handlePause"
         >
           {{ $t('run.pause') }}
@@ -719,7 +800,7 @@ onBeforeRouteLeave(
         <Button
           v-if="isRunning"
           variant="outline"
-          :disabled="isTransitioning"
+          :disabled="isTransitioning || run.isWaitingForConnection"
           @click="handleSkipFile"
         >
           {{ $t('run.skipFile') }}
@@ -782,7 +863,7 @@ onBeforeRouteLeave(
     </Card>
 
     <!-- Recent Errors -->
-    <Card v-if="run.errors.length > 0" class="p-4">
+    <Card v-if="run.errors.length > 0" class="p-4" aria-live="polite" aria-atomic="false">
       <h3 class="fw-semibold mb-3">
         {{ $t('run.recentErrors') }} ({{ run.errors.length }})
       </h3>

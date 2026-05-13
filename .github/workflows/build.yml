@@ -11,6 +11,29 @@ permissions:
   contents: read
 
 jobs:
+  test-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run Python unit tests
+        run: |
+          cd ametras_fast_import_addon
+          for f in tests/test_batch_size_adapter.py \
+                   tests/test_idempotency.py \
+                   tests/test_importer_timeout_pipeline.py \
+                   tests/test_importer_comprehensive.py \
+                   tests/test_parser_edge_cases.py \
+                   tests/test_resolver_integration.py \
+                   tests/test_transformer.py \
+                   tests/test_import_job_control.py \
+                   tests/test_import_job_flow.py; do
+            echo "--- $f ---"
+            python3 "$f" -v
+          done
+
   test-vue-app:
     runs-on: ubuntu-latest
     defaults:
@@ -45,7 +68,7 @@ jobs:
       - run: cd ametras_fast_import_client && npm run typecheck
 
   build-addon:
-    needs: test-vue-app
+    needs: [test-python, test-vue-app]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -61,7 +84,7 @@ jobs:
       - run: npm run build
 
   build-client:
-    needs: [test-vue-app, test-client]
+    needs: [test-python, test-vue-app, test-client]
     strategy:
       matrix:
         include:

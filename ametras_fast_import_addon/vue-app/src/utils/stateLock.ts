@@ -103,9 +103,3 @@ export class StateLock {
     return this.queue.length
   }
 }
-
-/**
- * Global state lock for run store mutations.
- * Used by engine and worker pool to prevent concurrent state updates.
- */
-export const runStateLock = new StateLock()

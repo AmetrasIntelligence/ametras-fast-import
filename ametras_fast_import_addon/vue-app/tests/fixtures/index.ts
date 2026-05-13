@@ -154,7 +154,7 @@ export const mockServerProfiles = [
 export const mockRunSettings = {
   default: {
     batchSize: 20,
-    workers: 3,
+    standaloneWorkers: 3,
     encoding: 'utf-8-sig' as const,
     delimiter: ',' as const,
     skipHeader: true,
@@ -163,7 +163,7 @@ export const mockRunSettings = {
   },
   small: {
     batchSize: 10,
-    workers: 1,
+    standaloneWorkers: 1,
     encoding: 'utf-8' as const,
     delimiter: ';' as const,
     skipHeader: true,
@@ -172,7 +172,7 @@ export const mockRunSettings = {
   },
   large: {
     batchSize: 500,
-    workers: 4,
+    standaloneWorkers: 4,
     encoding: 'utf-8-sig' as const,
     delimiter: ',' as const,
     skipHeader: true,
@@ -181,7 +181,7 @@ export const mockRunSettings = {
   },
   noRetry: {
     batchSize: 100,
-    workers: 1,
+    standaloneWorkers: 1,
     encoding: 'latin-1' as const,
     delimiter: '\t' as const,
     skipHeader: false,
@@ -190,7 +190,7 @@ export const mockRunSettings = {
   },
   dryRun: {
     batchSize: 200,
-    workers: 1,
+    standaloneWorkers: 1,
     encoding: 'utf-8-sig' as const,
     delimiter: ',' as const,
     skipHeader: true,
@@ -199,7 +199,7 @@ export const mockRunSettings = {
   },
   parallel: {
     batchSize: 200,
-    workers: 3,
+    standaloneWorkers: 3,
     encoding: 'utf-8-sig' as const,
     delimiter: ',' as const,
     skipHeader: true,
