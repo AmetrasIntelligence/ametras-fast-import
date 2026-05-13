@@ -336,11 +336,16 @@ function killPythonProcess(): void {
       pythonProcess.kill()
       pythonProcess = null
     } else {
-      // Unix: graceful SIGTERM, then force SIGKILL after 2s
-      pythonProcess.kill('SIGTERM')
+      // Unix: graceful SIGTERM, then force SIGKILL after 2s.
+      // Capture the specific process reference so the timeout never
+      // accidentally kills a newly-started subprocess (e.g. after a skip).
+      const dying = pythonProcess
+      dying.kill('SIGTERM')
       setTimeout(() => {
-        if (pythonProcess) {
-          pythonProcess.kill('SIGKILL')
+        if (!dying.killed) {
+          dying.kill('SIGKILL')
+        }
+        if (pythonProcess === dying) {
           pythonProcess = null
         }
       }, 2000)

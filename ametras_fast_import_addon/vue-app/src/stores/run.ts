@@ -254,6 +254,9 @@ export const useRunStore = defineStore('run', () => {
   }
 
   function addError(error: ImportRowError) {
+    const key = `${error.filename}:${error.rowNumber}:${error.error.substring(0, 80)}`
+    if (errorKeys.has(key)) return
+    errorKeys.add(key)
     totalErrorsSeen.value++
     if (errors.value.length >= MAX_ERRORS) {
       errors.value.shift()

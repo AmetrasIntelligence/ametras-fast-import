@@ -9,7 +9,7 @@ import { useConfigStore } from '@/stores/config'
 import { useSessionStore } from '@/stores/session'
 import { ImportState } from '@/types/importState'
 import { formatNumber } from '@/utils/formatters'
-import { logger, type LogEntry } from '@/utils/logger'
+import { logger } from '@/utils/logger'
 import { Button, Progress, Card, Table } from '@/ui'
 
 const { t } = useI18n()
@@ -28,17 +28,6 @@ let consecutivePollFailures = 0
 
 // Error state
 const initError = ref<string | null>(null)
-
-// Recent import log entries — updated on every poll tick
-const recentLogs = ref<LogEntry[]>([])
-
-function formatLogTime(iso: string): string {
-  const d = new Date(iso)
-  const hh = String(d.getHours()).padStart(2, '0')
-  const mm = String(d.getMinutes()).padStart(2, '0')
-  const ss = String(d.getSeconds()).padStart(2, '0')
-  return `${hh}:${mm}:${ss}`
-}
 
 // Startup watchdog (90s with no progress)
 const WATCHDOG_TIMEOUT = 90_000
@@ -199,6 +188,14 @@ async function pollProgress() {
             const fp = run.progress.files[filename]
             if (fp && total > 0) fp.totalRows = total
           }
+        } else if (m.type === 'batch_errors') {
+          const batchErrors = (m.errors as Array<{ row: number; error: string }>) || []
+          const filename = currentPythonFile.value || ''
+          if (filename) {
+            for (const e of batchErrors) {
+              run.addError({ filename, rowNumber: e.row, rawData: {}, error: e.error, timestamp: Date.now() })
+            }
+          }
         } else if (m.type === 'file_start' || m.type === 'file_done') {
           // Ignored — runPythonImport controls file lifecycle directly via
           // run.startFile()/completeFile(). Processing these queued messages
@@ -222,9 +219,6 @@ async function pollProgress() {
       // Ignore polling errors for local subprocess
     }
   }
-
-  // Refresh activity log from in-memory store
-  recentLogs.value = logger.getEntries({ category: 'import' }).slice(-30)
 
   // Schedule next poll (with backoff on failures)
   schedulePoll()
@@ -293,6 +287,7 @@ async function startImport() {
   // Capture retry data before reset() clears it
   const pendingRetry = run.retryRows
   run.reset()
+  logger.clear()
 
   if (!pendingRetry && filesStore.files.length === 0) {
     router.replace('/import')
@@ -883,39 +878,6 @@ onBeforeRouteLeave(
           </tr>
         </tbody>
       </Table>
-    </Card>
-
-    <!-- Activity Log -->
-    <Card v-if="recentLogs.length > 0" class="p-4">
-      <h3 class="fw-semibold mb-2">{{ $t('run.activityLog') }}</h3>
-      <div
-        class="overflow-auto border rounded px-2 py-1"
-        style="max-height: 10rem; font-family: monospace; font-size: 0.75rem; background: var(--bs-body-bg);"
-      >
-        <div
-          v-for="(entry, idx) in [...recentLogs].reverse()"
-          :key="idx"
-          class="py-1 border-bottom"
-          :class="{
-            'text-danger': entry.level === 'error',
-            'text-warning': entry.level === 'warn',
-            'text-body-secondary': entry.level === 'debug',
-          }"
-        >
-          <span class="me-2 text-muted">{{ formatLogTime(entry.timestamp) }}</span>
-          <span
-            class="badge me-2"
-            :class="{
-              'text-bg-danger': entry.level === 'error',
-              'text-bg-warning': entry.level === 'warn',
-              'text-bg-info': entry.level === 'info',
-              'text-bg-secondary': entry.level === 'debug',
-            }"
-            style="font-size: 0.6rem;"
-          >{{ entry.level.toUpperCase() }}</span>
-          {{ entry.message }}
-        </div>
-      </div>
     </Card>
 
     <!-- Recent Errors -->
