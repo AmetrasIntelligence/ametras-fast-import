@@ -7,7 +7,7 @@
  * resolves. The fix uses a monotonic `runId` combined with the existing
  * `run.state !== ImportState.FAILED` guard.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useRunStore } from '@/stores/run'
 import { ImportState } from '@/types/importState'

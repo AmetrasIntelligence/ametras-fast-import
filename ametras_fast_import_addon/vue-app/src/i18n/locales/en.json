@@ -213,7 +213,8 @@
     "forceAbort": "Force Abort",
     "fileProgress": "{completed} / {total} files",
     "tryAgain": "Try Again",
-    "startupTimeout": "Import startup timed out (90s). The server may be slow or a network call hung. Please try again."
+    "startupTimeout": "Import startup timed out (90s). The server may be slow or a network call hung. Please try again.",
+    "activityLog": "Activity Log"
   },
   "results": {
     "dryRunComplete": "Dry Run Complete",

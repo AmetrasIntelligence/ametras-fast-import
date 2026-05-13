@@ -12,7 +12,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
-import { useRunStore, MAX_ERRORS } from '@/stores/run'
+import { useRunStore } from '@/stores/run'
 import { ImportState } from '@/types/importState'
 
 vi.mock('vue-i18n', () => ({

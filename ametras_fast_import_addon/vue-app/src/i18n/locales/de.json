@@ -213,7 +213,8 @@
     "forceAbort": "Erzwungener Abbruch",
     "fileProgress": "{completed} / {total} Dateien",
     "tryAgain": "Erneut versuchen",
-    "startupTimeout": "Import-Start hat das Zeitlimit überschritten (90s). Der Server ist möglicherweise langsam oder ein Netzwerkaufruf hängt. Bitte erneut versuchen."
+    "startupTimeout": "Import-Start hat das Zeitlimit überschritten (90s). Der Server ist möglicherweise langsam oder ein Netzwerkaufruf hängt. Bitte erneut versuchen.",
+    "activityLog": "Aktivitätsprotokoll"
   },
   "results": {
     "dryRunComplete": "Probelauf abgeschlossen",
