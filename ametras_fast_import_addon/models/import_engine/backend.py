@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import socket
+import ssl
 import threading
 import time as _time
 import xmlrpc.client
@@ -99,6 +100,21 @@ class OdooBackend(ABC):
         return len(result) > 0
 
 
+def _make_ssl_context(verify: bool) -> 'ssl.SSLContext | None':
+    """Return an SSL context for HTTPS connections.
+
+    verify=False disables certificate checking — appropriate for desktop apps
+    connecting to internal Odoo instances that may use self-signed or
+    private-CA certificates not in Python's default trust store.
+    """
+    if verify:
+        return None  # xmlrpc.client uses the default context (system CAs)
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
 class RpcBackend(OdooBackend):
     """
     XML-RPC backend for standalone mode (Electron subprocess).
@@ -110,13 +126,15 @@ class RpcBackend(OdooBackend):
                  timeout: int = RPC_TIMEOUT_SECONDS,
                  max_retries: int = RPC_MAX_RETRIES,
                  cancel_event: Optional[threading.Event] = None,
-                 reporter: Optional[ProgressReporter] = None):
+                 reporter: Optional[ProgressReporter] = None,
+                 ssl_verify: bool = False):
         self.url = url
         self.db = db
         self.uid = uid
         self.password = password
         self.timeout = timeout
         self.max_retries = max_retries
+        self.ssl_verify = ssl_verify
         self._cancel_event = cancel_event
         self._reporter: ProgressReporter = reporter or NullReporter()
         self._thread_local = threading.local()
@@ -125,9 +143,11 @@ class RpcBackend(OdooBackend):
     def _get_proxy(self) -> xmlrpc.client.ServerProxy:
         """Get a thread-local ServerProxy (each thread gets its own connection)."""
         if not hasattr(self._thread_local, 'proxy'):
+            ctx = _make_ssl_context(self.ssl_verify) if self.url.startswith('https') else None
             self._thread_local.proxy = xmlrpc.client.ServerProxy(
                 f'{self.url}{XMLRPC_OBJECT_PATH}',
                 allow_none=True,
+                context=ctx,
             )
         return self._thread_local.proxy
 
@@ -295,13 +315,15 @@ class RpcBackend(OdooBackend):
 
     @classmethod
     def authenticate(cls, url: str, db: str, login: str,
-                     password: str) -> 'RpcBackend':
+                     password: str, ssl_verify: bool = False) -> 'RpcBackend':
         """Authenticate and return a connected RpcBackend."""
+        ctx = _make_ssl_context(ssl_verify) if url.startswith('https') else None
         common = xmlrpc.client.ServerProxy(
             f'{url}{XMLRPC_COMMON_PATH}',
             allow_none=True,
+            context=ctx,
         )
         uid = common.authenticate(db, login, password, {})
         if not uid:
             raise ValueError('Authentication failed')
-        return cls(url, db, uid, password)
+        return cls(url, db, uid, password, ssl_verify=ssl_verify)

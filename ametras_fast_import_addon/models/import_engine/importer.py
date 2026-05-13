@@ -277,6 +277,10 @@ class Importer:
                             for r in batch
                         ]
 
+                    batch_errors = [
+                        {'row': r.row_index, 'error': r.error}
+                        for r in results if not r.ok
+                    ]
                     with lock:
                         all_results.extend(results)
                         batch_ok = sum(1 for r in results if r.ok)
@@ -286,6 +290,7 @@ class Importer:
                         failed += batch_fail
 
                     self.reporter.batch_completed(processed, total_rows, success, failed)
+                    self.reporter.emit_errors(batch_errors)
 
         self.reporter.file_completed(filename, success, failed)
 
@@ -364,6 +369,10 @@ class Importer:
                 failed += batch_fail
                 adapter.record_success(len(batch))
                 self.reporter.batch_completed(processed, total_rows, success, failed)
+                self.reporter.emit_errors([
+                    {'row': r.row_index, 'error': r.error}
+                    for r in results if not r.ok
+                ])
                 i += len(batch)
 
             except TransportError as exc:
@@ -455,6 +464,10 @@ class Importer:
                         failed += batch_fail
                         adapter.record_success(len(pending_safe))
                         self.reporter.batch_completed(processed, total_rows, success, failed)
+                        self.reporter.emit_errors([
+                            {'row': r.row_index, 'error': r.error}
+                            for r in safe_results if not r.ok
+                        ])
                         pending_safe = []  # all resolved — exit inner loop
                     except TransportError:
                         escalation_level += 1

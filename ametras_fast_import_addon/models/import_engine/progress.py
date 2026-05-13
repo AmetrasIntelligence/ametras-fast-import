@@ -44,6 +44,9 @@ class ProgressReporter(ABC):
     def error(self, message: str) -> None:
         """Called on fatal errors."""
 
+    def emit_errors(self, errors: list) -> None:
+        """Emit row errors collected from a completed batch. Default no-op."""
+
     def connection_lost(self, message: str) -> None:
         """Called when connectivity to the server is lost."""
 
@@ -129,6 +132,10 @@ class JsonLinesReporter(ProgressReporter):
 
     def error(self, message: str) -> None:
         self._emit({'type': PROGRESS_TYPE_ERROR, 'message': message})
+
+    def emit_errors(self, errors: list) -> None:
+        if errors:
+            self._emit({'type': 'batch_errors', 'errors': errors})
 
     def connection_lost(self, message: str) -> None:
         self._emit({'type': 'connection_lost', 'message': message})

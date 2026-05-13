@@ -101,6 +101,11 @@ function getConsoleStyle(level: LogLevel): string {
   }
 }
 
+// Electron renderer embeds 'Electron' in its user agent — use this to enable
+// full console output even in production builds of the desktop app.
+const _runningInElectron =
+  typeof navigator !== 'undefined' && navigator.userAgent.includes('Electron')
+
 class Logger {
   private entries: LogEntry[] = []
   private maxEntries = 1000
@@ -142,9 +147,9 @@ class Logger {
       this.entries = this.entries.slice(-this.maxEntries)
     }
 
-    // Console output: errors/warnings always, debug/info only in dev
+    // Console output: errors/warnings always; all levels in dev or Electron
     const isImportant = level === LogLevel.ERROR || level === LogLevel.WARN
-    if (isImportant || import.meta.env.DEV) {
+    if (isImportant || import.meta.env.DEV || _runningInElectron) {
       const formatted = formatLogEntry(entry, { timestamp: true, includeData: false })
       const style = getConsoleStyle(level)
 
