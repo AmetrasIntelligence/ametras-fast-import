@@ -9,7 +9,7 @@ import { useConfigStore } from '@/stores/config'
 import { useSessionStore } from '@/stores/session'
 import { ImportState } from '@/types/importState'
 import { formatNumber } from '@/utils/formatters'
-import { logger } from '@/utils/logger'
+import { logger, type LogEntry } from '@/utils/logger'
 import { Button, Progress, Card, Table } from '@/ui'
 
 const { t } = useI18n()
@@ -28,6 +28,17 @@ let consecutivePollFailures = 0
 
 // Error state
 const initError = ref<string | null>(null)
+
+// Recent import log entries — updated on every poll tick
+const recentLogs = ref<LogEntry[]>([])
+
+function formatLogTime(iso: string): string {
+  const d = new Date(iso)
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  const ss = String(d.getSeconds()).padStart(2, '0')
+  return `${hh}:${mm}:${ss}`
+}
 
 // Startup watchdog (90s with no progress)
 const WATCHDOG_TIMEOUT = 90_000
@@ -169,9 +180,11 @@ async function pollProgress() {
     // Electron mode: drain progress messages from Python subprocess
     try {
       const messages = await window.api.python.progress()
+      let gotProgress = false
       for (const msg of messages) {
         const m = msg as Record<string, unknown>
         if (m.type === 'progress') {
+          gotProgress = true
           const total = (m.total as number) || 0
           const success = (m.success as number) || 0
           const failed = (m.failed as number) || 0
@@ -196,6 +209,12 @@ async function pollProgress() {
           run.connectionStatus = 'online'
         }
       }
+      // Progress messages arriving means Python→Odoo RPC calls are succeeding.
+      // If the banner was stuck (connection_restored never sent after partial reconnect),
+      // clear it now that the import is visibly making progress.
+      if (gotProgress && run.connectionStatus === 'offline') {
+        run.connectionStatus = 'online'
+      }
       // Record progress sample for ETA/throughput in Python mode
       run.recordProgressSample()
       clearWatchdog()
@@ -203,6 +222,9 @@ async function pollProgress() {
       // Ignore polling errors for local subprocess
     }
   }
+
+  // Refresh activity log from in-memory store
+  recentLogs.value = logger.getEntries({ category: 'import' }).slice(-30)
 
   // Schedule next poll (with backoff on failures)
   schedulePoll()
@@ -456,6 +478,7 @@ async function runPythonImport() {
       pythonSkipRequested = false
       currentPythonFile.value = filename
       run.startFile(filename)
+      logger.import.info(`Starting: ${filename}`, { rows: run.progress.files[filename]?.totalRows ?? 0 })
 
       const importPayload = JSON.parse(JSON.stringify({
         url: session.baseUrl,
@@ -860,6 +883,39 @@ onBeforeRouteLeave(
           </tr>
         </tbody>
       </Table>
+    </Card>
+
+    <!-- Activity Log -->
+    <Card v-if="recentLogs.length > 0" class="p-4">
+      <h3 class="fw-semibold mb-2">{{ $t('run.activityLog') }}</h3>
+      <div
+        class="overflow-auto border rounded px-2 py-1"
+        style="max-height: 10rem; font-family: monospace; font-size: 0.75rem; background: var(--bs-body-bg);"
+      >
+        <div
+          v-for="(entry, idx) in [...recentLogs].reverse()"
+          :key="idx"
+          class="py-1 border-bottom"
+          :class="{
+            'text-danger': entry.level === 'error',
+            'text-warning': entry.level === 'warn',
+            'text-body-secondary': entry.level === 'debug',
+          }"
+        >
+          <span class="me-2 text-muted">{{ formatLogTime(entry.timestamp) }}</span>
+          <span
+            class="badge me-2"
+            :class="{
+              'text-bg-danger': entry.level === 'error',
+              'text-bg-warning': entry.level === 'warn',
+              'text-bg-info': entry.level === 'info',
+              'text-bg-secondary': entry.level === 'debug',
+            }"
+            style="font-size: 0.6rem;"
+          >{{ entry.level.toUpperCase() }}</span>
+          {{ entry.message }}
+        </div>
+      </div>
     </Card>
 
     <!-- Recent Errors -->
