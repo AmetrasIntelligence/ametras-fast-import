@@ -39,4 +39,14 @@ describe('Progress Component', () => {
       expect(wrapper.find('.progress').attributes('style')).toContain(`height: ${expectedHeight}`)
     }
   })
+
+  it('forwards ariaLabel to role=progressbar element', () => {
+    const wrapper = mount(Progress, { props: { value: 50, ariaLabel: 'Import progress' } })
+    expect(wrapper.find('[role="progressbar"]').attributes('aria-label')).toBe('Import progress')
+  })
+
+  it('has no aria-label when ariaLabel prop is omitted', () => {
+    const wrapper = mount(Progress, { props: { value: 50 } })
+    expect(wrapper.find('[role="progressbar"]').attributes('aria-label')).toBeUndefined()
+  })
 })

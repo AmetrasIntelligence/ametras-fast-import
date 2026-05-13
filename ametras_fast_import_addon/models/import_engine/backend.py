@@ -26,6 +26,14 @@ from .progress import ProgressReporter, NullReporter
 _logger = logging.getLogger(__name__)
 
 
+class TransportError(RuntimeError):
+    """
+    Raised by RpcBackend when a network/protocol failure exhausted all quick
+    retries and the reconnect budget.  Distinct from Odoo application errors
+    (ValueError) so callers can decide whether to retry the batch.
+    """
+
+
 @dataclass
 class FieldInfo:
     """Minimal field metadata needed by the import engine."""
@@ -233,9 +241,9 @@ class RpcBackend(OdooBackend):
             finally:
                 socket.setdefaulttimeout(old_timeout)
 
-        raise RuntimeError(
+        raise TransportError(
             f"RPC failed after {self.max_retries} retries + reconnect wait: {last_error}"
-        )
+        ) from last_error
 
     def search(self, model: str, domain: list,
                fields: Optional[list] = None,

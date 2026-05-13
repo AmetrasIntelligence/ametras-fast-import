@@ -13,13 +13,34 @@ from dataclasses import dataclass, field
 
 from odoo import fields as odoo_fields
 
+from .orm_backend import OrmBackend
+from .import_engine.constants import PROGRESS_COMMIT_INTERVAL
+from .import_engine.importer import Importer, ImportConfig
+from .import_engine.parser import ParseOptions, parse_csv_string
+
 _logger = logging.getLogger(__name__)
+
+# Cap on how many errors we serialise into csv_import_log.error_log on every
+# progress commit and on the final write. The frontend keeps a deduplicated
+# tail; the server only needs the latest slice for live polling. Larger errors
+# blobs make every progress write expensive and inflate the log table.
+MAX_ERROR_LOG_ENTRIES = 100
 
 
 class ControlSignal(enum.Enum):
     CONTINUE = 'continue'
     CANCEL = 'cancel'
     SKIP = 'skip'
+
+
+class ControlDecision(enum.Enum):
+    """High-level decision returned by `_evaluate_control` after consulting
+    cancel/skip/pause flags. Callers act on the decision; the helper handles
+    the pause-wait and post-wait cancel re-check so the caller stays linear.
+    """
+    CONTINUE = 'continue'
+    STOP = 'stop'           # cancel was requested (before or after the pause wait)
+    SKIP_FILE = 'skip_file'  # skip signal matches the current filename
 
 
 @dataclass
@@ -46,16 +67,26 @@ class ImportJob:
         self.env = log.env
 
     # ------------------------------------------------------------------
+    # Structured logging
+    # ------------------------------------------------------------------
+
+    def _log_event(self, event: str, **kwargs):
+        """Emit a JSON-formatted structured log line for a lifecycle event.
+
+        Every event carries job_id and event type so log lines can be
+        correlated across files and retries without parsing free-form text.
+        Example output:
+            {"event": "file_done", "job_id": 42, "filename": "partners.csv",
+             "success": 95, "failed": 5, "retried": 3, "duration_s": 1.23}
+        """
+        _logger.info('%s', json.dumps({'event': event, 'job_id': self.log.id, **kwargs}))
+
+    # ------------------------------------------------------------------
     # Public entry point
     # ------------------------------------------------------------------
 
     def run(self):
         """Execute the full import. Called by the queue_job worker."""
-        from .odoo_backend import OrmBackend
-        from .import_engine.importer import Importer, ImportConfig
-        from .import_engine.parser import ParseOptions, parse_csv_string
-        from .import_engine.constants import PROGRESS_COMMIT_INTERVAL
-
         self.log.write({'job_state': 'running'})
         self.env.cr.commit()
 
@@ -65,51 +96,52 @@ class ImportJob:
         batch_size = max(10, min(1000, settings.get('batchSize', 200)))
         encoding = settings.get('encoding', 'utf-8')
         delimiter = settings.get('delimiter', ',')
+        # `workers` is intentionally not read here: embedded mode runs batches
+        # sequentially via a single Odoo cursor. The UI hides the workers knob
+        # in embedded mode so profiles with workers > 1 normalise silently.
+
+        import_sequence = config.get('importSequence', [])
+        self._log_event('job_start',
+                        files=import_sequence,
+                        batch_size=batch_size,
+                        dry_run=settings.get('dryRun', False))
 
         all_success = 0
         all_failed = 0
         all_errors = []
         file_progress = json.loads(self.log.file_progress or '{}')
         last_commit = time.time()
+        job_start_time = time.time()
 
         try:
-            for filename in config.get('importSequence', []):
-                signal = self._check_control()
-                if signal == ControlSignal.CANCEL:
+            for filename in import_sequence:
+                decision = self._evaluate_control(filename)
+                if decision == ControlDecision.STOP:
                     break
-                if signal == ControlSignal.SKIP and self.log.job_skip_file == filename:
+                if decision == ControlDecision.SKIP_FILE:
                     self._mark_file_skipped(filename, file_progress)
+                    self._log_event('file_skip', filename=filename, reason='user_requested')
                     continue
-
-                self._wait_if_paused()
-                if self._check_control() == ControlSignal.CANCEL:
-                    break
 
                 self.log.write({'current_file': filename})
                 self.env.cr.commit()
 
                 file_mapping = config.get('fileMappings', {}).get(filename)
                 if not file_mapping:
-                    all_errors.append({
-                        'filename': filename, 'rowNumber': 0,
-                        'error': f'No mapping found for file: {filename}',
-                    })
-                    file_progress[filename] = {
-                        'totalRows': 0, 'successCount': 0, 'failedCount': 0,
-                        'processedRanges': [], 'failedIndices': [],
-                    }
+                    self._record_file_level_error(
+                        filename, f'No mapping found for file: {filename}',
+                        all_errors, file_progress,
+                    )
+                    self._log_event('file_error', filename=filename, reason='no_mapping')
                     continue
 
                 attachment = self._get_attachment_by_name(filename)
                 if not attachment:
-                    all_errors.append({
-                        'filename': filename, 'rowNumber': 0,
-                        'error': f'File not found: {filename}',
-                    })
-                    file_progress[filename] = {
-                        'totalRows': 0, 'successCount': 0, 'failedCount': 0,
-                        'processedRanges': [], 'failedIndices': [],
-                    }
+                    self._record_file_level_error(
+                        filename, f'File not found: {filename}',
+                        all_errors, file_progress,
+                    )
+                    self._log_event('file_error', filename=filename, reason='attachment_missing')
                     continue
 
                 content = base64.b64decode(attachment.datas).decode(encoding, errors='replace')
@@ -120,10 +152,15 @@ class ImportJob:
                 if pending is not None:
                     rows = pending
                     if not rows:
-                        _logger.info("Skipping %s: all rows already processed", filename)
+                        self._log_event('file_skip', filename=filename, reason='all_rows_processed')
                         continue
+                    self._log_event('file_resume', filename=filename, pending_rows=len(rows))
 
                 state = self._init_file_state(filename, rows, file_progress)
+                self._log_event('file_start', filename=filename,
+                                total_rows=state.original_total,
+                                model=file_mapping.get('model'))
+                file_start_time = time.time()
 
                 import_config = ImportConfig(
                     model=file_mapping['model'],
@@ -139,14 +176,11 @@ class ImportJob:
                 importer = Importer(backend, import_config)
 
                 for i in range(0, len(rows), batch_size):
-                    signal = self._check_control()
-                    if signal == ControlSignal.CANCEL:
+                    decision = self._evaluate_control(filename)
+                    if decision == ControlDecision.STOP:
                         break
-                    if signal == ControlSignal.SKIP and self.log.job_skip_file == filename:
-                        break
-
-                    self._wait_if_paused()
-                    if self._check_control() == ControlSignal.CANCEL:
+                    if decision == ControlDecision.SKIP_FILE:
+                        # Post-loop handler will run _mark_file_skipped.
                         break
 
                     for r in importer.import_rows(rows[i:i + batch_size]):
@@ -173,6 +207,7 @@ class ImportJob:
 
                 if self.log.job_skip_file == filename:
                     self._mark_file_skipped(filename, file_progress)
+                    self._log_event('file_skip', filename=filename, reason='user_requested_mid_run')
                     all_success += state.success
                     all_failed += state.failed
                     all_errors.extend(state.errors)
@@ -180,8 +215,10 @@ class ImportJob:
 
                 # Retry failed rows — only when some rows succeeded, which suggests
                 # ordering dependencies rather than systematic data errors.
+                retried = 0
                 if state.errors and self._check_control() != ControlSignal.CANCEL and state.success > 0:
                     retry_results = self._process_retries(importer, rows, state.errors, settings)
+                    retried = len(retry_results)
                     for r in retry_results:
                         if r['ok']:
                             state.success += 1
@@ -190,48 +227,56 @@ class ImportJob:
                     succeeded = {r['rowNumber'] for r in retry_results if r['ok']}
                     state.errors = [e for e in state.errors if e['rowNumber'] not in succeeded]
 
+                self._log_event('file_done',
+                                filename=filename,
+                                success=state.success,
+                                failed=state.failed,
+                                retried=retried,
+                                duration_s=round(time.time() - file_start_time, 2))
+
                 all_success += state.success
                 all_failed += state.failed
                 all_errors.extend(state.errors)
                 self._save_progress(state, file_progress, all_success, all_failed, all_errors)
                 last_commit = time.time()
 
-            final_state = 'failed' if (all_failed > 0 or all_errors) else 'completed'
+            final_state = 'failed' if all_errors else 'completed'
             if self._check_control() == ControlSignal.CANCEL:
                 final_state = 'interrupted'
 
-            self.log.write({
-                'job_state': final_state,
-                'state': final_state,
-                'finished_at': odoo_fields.Datetime.now(),
-                'success_rows': all_success,
-                'failed_rows': all_failed,
-                'total_rows': all_success + all_failed,
-                'error_log': json.dumps(all_errors),
-                'file_progress': json.dumps(file_progress),
-                'current_file': '',
-            })
-            self.env.cr.commit()
+            self._log_event('job_done',
+                            final_state=final_state,
+                            total_success=all_success,
+                            total_failed=all_failed,
+                            duration_s=round(time.time() - job_start_time, 2))
+            self._finalize(final_state, all_success, all_failed, all_errors, file_progress)
 
         except Exception as e:
             _logger.exception("Import job %d failed: %s", self.log.id, e)
-            self.log.write({
-                'job_state': 'failed',
-                'state': 'failed',
-                'finished_at': odoo_fields.Datetime.now(),
-                'success_rows': all_success,
-                'failed_rows': all_failed,
-                'error_log': json.dumps(all_errors + [
-                    {'filename': '', 'rowNumber': 0, 'error': str(e)},
-                ]),
-                'file_progress': json.dumps(file_progress),
-                'current_file': '',
-            })
-            self.env.cr.commit()
+            self._log_event('job_failed', error=str(e))
+            all_errors.append({'filename': '', 'rowNumber': 0, 'error': str(e)})
+            self._finalize('failed', all_success, all_failed, all_errors, file_progress)
 
     # ------------------------------------------------------------------
     # Control flow
     # ------------------------------------------------------------------
+
+    def _evaluate_control(self, filename: str) -> ControlDecision:
+        """Single checkpoint used by both the file loop and the batch loop.
+
+        Order matters: cancel beats skip; pause is waited out before the second
+        cancel re-check so a cancel issued during the wait is still respected.
+        """
+        signal = self._check_control()
+        if signal == ControlSignal.CANCEL:
+            return ControlDecision.STOP
+        if signal == ControlSignal.SKIP and self.log.job_skip_file == filename:
+            return ControlDecision.SKIP_FILE
+
+        self._wait_if_paused()
+        if self._check_control() == ControlSignal.CANCEL:
+            return ControlDecision.STOP
+        return ControlDecision.CONTINUE
 
     def _check_control(self) -> ControlSignal:
         """Read DB flags and return the current control signal."""
@@ -245,8 +290,8 @@ class ImportJob:
     def _refresh_flags(self):
         """Re-read control flags from DB (Vue writes them via the control endpoint)."""
         self.env.cr.execute(
-            "SELECT job_cancel_requested, job_pause_requested, job_skip_file "
-            "FROM csv_import_log WHERE id = %s",
+            f"SELECT job_cancel_requested, job_pause_requested, job_skip_file "  # noqa: S608 — table name comes from the ORM, not user input
+            f"FROM {self.log._table} WHERE id = %s",
             (self.log.id,)
         )
         row = self.env.cr.fetchone()
@@ -256,7 +301,11 @@ class ImportJob:
             self.log.job_skip_file = row[2] or ''
 
     def _wait_if_paused(self):
-        """Block until the pause flag is cleared. Polls DB every 2 seconds."""
+        """Block until the pause flag is cleared. Polls DB every 2 seconds.
+
+        Also unblocks immediately on CANCEL or SKIP so the caller's post-wait
+        control check handles those signals without extra latency.
+        """
         was_paused = False
         while True:
             self._refresh_flags()
@@ -264,6 +313,12 @@ class ImportJob:
                 break
             if self.log.job_cancel_requested:
                 return
+            # A skip posted while paused should unblock immediately; the
+            # caller's _check_control() will see and act on the SKIP signal.
+            if self.log.job_skip_file:
+                self.log.write({'job_pause_requested': False})
+                self.env.cr.commit()
+                break
             was_paused = True
             self.log.write({'job_state': 'paused'})
             self.env.cr.commit()
@@ -276,17 +331,35 @@ class ImportJob:
     # File helpers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _make_empty_file_progress(**overrides) -> dict:
+        """Canonical empty file_progress entry. Pass overrides like skipped=True."""
+        entry = {
+            'totalRows': 0,
+            'successCount': 0,
+            'failedCount': 0,
+            'processedRanges': [],
+            'failedIndices': [],
+        }
+        entry.update(overrides)
+        return entry
+
     def _get_attachment_by_name(self, filename):
         for att in self.log.attachment_ids:
             if att.name == filename:
                 return att
         return None
 
+    def _record_file_level_error(self, filename, message, all_errors, file_progress):
+        """Record a whole-file error (missing mapping, missing attachment, ...)."""
+        all_errors.append({'filename': filename, 'rowNumber': 0, 'error': message})
+        file_progress[filename] = self._make_empty_file_progress()
+
     def _mark_file_skipped(self, filename, file_progress):
-        file_progress[filename] = {
-            'totalRows': 0, 'successCount': 0, 'failedCount': 0,
-            'processedRanges': [], 'skipped': True,
-        }
+        # Drop failedIndices for skipped files — there's nothing to retry.
+        entry = self._make_empty_file_progress(skipped=True)
+        entry.pop('failedIndices', None)
+        file_progress[filename] = entry
         self.log.write({'job_skip_file': '', 'file_progress': json.dumps(file_progress)})
         self.env.cr.commit()
 
@@ -342,7 +415,7 @@ class ImportJob:
         remaining_errors = list(file_errors)
         all_retry_results = []
 
-        for _ in range(max_retries):
+        for attempt in range(max_retries):
             failed_indices = {
                 e['rowNumber'] for e in remaining_errors if e.get('rowNumber', 0) > 0
             }
@@ -367,6 +440,13 @@ class ImportJob:
             all_retry_results.extend(attempt_results)
 
             succeeded = {r['rowNumber'] for r in attempt_results if r['ok']}
+            filename = remaining_errors[0].get('filename', '') if remaining_errors else ''
+            self._log_event('retry_attempt',
+                            filename=filename,
+                            attempt=attempt + 1,
+                            rows=len(retry_rows),
+                            succeeded=len(succeeded))
+
             remaining_errors = [e for e in remaining_errors if e['rowNumber'] not in succeeded]
 
             if not remaining_errors:
@@ -396,8 +476,29 @@ class ImportJob:
             'success_rows': all_success,
             'failed_rows': all_failed,
             'file_progress': json.dumps(file_progress),
-            'error_log': json.dumps(all_errors[-100:]),  # keep last 100 for polling
+            'error_log': json.dumps(all_errors[-MAX_ERROR_LOG_ENTRIES:]),
             'heartbeat': odoo_fields.Datetime.now(),
+        })
+        self.env.cr.commit()
+
+    # ------------------------------------------------------------------
+    # Finalization
+    # ------------------------------------------------------------------
+
+    def _finalize(self, final_state, all_success, all_failed, all_errors, file_progress):
+        """Single write that closes the job. Used by the happy path, the
+        cancel-detected path, and the exception handler.
+        """
+        self.log.write({
+            'job_state': final_state,
+            'state': final_state,
+            'finished_at': odoo_fields.Datetime.now(),
+            'success_rows': all_success,
+            'failed_rows': all_failed,
+            'total_rows': all_success + all_failed,
+            'error_log': json.dumps(all_errors[-MAX_ERROR_LOG_ENTRIES:]),
+            'file_progress': json.dumps(file_progress),
+            'current_file': '',
         })
         self.env.cr.commit()
 

@@ -160,6 +160,37 @@ class CSVImportController(http.Controller):
         content = base64.b64decode(attachment.datas).decode(encoding, errors='replace')
         return analyze_csv(content, encoding, delimiter)
 
+    @http.route('/ametras_fast_import/import/active', type='json', auth='user', methods=['POST'])
+    def get_active_imports(self):
+        """
+        Return any import logs owned by the current user that are still running or paused.
+
+        Used by RunView.onMounted to re-attach after a page refresh instead of
+        starting a duplicate job over a still-running one.
+        """
+        logs = request.env['csv.import.log'].search([
+            ('user_id', '=', request.env.user.id),
+            ('job_state', 'in', ('running', 'paused', 'pending')),
+        ], order='started_at desc', limit=5)
+
+        return {
+            'logs': [
+                {
+                    'logId': log.id,
+                    'state': log.job_state,
+                    'profileName': log.profile_name or '',
+                    'startedAt': log.started_at.isoformat() if log.started_at else None,
+                    'currentFile': log.current_file or '',
+                    'progress': json.loads(log.file_progress or '{}'),
+                    'successRows': log.success_rows,
+                    'failedRows': log.failed_rows,
+                    'totalRows': log.total_rows,
+                    'isDryRun': log.is_dry_run,
+                }
+                for log in logs
+            ]
+        }
+
     @http.route('/ametras_fast_import/import/start', type='json', auth='user', methods=['POST'])
     def start_import(self, file_ids, config):
         """
@@ -208,6 +239,7 @@ class CSVImportController(http.Controller):
             'current_file': log.current_file or '',
             'errors': error_log[:100],
             'is_dry_run': log.is_dry_run,
+            'heartbeat': log.heartbeat.isoformat() if log.heartbeat else None,
         }
 
     @http.route('/ametras_fast_import/import/control', type='json', auth='user', methods=['POST'])

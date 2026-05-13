@@ -3,11 +3,13 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfigStore, type RunSettings } from '@/stores/config'
 import { usePlatformStore } from '@/stores/platform'
+import { useSessionStore } from '@/stores/session'
 import { useSettingsOptions } from '@/composables/useSettingsOptions'
 
 const { t } = useI18n()
 const config = useConfigStore()
 const platform = usePlatformStore()
+const session = useSessionStore()
 const { delimiterOptions, encodingOptions } = useSettingsOptions()
 
 function validateWorkerConfig(workers: number, batchSize: number): { valid: boolean; warning?: string } {
@@ -26,7 +28,7 @@ const BATCH_SIZE_MAX = 1000
 const MAX_WORKERS = 4
 
 const workerWarning = computed(() => {
-  const { warning } = validateWorkerConfig(config.settings.workers, config.settings.batchSize)
+  const { warning } = validateWorkerConfig(config.settings.standaloneWorkers, config.settings.batchSize)
   return warning
 })
 
@@ -41,7 +43,7 @@ const batchSizeError = computed(() => {
 })
 
 const workersError = computed(() => {
-  const workers = config.settings.workers
+  const workers = config.settings.standaloneWorkers
   if (workers < 1) return t('settings.validation.workersMin')
   if (workers > MAX_WORKERS) return t('settings.validation.workersMax')
   return null
@@ -68,19 +70,19 @@ const workersError = computed(() => {
           {{ batchSizeError }}
         </div>
       </div>
-      <div>
+      <div v-if="!session.isEmbedded">
         <label class="form-label small text-body-secondary mb-1">
           {{ $t('settings.workers') }}
           <span class="text-body-secondary">(1-{{ MAX_WORKERS }})</span>
         </label>
         <input
-          :value="config.settings.workers"
+          :value="config.settings.standaloneWorkers"
           type="number"
           min="1"
           :max="MAX_WORKERS"
           class="form-control form-control-sm"
           :class="{ 'is-invalid': workersError }"
-          @input="config.setSettings({ workers: Math.max(1, Math.min(MAX_WORKERS, parseInt(($event.target as HTMLInputElement).value) || 1)) })"
+          @input="config.setSettings({ standaloneWorkers: Math.max(1, Math.min(MAX_WORKERS, parseInt(($event.target as HTMLInputElement).value) || 1)) })"
         />
         <div v-if="workersError" class="invalid-feedback">
           {{ workersError }}
