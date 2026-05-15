@@ -599,7 +599,7 @@ class CSVImportController(http.Controller):
 
         return {
             "version": module_version,
-            "name": "CSV Import API",
+            "name": "Ametras Fast Import API",
             "odoo_version": request.env["ir.module.module"]
             .sudo()
             .search([("name", "=", "base")], limit=1)

@@ -1,8 +1,8 @@
 {
-    "name": "CSV Import",
+    "name": "Ametras Fast Import",
     "version": "16.0.3",
     "category": "Tools",
-    "summary": "CSV Import Tool with embedded Vue frontend",
+    "summary": "Ametras Fast Import — embedded Vue frontend for CSV importing",
     "description": """
         Provides JSON-RPC endpoints and an embedded Vue frontend for CSV importing.
         - Import endpoint: /ametras_fast_import/run

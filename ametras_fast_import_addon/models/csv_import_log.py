@@ -86,7 +86,7 @@ class CsvImportLog(models.Model):
         return {
             "type": "ir.actions.client",
             "tag": "ametras_csv_import_vue_app",
-            "name": "CSV Import",
+            "name": "Ametras Fast Import",
             "target": "new",
             "params": {"default_view": "import"},
             "context": {"dialog_size": "extra-large"},
