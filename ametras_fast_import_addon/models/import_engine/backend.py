@@ -94,6 +94,9 @@ class OdooBackend(ABC):
         """Return a context manager for savepoints. Default: no-op."""
         return _NullSavepoint()
 
+    def flush_all(self) -> None:
+        """Flush pending ORM writes. Default: no-op (RPC has no deferred writes)."""
+
     def browse_exists(self, model: str, record_id: int) -> bool:
         """Check if a record exists by ID."""
         result = self.search(model, [('id', '=', record_id)], limit=1)

@@ -15,7 +15,7 @@ class CSVImportController(http.Controller):
     @http.route('/ametras_fast_import/run', type='json', auth='user', methods=['POST'])
     def run_import(self, model, rows=None, raw_rows=None, field_mappings=None,
                    use_external_id=False, search_keys=None,
-                   dry_run=False, strict=False):
+                   dry_run=False, strict=False, lang=None):
         """
         Import rows into specified model with deterministic upsert logic.
 
@@ -42,7 +42,10 @@ class CSVImportController(http.Controller):
         Returns:
             dict with 'results' list containing per-row status
         """
-        backend = OrmBackend(request.env)
+        env = request.env
+        if lang:
+            env = env.with_context(lang=lang)
+        backend = OrmBackend(env)
 
         # Security check
         backend.check_access_rights(model, 'create')
@@ -138,7 +141,7 @@ class CSVImportController(http.Controller):
 
         return {
             'version': module_version,
-            'name': 'CSV Import API',
+            'name': 'Ametras Fast Import API',
             'odoo_version': request.env['ir.module.module'].sudo().search([
                 ('name', '=', 'base')
             ], limit=1).installed_version or 'unknown'
