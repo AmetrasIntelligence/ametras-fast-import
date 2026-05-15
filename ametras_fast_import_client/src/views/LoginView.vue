@@ -39,16 +39,21 @@ const profileOptions = computed(() =>
 )
 
 onMounted(async () => {
-  // Check Python availability — required for import
-  const hasPython = await isPythonAvailable()
-  pythonMissing.value = !hasPython
-
   if (session.isAuthenticated) {
     router.push('/import')
     return
   }
-  await session.loadProfiles()
-  encryptionInfo.value = await window.api.odoo.getEncryptionInfo()
+
+  // Run profile loading and Python detection in parallel.
+  // Python detection can be slow (multiple path probes with timeouts) and must
+  // not block profile loading — otherwise saved connections won't appear until
+  // detection finishes.
+  const [hasPython] = await Promise.all([
+    isPythonAvailable(),
+    session.loadProfiles(),
+    window.api.odoo.getEncryptionInfo().then(info => { encryptionInfo.value = info }),
+  ])
+  pythonMissing.value = !hasPython
 
   // Linux without keyring: auto-disable and skip prompt
   if (encryptionInfo.value && !encryptionInfo.value.available) {
