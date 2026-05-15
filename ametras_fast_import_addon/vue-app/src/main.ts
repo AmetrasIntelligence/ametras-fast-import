@@ -88,7 +88,7 @@ export function mountApp(el: HTMLElement, options: OdooMountOptions): () => void
           fieldMappings: options.fieldMappings,
           searchKeys: options.searchKeys,
           strict: options.strict,
-        }, context.dryRun, context.batchAdapter as BatchSizeAdapter | undefined),
+        }, context.dryRun, context.batchAdapter as BatchSizeAdapter | undefined, context.lang),
       maxWorkers: 4,
       batchSizeRange: { min: 1, max: 1000 },
       createBatchAdapter: (maxBatchSize: number) => new BatchSizeAdapter(maxBatchSize),

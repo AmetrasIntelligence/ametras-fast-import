@@ -6,6 +6,11 @@ from odoo.http import request
 
 _logger = logging.getLogger(__name__)
 
+
+class _DryRunRollback(Exception):
+    """Raised inside a savepoint to trigger rollback in dry-run mode."""
+
+
 # Models allowed for /.id (database ID) references.
 # These are standard Odoo reference data with stable IDs across instances.
 STANDARD_DB_ID_MODELS = {
@@ -28,6 +33,7 @@ class CSVImportController(http.Controller):
         search_keys=None,
         dry_run=False,
         strict=False,
+        lang=None,
     ):
         """
         Import rows into specified model with deterministic upsert logic.
@@ -49,11 +55,20 @@ class CSVImportController(http.Controller):
             search_keys: List of field names for natural key search (e.g., ['default_code'])
             dry_run: If True, validate but don't commit (rollback after each row)
             strict: If True, fail on missing keys instead of falling back to create
+            lang: Optional Odoo language code (e.g. 'de_DE'). When set, translatable
+                  fields are written in this language instead of the session language.
 
         Returns:
             dict with 'results' list containing per-row status
         """
-        Model = request.env[model]
+        env = request.env
+        if lang:
+            # Switch the ORM environment to the requested language so that writes
+            # to translatable fields update the correct translation, not the
+            # session language of the calling user.
+            env = env.with_context(lang=lang)
+
+        Model = env[model]
 
         # Security check
         Model.check_access_rights("create")
@@ -93,22 +108,43 @@ class CSVImportController(http.Controller):
 
         for row in rows:
             try:
-                with request.env.cr.savepoint() as sp:
-                    # Resolve references in row before import
+                # flush=False: prevents Odoo from flushing deferred ORM writes
+                # (computed fields, related records) *before* the SAVEPOINT is
+                # created. If flush ran outside the savepoint and failed, the
+                # transaction would be left in an aborted state with no savepoint
+                # to roll back to, causing "current transaction is aborted" for
+                # all subsequent rows.
+                with request.env.cr.savepoint(flush=False):
+                    # Flush any pending ORM writes from previous rows now that
+                    # we are inside the savepoint and any failure can be rolled back.
+                    request.env.flush_all()
+
                     resolved_row, row_warnings = self._resolve_row(Model, row, ref_map)
                     warnings.extend(row_warnings)
 
                     result = self._import_row(
                         Model, resolved_row, use_external_id, search_keys, strict
                     )
+
+                    # Flush this row's writes (computed fields, etc.) while still
+                    # inside the savepoint so failures are isolated to this row.
+                    request.env.flush_all()
+
+                    if dry_run:
+                        # Raise a sentinel to trigger the savepoint rollback.
+                        # The savepoint context manager rolls back on any exception,
+                        # so this is the correct way to undo writes in dry-run mode.
+                        # (cr.savepoint() yields None in Odoo 16, so sp.rollback()
+                        # would raise AttributeError instead.)
+                        raise _DryRunRollback()
+
                     results.append(result)
 
-                    # Dry run: rollback this savepoint but report success
-                    if dry_run:
-                        sp.rollback()
-                        result["dry_run"] = True
-
+            except _DryRunRollback:
+                result["dry_run"] = True
+                results.append(result)
             except Exception as e:
+                request.env.invalidate_all()
                 _logger.warning(f"Import error for {Model._name}: {e}")
                 results.append({"ok": False, "error": str(e)})
 

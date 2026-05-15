@@ -112,6 +112,7 @@ async function executeSubBatch(
   rows: ParsedRow[],
   mapping: MappingConfig,
   dryRun: boolean,
+  lang?: string,
 ): Promise<BatchResult[]> {
   const session = useSessionStore()
   if (!session.baseUrl) throw new Error('Not connected')
@@ -144,7 +145,8 @@ async function executeSubBatch(
       use_external_id: idColumn === 'id',
       search_keys: mapping.searchKeys || null,
       dry_run: dryRun || false,
-      strict: mapping.strict || false
+      strict: mapping.strict || false,
+      ...(lang ? { lang } : {}),
     },
     timeout: computeImportTimeout(rows.length)
   })
@@ -191,9 +193,10 @@ export async function executeBatch(
   mapping: MappingConfig,
   dryRun?: boolean,
   adapter?: BatchSizeAdapter,
+  lang?: string,
 ): Promise<BatchResult[]> {
   if (!adapter) {
-    return executeSubBatch(model, rows, mapping, dryRun || false)
+    return executeSubBatch(model, rows, mapping, dryRun || false, lang)
   }
 
   const allResults: BatchResult[] = []
@@ -203,7 +206,7 @@ export async function executeBatch(
     const chunkSize = adapter.currentSize
     const chunk = rows.slice(offset, offset + chunkSize)
 
-    const results = await executeSubBatch(model, chunk, mapping, dryRun || false)
+    const results = await executeSubBatch(model, chunk, mapping, dryRun || false, lang)
     adapter.recordSuccess(chunk.length)
     allResults.push(...results)
 

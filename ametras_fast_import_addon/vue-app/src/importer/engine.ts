@@ -561,6 +561,7 @@ export class ImportEngine {
             signal: this.fileOrRunSignal(),
             batchAdapter: this.batchSizeAdapter,
             timeoutEscalationLevel,
+            lang: config.settings.lang || undefined,
           }
         )
 
@@ -1129,6 +1130,7 @@ export class ImportEngine {
                 signal: this.fileOrRunSignal(),
                 batchAdapter: retryAdapter,
                 timeoutEscalationLevel,
+                lang: config.settings.lang || undefined,
               }
             )
             this.connectionMonitor?.reportOnline()

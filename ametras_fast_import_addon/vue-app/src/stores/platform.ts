@@ -22,6 +22,7 @@ export type ExecuteBatchFn = (
     signal?: AbortSignal
     batchAdapter?: unknown
     timeoutEscalationLevel?: number
+    lang?: string
   }
 ) => Promise<BatchResult[]>
 
