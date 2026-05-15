@@ -50,7 +50,10 @@ class OrmBackend(OdooBackend):
         return True
 
     def savepoint(self):
-        return self.env.cr.savepoint()
+        return self.env.cr.savepoint(flush=False)
+
+    def flush_all(self):
+        self.env.flush_all()
 
     def browse_exists(self, model, record_id):
         return bool(self.env[model].browse(record_id).exists())

@@ -43,6 +43,10 @@ from .progress import ProgressReporter, NullReporter
 _logger = logging.getLogger(__name__)
 
 
+class _DryRunRollback(Exception):
+    """Raised inside a savepoint to trigger rollback in dry-run mode."""
+
+
 @dataclass
 class ImportConfig:
     """Configuration for an import run."""
@@ -526,21 +530,23 @@ class Importer:
         field_info: dict[str, FieldInfo], ref_map: dict,
     ) -> RowResult:
         """Import a single row with savepoint isolation."""
+        result: Optional[RowResult] = None
         try:
-            sp = self.backend.savepoint()
-            with sp:
+            with self.backend.savepoint():
+                self.backend.flush_all()
                 resolved, _warnings = resolve_row(
                     self.backend, self.config.model, field_info, row_data, ref_map
                 )
                 result = self._import_row(resolved)
                 result.row_index = row_index
-
+                self.backend.flush_all()
                 if self.config.dry_run:
-                    sp.rollback()
-                    result.dry_run = True
-
+                    raise _DryRunRollback()
                 return result
 
+        except _DryRunRollback:
+            result.dry_run = True  # type: ignore[union-attr]
+            return result  # type: ignore[return-value]
         except TransportError:
             raise
         except Exception as e:
