@@ -528,6 +528,7 @@ export class ImportEngine {
   ): Promise<BatchResult[]> {
     const platform = usePlatformStore()
     const run = useRunStore()
+    const config = useConfigStore()
     const isStandaloneMode = !platform.capabilities.searchKeys
     const MAX_AUTH_RETRIES = 2
     let authRetryCount = 0
