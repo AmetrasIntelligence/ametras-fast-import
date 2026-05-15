@@ -927,11 +927,11 @@ class TestImportCsvFile(unittest.TestCase):
         importer = Importer(backend, config, reporter)
 
         path = self._write_csv("name,email\nAlice,a@t.com\nBob,b@t.com\nCharlie,c@t.com")
-        results = importer.import_csv_file(path)
+        summary = importer.import_csv_file(path)
         os.unlink(path)
 
-        self.assertEqual(len(results), 3)
-        self.assertTrue(all(r.ok for r in results))
+        self.assertEqual(summary.success + summary.failed, 3)
+        self.assertEqual(summary.failed, 0)
         self.assertEqual(len(backend.records['res.partner']), 3)
 
         # Reporter should have been called
@@ -954,10 +954,10 @@ class TestImportCsvFile(unittest.TestCase):
         importer = Importer(backend, config, reporter)
 
         path = self._write_csv("name\nA\nB\nC\nD\nE")
-        results = importer.import_csv_file(path)
+        summary = importer.import_csv_file(path)
         os.unlink(path)
 
-        self.assertEqual(len(results), 5)
+        self.assertEqual(summary.success + summary.failed, 5)
         # 5 rows with batch_size=2 → 3 batches (2+2+1)
         self.assertEqual(len(reporter.batches), 3)
         self.assertEqual(reporter.batches[0]['processed'], 2)
@@ -986,13 +986,11 @@ class TestImportCsvFile(unittest.TestCase):
         importer = Importer(backend, config, reporter)
 
         path = self._write_csv("name,country\nAlice,de\nBob,bad_ref\nCharlie,de")
-        results = importer.import_csv_file(path)
+        summary = importer.import_csv_file(path)
         os.unlink(path)
 
-        ok_count = sum(1 for r in results if r.ok)
-        fail_count = sum(1 for r in results if not r.ok)
-        self.assertEqual(ok_count, 2)
-        self.assertEqual(fail_count, 1)
+        self.assertEqual(summary.success, 2)
+        self.assertEqual(summary.failed, 1)
         self.assertEqual(reporter.files_completed[0]['success'], 2)
         self.assertEqual(reporter.files_completed[0]['failed'], 1)
 
@@ -1009,11 +1007,11 @@ class TestImportCsvFile(unittest.TestCase):
 
         path = self._write_csv("name;email\nAlice;a@t.com\nBob;b@t.com")
         from import_engine.parser import ParseOptions
-        results = importer.import_csv_file(path, ParseOptions(delimiter=';'))
+        summary = importer.import_csv_file(path, ParseOptions(delimiter=';'))
         os.unlink(path)
 
-        self.assertEqual(len(results), 2)
-        self.assertTrue(all(r.ok for r in results))
+        self.assertEqual(summary.success + summary.failed, 2)
+        self.assertEqual(summary.failed, 0)
 
     def test_file_import_with_search_key_validation(self):
         """Invalid search key on model returns empty results + error."""
@@ -1029,10 +1027,11 @@ class TestImportCsvFile(unittest.TestCase):
         importer = Importer(backend, config, reporter)
 
         path = self._write_csv("name\nAlice")
-        results = importer.import_csv_file(path)
+        summary = importer.import_csv_file(path)
         os.unlink(path)
 
-        self.assertEqual(results, [])
+        self.assertIsNotNone(summary.file_error)
+        self.assertIn('nonexistent_field', summary.file_error)
         self.assertEqual(len(reporter.errors), 1)
         self.assertIn('nonexistent_field', reporter.errors[0])
 

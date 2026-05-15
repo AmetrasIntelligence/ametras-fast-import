@@ -428,6 +428,9 @@ async function runPythonRetry(retryData: RetryData) {
         for (const e of errors) {
           run.addError({ filename, rowNumber: e.row, rawData: {}, error: e.error, timestamp: Date.now() })
         }
+      } else if (result.type === 'cancelled') {
+        run.completeFile(filename)
+        break
       } else if (result.type === 'error') {
         const errorMsg = (result.message as string) || 'Retry failed'
         if (pythonCancelled) break
@@ -547,11 +550,15 @@ async function runPythonImport() {
         if (seenErrors.size > 5) {
           logger.import.warn(`  ... and ${errors.length - 5} more errors`)
         }
+      } else if (result.type === 'cancelled') {
+        run.completeFile(filename)
+        break
       } else if (result.type === 'error') {
         const errorMsg = (result.message as string) || 'Import failed'
 
         if (pythonCancelled || errorMsg.includes('exited unexpectedly')) {
           logger.import.info(`${filename}: Import cancelled`)
+          run.completeFile(filename)
           break
         }
 

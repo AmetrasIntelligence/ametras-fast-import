@@ -62,6 +62,9 @@ _constants.PROGRESS_COMMIT_INTERVAL = 10
 _parser = _stub('models.import_engine.parser')
 _parser.ParseOptions = type('ParseOptions', (), {'__init__': lambda s, **kw: None})
 _parser.parse_csv_string = lambda *a, **kw: []
+_parser.parse_csv_file = lambda *a, **kw: iter([])
+_parser.count_csv_rows = lambda *a, **kw: 0
+_parser.extract_rows_by_index = lambda *a, **kw: iter([])
 
 _importer = _stub('models.import_engine.importer')
 _importer.ImportConfig = type('ImportConfig', (), {'__init__': lambda s, **kw: None})
@@ -261,20 +264,18 @@ class TestInitFileState(unittest.TestCase):
         self.job = _make_job()
 
     def test_fresh_file_zero_base(self):
-        rows = [_FakeRow(i) for i in range(1, 4)]
-        state = self.job._init_file_state('f.csv', rows, {})
+        state = self.job._init_file_state('f.csv', 3, {})
         self.assertEqual(state.base_success, 0)
         self.assertEqual(state.original_total, 3)
         self.assertEqual(len(state.processed_indices), 0)
 
     def test_resume_loads_base_success_and_processed(self):
-        rows = [_FakeRow(i) for i in range(1, 6)]
         fp = {'f.csv': {
             'successCount': 7,
             'totalRows': 10,
             'processedRanges': [[1, 3]],
         }}
-        state = self.job._init_file_state('f.csv', rows, fp)
+        state = self.job._init_file_state('f.csv', 5, fp)
         self.assertEqual(state.base_success, 7)
         self.assertEqual(state.original_total, 10)
         self.assertIn(1, state.processed_indices)
@@ -330,7 +331,7 @@ class TestProcessRetries(unittest.TestCase):
     def test_no_errors_returns_empty(self):
         job = _make_job(db_rows=[(False, False, '')] * 10)
         importer = MagicMock()
-        result = job._process_retries(importer, [], [], {})
+        result = job._process_retries(importer, [], {}, all_rows=[])
         self.assertEqual(result, [])
         importer.import_rows.assert_not_called()
 
@@ -350,7 +351,10 @@ class TestProcessRetries(unittest.TestCase):
         errors = [{'filename': 'f.csv', 'rowNumber': 2, 'error': 'err'}]
 
         with patch('time.sleep'):
-            results = job._process_retries(importer, rows, errors, {'retryLimit': 1, 'retryDelayMs': 0})
+            results = job._process_retries(
+                importer, errors, {'retryLimit': 1, 'retryDelayMs': 0},
+                all_rows=rows,
+            )
 
         self.assertEqual(len(results), 1)
         self.assertTrue(results[0]['ok'])
@@ -366,7 +370,10 @@ class TestProcessRetries(unittest.TestCase):
         errors = [{'filename': 'f.csv', 'rowNumber': 1, 'error': 'err'}]
 
         with patch('time.sleep'):
-            results = job._process_retries(importer, rows, errors, {'retryLimit': 3, 'retryDelayMs': 0})
+            results = job._process_retries(
+                importer, errors, {'retryLimit': 3, 'retryDelayMs': 0},
+                all_rows=rows,
+            )
 
         importer.import_rows.assert_not_called()
 

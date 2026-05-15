@@ -5,7 +5,7 @@ from odoo import http, fields
 from odoo.http import request
 from ..models.orm_backend import OrmBackend
 from ..models.import_engine.importer import Importer, ImportConfig
-from ..models.import_engine.parser import ParsedRow, ParseOptions, parse_csv_string, analyze_csv
+from ..models.import_engine.parser import ParsedRow, ParseOptions, parse_csv_string, analyze_csv, analyze_csv_file
 
 _logger = logging.getLogger(__name__)
 
@@ -152,11 +152,23 @@ class CSVImportController(http.Controller):
     def analyze_file(self, file_id, encoding='utf-8', delimiter=''):
         """
         Analyze a CSV file: detect headers, delimiter, sample rows, row count.
-        Replaces client-side csvParser.ts analyzeCSV().
+
+        Uses a 64 KB sample for header/delimiter/preview detection, and a
+        streaming line count for the total row count.  For filestore-backed
+        attachments this avoids loading the entire file into memory.
         """
         attachment = request.env['ir.attachment'].browse(int(file_id))
         if not attachment.exists():
             return {'error': f'Attachment {file_id} not found'}
+
+        if attachment.store_fname:
+            return analyze_csv_file(
+                attachment._full_path(attachment.store_fname),
+                encoding=encoding,
+                delimiter=delimiter,
+            )
+
+        # Small file stored in DB — fall back to in-memory decode
         content = base64.b64decode(attachment.datas).decode(encoding, errors='replace')
         return analyze_csv(content, encoding, delimiter)
 

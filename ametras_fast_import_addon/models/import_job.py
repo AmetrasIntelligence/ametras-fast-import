@@ -16,7 +16,10 @@ from odoo import fields as odoo_fields
 from .orm_backend import OrmBackend
 from .import_engine.constants import PROGRESS_COMMIT_INTERVAL
 from .import_engine.importer import Importer, ImportConfig
-from .import_engine.parser import ParseOptions, parse_csv_string
+from .import_engine.parser import (
+    ParseOptions, parse_csv_file, parse_csv_string,
+    count_csv_rows, extract_rows_by_index,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -144,81 +147,187 @@ class ImportJob:
                     self._log_event('file_error', filename=filename, reason='attachment_missing')
                     continue
 
-                content = base64.b64decode(attachment.datas).decode(encoding, errors='replace')
                 options = ParseOptions(delimiter=delimiter, encoding=encoding, has_header=True)
-                rows = list(parse_csv_string(content, options))
+                file_path = self._get_attachment_path(attachment)
 
-                pending = self._filter_pending_rows(filename, rows, file_progress)
-                if pending is not None:
-                    rows = pending
-                    if not rows:
+                if file_path:
+                    # --- Streaming path: attachment stored on disk (large-file safe) ---
+                    total_rows_count = count_csv_rows(file_path, encoding, has_header=True)
+
+                    # Build skip set: rows already processed and not failed (resume support)
+                    fp = file_progress.get(filename, {})
+                    skip_indices: set[int] = set()
+                    if fp.get('skipped'):
                         self._log_event('file_skip', filename=filename, reason='all_rows_processed')
                         continue
-                    self._log_event('file_resume', filename=filename, pending_rows=len(rows))
+                    for start, end in fp.get('processedRanges', []):
+                        skip_indices.update(range(start, end + 1))
+                    failed_from_fp = set(fp.get('failedIndices', []))
+                    skip_indices -= failed_from_fp  # re-process previously failed rows
 
-                state = self._init_file_state(filename, rows, file_progress)
-                self._log_event('file_start', filename=filename,
-                                total_rows=state.original_total,
-                                model=file_mapping.get('model'))
-                file_start_time = time.time()
+                    # Early-exit when every row is already complete
+                    if (total_rows_count > 0
+                            and len(skip_indices) >= total_rows_count
+                            and not failed_from_fp):
+                        self._log_event('file_skip', filename=filename, reason='all_rows_processed')
+                        continue
 
-                import_config = ImportConfig(
-                    model=file_mapping['model'],
-                    field_mappings=file_mapping.get('fieldMappings', {}),
-                    use_external_id=bool(
-                        'id' in file_mapping.get('fieldMappings', {}).values()
-                    ),
-                    search_keys=file_mapping.get('searchKeys'),
-                    dry_run=settings.get('dryRun', False),
-                    strict=file_mapping.get('strict', False),
-                    batch_size=batch_size,
-                )
-                importer = Importer(backend, import_config)
+                    if skip_indices:
+                        pending_count = total_rows_count - len(skip_indices)
+                        self._log_event('file_resume', filename=filename, pending_rows=pending_count)
 
-                for i in range(0, len(rows), batch_size):
-                    decision = self._evaluate_control(filename)
-                    if decision == ControlDecision.STOP:
-                        break
-                    if decision == ControlDecision.SKIP_FILE:
-                        # Post-loop handler will run _mark_file_skipped.
-                        break
+                    state = self._init_file_state(filename, total_rows_count, file_progress)
+                    self._log_event('file_start', filename=filename,
+                                    total_rows=state.original_total,
+                                    model=file_mapping.get('model'))
+                    file_start_time = time.time()
 
-                    for r in importer.import_rows(rows[i:i + batch_size]):
-                        state.processed_indices.add(r.row_index)
-                        if r.ok:
-                            state.success += 1
-                        else:
-                            state.failed += 1
-                            state.errors.append({
-                                'filename': filename,
-                                'rowNumber': r.row_index,
-                                'error': r.error or 'Unknown error',
-                            })
+                    import_config = ImportConfig(
+                        model=file_mapping['model'],
+                        field_mappings=file_mapping.get('fieldMappings', {}),
+                        use_external_id=bool(
+                            'id' in file_mapping.get('fieldMappings', {}).values()
+                        ),
+                        search_keys=file_mapping.get('searchKeys'),
+                        dry_run=settings.get('dryRun', False),
+                        strict=file_mapping.get('strict', False),
+                        batch_size=batch_size,
+                    )
+                    importer = Importer(backend, import_config)
 
-                    now = time.time()
-                    if now - last_commit >= PROGRESS_COMMIT_INTERVAL:
-                        self._save_progress(
-                            state, file_progress,
-                            all_success + state.success,
-                            all_failed + state.failed,
-                            all_errors + state.errors,
+                    source = (
+                        row for row in parse_csv_file(file_path, options)
+                        if row.index not in skip_indices
+                    )
+                    for batch in self._iter_batches(source, batch_size):
+                        decision = self._evaluate_control(filename)
+                        if decision == ControlDecision.STOP:
+                            break
+                        if decision == ControlDecision.SKIP_FILE:
+                            break
+
+                        for r in importer.import_rows(batch):
+                            state.processed_indices.add(r.row_index)
+                            if r.ok:
+                                state.success += 1
+                            else:
+                                state.failed += 1
+                                state.errors.append({
+                                    'filename': filename,
+                                    'rowNumber': r.row_index,
+                                    'error': r.error or 'Unknown error',
+                                })
+
+                        now = time.time()
+                        if now - last_commit >= PROGRESS_COMMIT_INTERVAL:
+                            self._save_progress(
+                                state, file_progress,
+                                all_success + state.success,
+                                all_failed + state.failed,
+                                all_errors + state.errors,
+                            )
+                            last_commit = now
+
+                    if self.log.job_skip_file == filename:
+                        self._mark_file_skipped(filename, file_progress)
+                        self._log_event('file_skip', filename=filename, reason='user_requested_mid_run')
+                        all_success += state.success
+                        all_failed += state.failed
+                        all_errors.extend(state.errors)
+                        continue
+
+                    retry_results = []
+                    retried = 0
+                    if state.errors and self._check_control() != ControlSignal.CANCEL and state.success > 0:
+                        retry_results = self._process_retries(
+                            importer, state.errors, settings,
+                            file_path=file_path, options=options,
                         )
-                        last_commit = now
+                        retried = len(retry_results)
+                    for r in retry_results:
+                        if r['ok']:
+                            state.success += 1
+                            state.failed -= 1
+                            state.processed_indices.add(r['rowNumber'])
+                    succeeded = {r['rowNumber'] for r in retry_results if r['ok']}
+                    state.errors = [e for e in state.errors if e['rowNumber'] not in succeeded]
 
-                if self.log.job_skip_file == filename:
-                    self._mark_file_skipped(filename, file_progress)
-                    self._log_event('file_skip', filename=filename, reason='user_requested_mid_run')
-                    all_success += state.success
-                    all_failed += state.failed
-                    all_errors.extend(state.errors)
-                    continue
+                else:
+                    # --- DB-stored path: small file, load into memory ---
+                    content = base64.b64decode(attachment.datas).decode(encoding, errors='replace')
+                    rows = list(parse_csv_string(content, options))
 
-                # Retry failed rows — only when some rows succeeded, which suggests
-                # ordering dependencies rather than systematic data errors.
-                retried = 0
-                if state.errors and self._check_control() != ControlSignal.CANCEL and state.success > 0:
-                    retry_results = self._process_retries(importer, rows, state.errors, settings)
-                    retried = len(retry_results)
+                    pending = self._filter_pending_rows(filename, rows, file_progress)
+                    if pending is not None:
+                        rows = pending
+                        if not rows:
+                            self._log_event('file_skip', filename=filename, reason='all_rows_processed')
+                            continue
+                        self._log_event('file_resume', filename=filename, pending_rows=len(rows))
+
+                    state = self._init_file_state(filename, len(rows), file_progress)
+                    self._log_event('file_start', filename=filename,
+                                    total_rows=state.original_total,
+                                    model=file_mapping.get('model'))
+                    file_start_time = time.time()
+
+                    import_config = ImportConfig(
+                        model=file_mapping['model'],
+                        field_mappings=file_mapping.get('fieldMappings', {}),
+                        use_external_id=bool(
+                            'id' in file_mapping.get('fieldMappings', {}).values()
+                        ),
+                        search_keys=file_mapping.get('searchKeys'),
+                        dry_run=settings.get('dryRun', False),
+                        strict=file_mapping.get('strict', False),
+                        batch_size=batch_size,
+                    )
+                    importer = Importer(backend, import_config)
+
+                    for i in range(0, len(rows), batch_size):
+                        decision = self._evaluate_control(filename)
+                        if decision == ControlDecision.STOP:
+                            break
+                        if decision == ControlDecision.SKIP_FILE:
+                            break
+
+                        for r in importer.import_rows(rows[i:i + batch_size]):
+                            state.processed_indices.add(r.row_index)
+                            if r.ok:
+                                state.success += 1
+                            else:
+                                state.failed += 1
+                                state.errors.append({
+                                    'filename': filename,
+                                    'rowNumber': r.row_index,
+                                    'error': r.error or 'Unknown error',
+                                })
+
+                        now = time.time()
+                        if now - last_commit >= PROGRESS_COMMIT_INTERVAL:
+                            self._save_progress(
+                                state, file_progress,
+                                all_success + state.success,
+                                all_failed + state.failed,
+                                all_errors + state.errors,
+                            )
+                            last_commit = now
+
+                    if self.log.job_skip_file == filename:
+                        self._mark_file_skipped(filename, file_progress)
+                        self._log_event('file_skip', filename=filename, reason='user_requested_mid_run')
+                        all_success += state.success
+                        all_failed += state.failed
+                        all_errors.extend(state.errors)
+                        continue
+
+                    retry_results = []
+                    retried = 0
+                    if state.errors and self._check_control() != ControlSignal.CANCEL and state.success > 0:
+                        retry_results = self._process_retries(
+                            importer, state.errors, settings, all_rows=rows,
+                        )
+                        retried = len(retry_results)
                     for r in retry_results:
                         if r['ok']:
                             state.success += 1
@@ -350,6 +459,24 @@ class ImportJob:
                 return att
         return None
 
+    def _get_attachment_path(self, attachment) -> 'str | None':
+        """Return on-disk path for filestore-backed attachments, or None."""
+        if attachment.store_fname:
+            return attachment._full_path(attachment.store_fname)
+        return None
+
+    @staticmethod
+    def _iter_batches(source, batch_size: int):
+        """Yield successive batches of up to batch_size rows from source iterator."""
+        batch = []
+        for row in source:
+            batch.append(row)
+            if len(batch) >= batch_size:
+                yield batch
+                batch = []
+        if batch:
+            yield batch
+
     def _record_file_level_error(self, filename, message, all_errors, file_progress):
         """Record a whole-file error (missing mapping, missing attachment, ...)."""
         all_errors.append({'filename': filename, 'rowNumber': 0, 'error': message})
@@ -363,13 +490,13 @@ class ImportJob:
         self.log.write({'job_skip_file': '', 'file_progress': json.dumps(file_progress)})
         self.env.cr.commit()
 
-    def _init_file_state(self, filename, rows, file_progress) -> FileRunState:
+    def _init_file_state(self, filename, total_rows: int, file_progress) -> FileRunState:
         """Build initial FileRunState, pre-loading base progress for resume runs."""
         base_fp = file_progress.get(filename, {})
         state = FileRunState(
             filename=filename,
             base_success=base_fp.get('successCount', 0),
-            original_total=base_fp.get('totalRows') or len(rows),
+            original_total=base_fp.get('totalRows') or total_rows,
         )
         for rng in base_fp.get('processedRanges', []):
             state.processed_indices.update(range(rng[0], rng[1] + 1))
@@ -407,7 +534,8 @@ class ImportJob:
     # Retry
     # ------------------------------------------------------------------
 
-    def _process_retries(self, importer, all_rows, file_errors, settings):
+    def _process_retries(self, importer, file_errors, settings, *,
+                         all_rows=None, file_path=None, options=None):
         """Retry failed rows up to retryLimit times. Returns list of retry results."""
         max_retries = settings.get('retryLimit', 3)
         retry_delay = settings.get('retryDelayMs', 500) / 1000.0
@@ -422,7 +550,13 @@ class ImportJob:
             if not failed_indices:
                 break
 
-            retry_rows = [r for r in all_rows if r.index in failed_indices]
+            if file_path is not None and options is not None:
+                retry_rows = list(extract_rows_by_index(file_path, failed_indices, options))
+            elif all_rows is not None:
+                retry_rows = [r for r in all_rows if r.index in failed_indices]
+            else:
+                break
+
             if not retry_rows:
                 break
 

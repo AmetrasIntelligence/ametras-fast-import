@@ -15,9 +15,10 @@ from __future__ import annotations
 import logging
 import threading
 import time as _time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace as dc_replace
-from typing import Callable, Optional
+from typing import Callable, Iterator, Optional
 
 from .backend import OdooBackend, FieldInfo, TransportError
 from .constants import (
@@ -67,6 +68,20 @@ class RowResult:
     dry_run: bool = False
 
 
+@dataclass
+class ImportFileSummary:
+    """Result of a file-level import run.
+
+    Replaces the previous list[RowResult] return from import_csv_file so that
+    successes are never accumulated in memory — only the (typically small)
+    failure set is kept.
+    """
+    success: int
+    failed: int
+    errors: list[RowResult]           # only failed rows
+    file_error: Optional[str] = None  # whole-file error (bad config, access denied)
+
+
 class Importer:
     """
     Main import engine.
@@ -79,19 +94,12 @@ class Importer:
     Usage (subprocess mode):
         backend = RpcBackend.authenticate(url, db, login, password)
         importer = Importer(backend, config, reporter=JsonLinesReporter())
-        results = importer.import_csv_file('/path/to/file.csv', workers=4)
+        summary = importer.import_csv_file('/path/to/file.csv', workers=4)
     """
 
     def __init__(self, backend: OdooBackend, config: ImportConfig,
                  reporter: Optional[ProgressReporter] = None,
                  cancel_check: Optional[Callable[[], bool]] = None):
-        """
-        Args:
-            backend: OdooBackend instance (OrmBackend or RpcBackend)
-            config: Import configuration
-            reporter: Progress reporter (NullReporter if omitted)
-            cancel_check: Optional callable returning True to cancel import
-        """
         self.backend = backend
         self.config = config
         self.reporter = reporter or NullReporter()
@@ -100,17 +108,14 @@ class Importer:
         self._cancelled = False
 
     def _get_field_info(self) -> dict[str, FieldInfo]:
-        """Get and cache field info for the target model."""
         if self._field_info_cache is None:
             self._field_info_cache = self.backend.get_field_info(self.config.model)
         return self._field_info_cache
 
     def cancel(self) -> None:
-        """Request cancellation. Takes effect before the next batch."""
         self._cancelled = True
 
     def _is_cancelled(self) -> bool:
-        """Check if import should stop."""
         if self._cancelled:
             return True
         if self.cancel_check and self.cancel_check():
@@ -164,9 +169,7 @@ class Importer:
         return results
 
     def import_pre_transformed_rows(self, rows: list[dict]) -> list[RowResult]:
-        """
-        Import rows already in Odoo field format (legacy API compatibility).
-        """
+        """Import rows already in Odoo field format (legacy API compatibility)."""
         parsed = [ParsedRow(index=i + 1, data=row) for i, row in enumerate(rows)]
         temp = Importer(
             self.backend,
@@ -181,18 +184,22 @@ class Importer:
         file_path: str,
         options: Optional[ParseOptions] = None,
         workers: int = 1,
-    ) -> list[RowResult]:
+    ) -> ImportFileSummary:
         """
         Import from a local CSV file.
+
+        Streams the file in batches — never loads all rows into memory.
+        The sequential RPC path (workers=1) keeps at most one batch in memory
+        at a time; on transport error it retries that batch without re-reading
+        the file. The parallel path limits in-flight batches via a semaphore.
 
         Args:
             file_path: Path to CSV file
             options: CSV parsing options
-            workers: Number of parallel workers (1-4). Multiple workers
-                     overlap network latency in RPC mode. Use 1 for ORM mode.
+            workers: Parallel workers (1-4). >1 overlaps network latency for RPC.
 
         Returns:
-            List of RowResult for all rows
+            ImportFileSummary with counts and only the failed RowResults.
         """
         import os
         opts = options or ParseOptions()
@@ -211,10 +218,9 @@ class Importer:
                 if key not in field_info:
                     error = f"Search key '{key}' not found on model {self.config.model}"
                     self.reporter.error(error)
-                    return []
+                    return ImportFileSummary(success=0, failed=0, errors=[], file_error=error)
 
-        all_results: list[RowResult] = []
-        processed = 0
+        all_errors: list[RowResult] = []
         success = 0
         failed = 0
 
@@ -225,72 +231,77 @@ class Importer:
 
         if workers <= 1:
             if is_rpc:
-                # Standalone mode: pre-load rows so we can retry sub-batches
-                # on transport failures without re-reading the file.
-                all_rows_for_retry = list(source)
-                self._import_sequential_with_retry(
-                    all_rows_for_retry, all_results, total_rows,
-                    processed, success, failed,
+                # Standalone: stream one batch at a time; retry logic keeps
+                # only the current batch in memory, not the whole file.
+                success, failed = self._import_sequential_with_retry(
+                    self._iter_batches(source, self.config.batch_size),
+                    all_errors,
+                    total_rows,
                 )
-                # Refresh counters from all_results after retry loop
-                processed = len(all_results)
-                success = sum(1 for r in all_results if r.ok)
-                failed = sum(1 for r in all_results if not r.ok)
             else:
-                # Embedded mode: stream directly — savepoints handle per-row rollback
+                # Embedded: stream via callback, accumulate only error rows
                 def process_batch(batch: list[ParsedRow]) -> None:
-                    nonlocal processed, success, failed
+                    nonlocal success, failed
                     if self._is_cancelled():
                         return
                     results = self.import_rows(batch)
-                    all_results.extend(results)
-                    batch_ok = sum(1 for r in results if r.ok)
-                    batch_fail = sum(1 for r in results if not r.ok)
-                    processed += len(results)
-                    success += batch_ok
-                    failed += batch_fail
-                    self.reporter.batch_completed(processed, total_rows, success, failed)
+                    errs = [r for r in results if not r.ok]
+                    all_errors.extend(errs)
+                    success += len(results) - len(errs)
+                    failed += len(errs)
+                    self.reporter.batch_completed(
+                        success + failed, total_rows, success, failed
+                    )
+                    self.reporter.emit_errors([
+                        {'row': r.row_index, 'error': r.error} for r in errs
+                    ])
 
                 parse_csv_batched(source, self.config.batch_size, process_batch)
         else:
-            # Parallel mode (RpcBackend — overlaps network latency)
+            # Parallel (RpcBackend): done callbacks process each batch's results
+            # immediately so only error RowResults accumulate in all_errors — the
+            # full result list is discarded inline rather than held until a second
+            # sequential drain pass.  sem.release() is called inside the callback
+            # (after results are consumed) so the semaphore bounds both raw data
+            # and result objects in memory simultaneously.
             lock = threading.Lock()
-            batches = parse_csv_batched(source, self.config.batch_size)
+            sem = threading.Semaphore(workers + 1)
+
+            def _make_callback(row_indices: list[int]) -> Callable:
+                def _on_done(future) -> None:
+                    nonlocal success, failed
+                    try:
+                        batch_results = future.result()
+                    except Exception as exc:
+                        batch_results = [
+                            RowResult(ok=False, row_index=idx, error=str(exc))
+                            for idx in row_indices
+                        ]
+                    errs = [r for r in batch_results if not r.ok]
+                    with lock:
+                        success += len(batch_results) - len(errs)
+                        failed += len(errs)
+                        all_errors.extend(errs)
+                    sem.release()  # slot freed only after results are consumed
+                    self.reporter.batch_completed(
+                        success + failed, total_rows, success, failed
+                    )
+                    self.reporter.emit_errors([
+                        {'row': r.row_index, 'error': r.error} for r in errs
+                    ])
+                return _on_done
 
             with ThreadPoolExecutor(max_workers=workers) as executor:
-                futures = {}
-                for batch in batches:
+                for batch in self._iter_batches(source, self.config.batch_size):
                     if self._is_cancelled():
                         break
+                    sem.acquire()  # blocks until a callback has freed a slot
                     future = executor.submit(self.import_rows, batch)
-                    futures[future] = batch
-
-                for future in as_completed(futures):
-                    if self._is_cancelled():
-                        break
-                    try:
-                        results = future.result()
-                    except Exception as e:
-                        batch = futures[future]
-                        results = [
-                            RowResult(ok=False, row_index=r.index, error=str(e))
-                            for r in batch
-                        ]
-
-                    batch_errors = [
-                        {'row': r.row_index, 'error': r.error}
-                        for r in results if not r.ok
-                    ]
-                    with lock:
-                        all_results.extend(results)
-                        batch_ok = sum(1 for r in results if r.ok)
-                        batch_fail = sum(1 for r in results if not r.ok)
-                        processed += len(results)
-                        success += batch_ok
-                        failed += batch_fail
-
-                    self.reporter.batch_completed(processed, total_rows, success, failed)
-                    self.reporter.emit_errors(batch_errors)
+                    future.add_done_callback(
+                        _make_callback([r.index for r in batch])
+                    )
+                # executor.__exit__ calls shutdown(wait=True):
+                # all pending callbacks complete before this block exits
 
         self.reporter.file_completed(filename, success, failed)
 
@@ -299,25 +310,45 @@ class Importer:
                 "%s: %d/%d rows imported, %d failed",
                 filename, success, success + failed, failed,
             )
-            # Log first few unique errors as samples
-            errors = [r for r in all_results if not r.ok]
             seen_errors: set[str] = set()
-            for r in errors:
+            for r in all_errors:
                 msg = r.error or ''
-                # Deduplicate by first 80 chars
                 key = msg[:80]
                 if key not in seen_errors:
                     seen_errors.add(key)
                     _logger.info("  Row %d: %s", r.row_index, msg[:200])
                 if len(seen_errors) >= 5:
-                    remaining = len(errors) - 5
+                    remaining = len(all_errors) - 5
                     if remaining > 0:
                         _logger.info("  ... and %d more errors", remaining)
                     break
         else:
             _logger.info("%s: %d rows imported successfully", filename, success)
 
-        return all_results
+        return ImportFileSummary(success=success, failed=failed, errors=all_errors)
+
+    # -------------------------------------------------------------------------
+    # Helpers
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    def _iter_batches(
+        source: Iterator[ParsedRow],
+        batch_size: int,
+    ) -> Iterator[list[ParsedRow]]:
+        """Yield successive fixed-size batches from a row iterator.
+
+        Never pre-loads the full source — each batch is yielded as it is read,
+        so memory is bounded to batch_size rows at a time.
+        """
+        batch: list[ParsedRow] = []
+        for row in source:
+            batch.append(row)
+            if len(batch) >= batch_size:
+                yield batch
+                batch = []
+        if batch:
+            yield batch
 
     # -------------------------------------------------------------------------
     # Standalone resilience loop
@@ -325,24 +356,27 @@ class Importer:
 
     def _import_sequential_with_retry(
         self,
-        all_rows: list[ParsedRow],
-        all_results: list[RowResult],
+        batch_iter: Iterator[list[ParsedRow]],
+        all_errors: list[RowResult],
         total_rows: int,
-        processed: int,
-        success: int,
-        failed: int,
-    ) -> None:
+    ) -> tuple[int, int]:
         """
-        Batch loop for standalone (RPC) mode with shrink-on-timeout and
-        idempotency-aware retry.
+        Sequential batch loop for standalone (RPC) mode.
+
+        Reads one batch at a time from batch_iter; on TransportError it
+        shrinks the current batch via the adapter and retries without
+        re-reading the file.  Only the current batch (≤ batch_size rows)
+        is ever in memory.
+
+        Returns (success_count, failed_count).
 
         On TransportError:
         1. Ask BatchSizeAdapter to step down.
-        2. If it stepped down → retry at smaller batch size (no idempotency needed yet).
+        2. If stepped down → split current batch into smaller sub-batches,
+           push them onto a local deque, retry without advancing the iterator.
         3. If already at minimum → check idempotency:
-           - Safe rows (have id/.id key) → wait with exponential backoff, retry.
-           - Unsafe rows → fail with a clear "safe retry skipped" message.
-        4. If retry budget exhausted → fail remaining rows.
+           - Unsafe rows (no id/.id) → fail immediately to avoid duplicates.
+           - Safe rows → exponential backoff retry until budget exhausted.
         """
         from .batch_size_adapter import BatchSizeAdapter
         from .idempotency import assess_timeout_retry_idempotency
@@ -350,134 +384,138 @@ class Importer:
         adapter = BatchSizeAdapter(self.config.batch_size)
         budget_start = _time.monotonic()
         escalation_level = 0
+        processed = 0
+        success = 0
+        failed = 0
 
-        i = 0
-        while i < len(all_rows):
-            if self._is_cancelled():
-                break
+        for raw_batch in batch_iter:
+            # `pending` holds sub-batches derived from raw_batch.
+            # Normally just [raw_batch]. On adapter step-down it becomes
+            # multiple smaller slices — all still kept in memory but bounded
+            # by the original batch_size.
+            pending: deque[list[ParsedRow]] = deque([raw_batch])
 
-            batch_size = adapter.current_size
-            batch = all_rows[i:i + batch_size]
+            while pending:
+                if self._is_cancelled():
+                    return success, failed
 
-            try:
-                results = self.import_rows(batch)
-                all_results.extend(results)
-                batch_ok = sum(1 for r in results if r.ok)
-                batch_fail = sum(1 for r in results if not r.ok)
-                processed += len(results)
-                success += batch_ok
-                failed += batch_fail
-                adapter.record_success(len(batch))
-                self.reporter.batch_completed(processed, total_rows, success, failed)
-                self.reporter.emit_errors([
-                    {'row': r.row_index, 'error': r.error}
-                    for r in results if not r.ok
-                ])
-                i += len(batch)
+                batch = pending.popleft()
 
-            except TransportError as exc:
-                escalation_level += 1
-                stepped_down = adapter.record_timeout(
-                    success_threshold_after_timeout=STANDALONE_POST_TIMEOUT_SUCCESS_THRESHOLD
-                )
+                try:
+                    results = self.import_rows(batch)
+                    errs = [r for r in results if not r.ok]
+                    all_errors.extend(errs)
+                    success += len(results) - len(errs)
+                    failed += len(errs)
+                    processed += len(results)
+                    adapter.record_success(len(batch))
+                    self.reporter.batch_completed(processed, total_rows, success, failed)
+                    self.reporter.emit_errors([
+                        {'row': r.row_index, 'error': r.error} for r in errs
+                    ])
 
-                if stepped_down:
-                    _logger.warning(
-                        "Batch timeout (level %d), shrinking to %d rows and retrying.",
-                        escalation_level, adapter.current_size,
+                except TransportError:
+                    escalation_level += 1
+                    stepped_down = adapter.record_timeout(
+                        success_threshold_after_timeout=STANDALONE_POST_TIMEOUT_SUCCESS_THRESHOLD
                     )
-                    # Don't advance i — retry the same rows at smaller batch size
-                    continue
 
-                # Already at minimum batch size — assess idempotency and
-                # retry safe rows with exponential backoff until budget runs out.
-                idm = assess_timeout_retry_idempotency(
-                    batch, self.config.field_mappings
-                )
-
-                if idm.unsafe:
-                    _logger.warning(
-                        "%d rows lack id/.id mapping — failing to avoid duplicates "
-                        "(reasons: %s).", len(idm.unsafe), idm.reason_counts,
-                    )
-                    for row in idm.unsafe:
-                        all_results.append(RowResult(
-                            ok=False, row_index=row.index,
-                            error=(
-                                "missing id/.id: safe retry skipped to avoid "
-                                "duplicate records"
-                            ),
-                        ))
-                    failed += len(idm.unsafe)
-                    processed += len(idm.unsafe)
-
-                pending_safe = list(idm.safe)
-                while pending_safe:
-                    if self._is_cancelled():
-                        i += len(batch)
-                        return
-
-                    elapsed = _time.monotonic() - budget_start
-                    if elapsed >= STANDALONE_TIMEOUT_RETRY_BUDGET_SECONDS:
-                        _logger.error(
-                            "Timeout retry budget exhausted (%.0fs). "
-                            "Failing %d remaining safe rows.",
-                            elapsed, len(pending_safe),
+                    if stepped_down:
+                        _logger.warning(
+                            "Batch timeout (level %d), shrinking to %d rows and retrying.",
+                            escalation_level, adapter.current_size,
                         )
-                        for row in pending_safe:
-                            all_results.append(RowResult(
+                        new_size = adapter.current_size
+                        sub_batches = [
+                            batch[i:i + new_size]
+                            for i in range(0, len(batch), new_size)
+                        ]
+                        pending.extendleft(reversed(sub_batches))
+                        continue
+
+                    # Already at minimum batch size — assess idempotency
+                    idm = assess_timeout_retry_idempotency(batch, self.config.field_mappings)
+
+                    if idm.unsafe:
+                        _logger.warning(
+                            "%d rows lack id/.id mapping — failing to avoid duplicates "
+                            "(reasons: %s).", len(idm.unsafe), idm.reason_counts,
+                        )
+                        for row in idm.unsafe:
+                            all_errors.append(RowResult(
                                 ok=False, row_index=row.index,
                                 error=(
-                                    f"Timed out after {elapsed:.0f}s at minimum "
-                                    f"batch size — retry budget exhausted"
+                                    "missing id/.id: safe retry skipped to avoid "
+                                    "duplicate records"
                                 ),
                             ))
-                        failed += len(pending_safe)
-                        processed += len(pending_safe)
-                        pending_safe = []
-                        break
-
-                    delay = min(
-                        TIMEOUT_RETRY_BASE_DELAY
-                        * (2 ** max(0, escalation_level - 1))
-                        * escalation_level,
-                        TIMEOUT_RETRY_MAX_DELAY,
-                    )
-                    _logger.info(
-                        "At minimum batch size with %d safe rows. "
-                        "Waiting %.1fs (attempt %d).",
-                        len(pending_safe), delay, escalation_level,
-                    )
-                    sleep_start = _time.monotonic()
-                    while _time.monotonic() - sleep_start < delay:
-                        if self._is_cancelled():
-                            return
-                        _time.sleep(min(0.5, delay))
-
-                    try:
-                        safe_results = self.import_rows(pending_safe)
-                        all_results.extend(safe_results)
-                        batch_ok = sum(1 for r in safe_results if r.ok)
-                        batch_fail = sum(1 for r in safe_results if not r.ok)
-                        processed += len(safe_results)
-                        success += batch_ok
-                        failed += batch_fail
-                        adapter.record_success(len(pending_safe))
+                        failed += len(idm.unsafe)
+                        processed += len(idm.unsafe)
                         self.reporter.batch_completed(processed, total_rows, success, failed)
-                        self.reporter.emit_errors([
-                            {'row': r.row_index, 'error': r.error}
-                            for r in safe_results if not r.ok
-                        ])
-                        pending_safe = []  # all resolved — exit inner loop
-                    except TransportError:
-                        escalation_level += 1
-                        _logger.warning(
-                            "Retry of %d safe rows also timed out (attempt %d).",
-                            len(pending_safe), escalation_level,
-                        )
-                        # Loop back: check budget, wait longer, retry again
 
-                i += len(batch)
+                    pending_safe = list(idm.safe)
+                    while pending_safe:
+                        if self._is_cancelled():
+                            return success, failed
+
+                        elapsed = _time.monotonic() - budget_start
+                        if elapsed >= STANDALONE_TIMEOUT_RETRY_BUDGET_SECONDS:
+                            _logger.error(
+                                "Timeout retry budget exhausted (%.0fs). "
+                                "Failing %d remaining safe rows.",
+                                elapsed, len(pending_safe),
+                            )
+                            for row in pending_safe:
+                                all_errors.append(RowResult(
+                                    ok=False, row_index=row.index,
+                                    error=(
+                                        f"Timed out after {elapsed:.0f}s at minimum "
+                                        f"batch size — retry budget exhausted"
+                                    ),
+                                ))
+                            failed += len(pending_safe)
+                            processed += len(pending_safe)
+                            pending_safe = []
+                            break
+
+                        delay = min(
+                            TIMEOUT_RETRY_BASE_DELAY
+                            * (2 ** max(0, escalation_level - 1))
+                            * escalation_level,
+                            TIMEOUT_RETRY_MAX_DELAY,
+                        )
+                        _logger.info(
+                            "At minimum batch size with %d safe rows. "
+                            "Waiting %.1fs (attempt %d).",
+                            len(pending_safe), delay, escalation_level,
+                        )
+                        sleep_start = _time.monotonic()
+                        while _time.monotonic() - sleep_start < delay:
+                            if self._is_cancelled():
+                                return success, failed
+                            _time.sleep(min(0.5, delay))
+
+                        try:
+                            safe_results = self.import_rows(pending_safe)
+                            safe_errs = [r for r in safe_results if not r.ok]
+                            all_errors.extend(safe_errs)
+                            success += len(safe_results) - len(safe_errs)
+                            failed += len(safe_errs)
+                            processed += len(safe_results)
+                            adapter.record_success(len(pending_safe))
+                            self.reporter.batch_completed(processed, total_rows, success, failed)
+                            self.reporter.emit_errors([
+                                {'row': r.row_index, 'error': r.error} for r in safe_errs
+                            ])
+                            pending_safe = []
+                        except TransportError:
+                            escalation_level += 1
+                            _logger.warning(
+                                "Retry of %d safe rows also timed out (attempt %d).",
+                                len(pending_safe), escalation_level,
+                            )
+
+        return success, failed
 
     # -------------------------------------------------------------------------
     # Row-level import logic
@@ -504,12 +542,9 @@ class Importer:
                 return result
 
         except TransportError:
-            # Let transport errors propagate so the batch-level retry loop
-            # in import_csv_file can decide whether to shrink and retry.
             raise
         except Exception as e:
             error_msg = str(e)
-            # Only log at debug level per-row — summary is logged at end
             _logger.debug("Row %d failed (%s): %s", row_index, self.config.model, error_msg)
             return RowResult(ok=False, row_index=row_index, error=error_msg)
 
@@ -549,15 +584,12 @@ class Importer:
                 action='updated', strategy=strategy_used,
             )
 
-        # If .id (database ID) was provided but record not found, fail instead
-        # of creating — the user intended to update a specific record by ID.
         if db_id:
             return RowResult(
                 ok=False, row_index=0,
                 error=f"Record with .id={db_id} not found in {self.config.model}",
             )
 
-        # Create new record
         new_id = self.backend.create(self.config.model, row)
         if self.config.use_external_id and external_id:
             self._create_external_id(new_id, external_id)
@@ -570,17 +602,12 @@ class Importer:
     def _resolve_record(
         self, row: dict, external_id: Optional[str], db_id: Optional[int],
     ) -> tuple[Optional[int], Optional[str], list[str]]:
-        """
-        Find existing record using the standard lookup chain:
-        1. External ID  2. Natural Key Search  3. Database ID (legacy)
-        """
-        # Strategy 1: External ID lookup
+        """Find existing record using the standard lookup chain."""
         if self.config.use_external_id and external_id:
             record_id = self._find_by_external_id(external_id)
             if record_id:
                 return record_id, STRATEGY_EXTERNAL_ID, []
 
-        # Strategy 2: Natural Key Search
         missing_keys: list[str] = []
         if self.config.search_keys:
             missing_keys = [
@@ -592,7 +619,6 @@ class Importer:
                 if record_id:
                     return record_id, STRATEGY_SEARCH_KEYS, []
 
-        # Fallback: Database ID lookup (legacy)
         if db_id:
             if self.backend.browse_exists(self.config.model, int(db_id)):
                 return int(db_id), STRATEGY_DB_ID, []
