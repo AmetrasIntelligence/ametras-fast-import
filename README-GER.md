@@ -1,32 +1,30 @@
-# Ametras Fast Import fuer Odoo (Deutsch)
+# Ametras Fast Import — Eigenstaendiger Desktop-Client
 
 Sprache: **[EN](README.md)** | **[DE](README-GER.md)**
 
-Ametras Fast Import hilft Ihnen dabei, grosse CSV-Dateien in Odoo zu importieren - mit einer gefuehrten UI, wiederverwendbaren Profilen und Fortschrittsanzeige.
+Ametras Fast Import ist eine **eigenstaendige Desktop-Anwendung** fuer den Import grosser CSV-Dateien in Odoo. Die App laeuft als Electron-Anwendung auf Ihrem Computer und verbindet sich direkt ueber das Netzwerk mit einem beliebigen Odoo 16+-Server.
 
-Dieses README richtet sich an **Endanwender** (Installation und taegliche Nutzung), nicht an die interne Architektur.
+> **Dies ist kein Odoo-Addon.**
+> Auf Ihrem Odoo-Server wird nichts installiert. Die App laeuft vollstaendig auf Ihrem Desktop und kommuniziert mit Odoo ueber die Standard-JSON-RPC-API.
 
 ## Was Sie benoetigen
 
-- Zugriff auf einen Odoo 16+ Server
-- Einen Odoo-Benutzer mit Import-Berechtigungen fuer die Zielmodelle
+- Die Ametras Fast Import Desktop-App auf Ihrem Computer
+- Zugriff auf einen Odoo 16+-Server (Cloud oder On-Premise)
+- Einen Odoo-Benutzeraccount mit Import-Berechtigungen fuer die Zielmodelle
 - CSV-Dateien fuer den Import
-- Optional (fuer den vollen Funktionsumfang): `ametras_fast_import_addon` auf Ihrem Odoo-Server installiert
 
 ## Installation
 
-Sie koennen Ametras Fast Import auf zwei Arten nutzen:
+Installieren Sie das App-Paket, das Ihr Team bereitstellt:
 
-1. **Desktop-App (Electron Client)**
-2. **In Odoo (Addon / eingebettete Ansicht)**
+- **macOS**: `.dmg`
+- **Windows**: `.exe`
+- **Linux**: `.AppImage`
 
-### Option 1: Desktop-App
+Die App ist aktuell **nicht von Apple/Microsoft code-signiert**, daher koennen macOS und Windows den ersten Start blockieren.
 
-Installieren Sie das App-Paket, das Ihr Team bereitstellt (typischerweise `.dmg` auf macOS, `.exe` auf Windows, `.AppImage` auf Linux).
-
-Die App ist aktuell **nicht von Apple/Microsoft code-signiert**. Deshalb koennen macOS und Windows den ersten Start blockieren.
-
-#### macOS: "App can't be opened" / "developer cannot be verified"
+### macOS: "App can't be opened" / "developer cannot be verified"
 
 Verwenden Sie eine dieser Methoden:
 
@@ -41,26 +39,20 @@ Falls sie weiterhin blockiert ist:
 4. **Open Anyway** klicken.
 5. Mit **Open** bestaetigen.
 
-#### Windows: "Windows protected your PC"
+### Windows: "Windows protected your PC"
 
-1. Installer/App starten.
+1. Installer oder App starten.
 2. Im SmartScreen-Dialog auf **More info** klicken.
 3. **Run anyway** klicken.
 4. Installation fortsetzen.
 
-### Option 2: Odoo Addon (eingebetteter Modus)
-
-Wenn Ihr Administrator den Addon-Modus bereitstellt, installieren Sie `ametras_fast_import_addon` in Ihrem Odoo-Addons-Pfad und installieren Sie es ueber Odoo Apps.
-
-Der eingebettete Modus bietet alle serverseitigen Funktionen (z. B. Dry-Run/Zeilenvalidierung, Server-Logs und serverseitige Profilverwaltung).
-
-## Erster Login (Desktop-App)
+## Erster Login
 
 Im Login-Bildschirm:
 
 1. **Server Host** eingeben (Beispiel: `mycompany.odoo.com` oder `192.168.1.100/odoo`).
 2. Optional **Port & SSL** oeffnen und anpassen.
-3. **Database**, **Username**, **Password** eingeben.
+3. **Database**, **Username** und **Password** eingeben.
 4. **Connect** klicken.
 
 Tipps:
@@ -89,19 +81,18 @@ Fuer jede hochgeladene Datei:
 1. **CSV Preview** pruefen.
 2. **Target Model** auswaehlen.
 3. **Field Mappings** pruefen und anpassen.
-4. (Optional) **Validate Random Row (Dry Run)** klicken, wenn verfuegbar.
 
 Wenn die Zuordnungen passen, **Start Import** klicken.
 
 ### 4) In `Run` ueberwachen
 
-Waerend des Imports koennen Sie:
+Waehrend des Imports koennen Sie:
 
 - **Pause** / **Resume**
 - **Skip File**
 - **Abort**
 
-Ausserdem sehen Sie den Fortschritt pro Datei sowie Erfolgs- und Fehleranzahl.
+Fortschritt, Erfolgs- und Fehleranzahl werden pro Datei in Echtzeit angezeigt.
 
 ### 5) In `Result` auswerten
 
@@ -116,21 +107,18 @@ Bei Fehlern koennen Sie:
 
 - **Download Unified Error Log (CSV)**
 - **Download Failed Rows ZIP (.csv)**
-- **Retry Failed Rows** (wenn verfuegbar)
+- **Retry Failed Rows**
 
-## Einstellungen erklaert
+## Einstellungen
 
-In `Import -> Settings` koennen Sie steuern:
+In `Import -> Settings`:
 
 - **Batch Size**: Anzahl Zeilen pro Request-Batch.
-- **Workers**: parallele Verarbeitungs-Worker.
 - **Encoding**: CSV-Textkodierung (`UTF-8`, `UTF-8 BOM`, `Latin-1`, `CP1252`).
 - **Delimiter**: Komma, Semikolon, Tab oder Auto-Erkennung.
-- **Skip header row**: normalerweise aktiv fuer uebliche CSV-Dateien.
-- **Dry run (validate only)**: validiert ohne Daten zu schreiben (im Addon/eingebetteten Modus verfuegbar).
-- **Language**: optionaler Odoo-Sprachcode (z. B. `de_DE`) im Addon/eingebetteten Modus.
+- **Skip header row**: standardmaessig aktiv fuer uebliche CSV-Dateien.
 
-Die Standardwerte sind fuer die meisten Importe geeignet. Passen Sie `Batch Size` und `Workers` nur an, wenn Sie ein anderes Performance-Verhalten brauchen.
+Die Standardwerte sind fuer die meisten Importe geeignet. Passen Sie **Batch Size** nur an, wenn Sie ein anderes Performance-Verhalten benoetigen.
 
 ## Profile
 
@@ -145,11 +133,9 @@ Profile helfen dabei, Import-Konfigurationen wiederzuverwenden (Modellzuordnung,
 
 Auf der **Profiles**-Seite koennen Sie:
 
-- **Import Profile (ZIP)** (Server-Profile, wenn verfuegbar)
 - **Import Local Profile (ZIP)**
 - **Export Profile (ZIP)**
 - Profil **Delete**
-- Fuer lokale Profile: **Push to Server**
 
 Wichtig:
 
@@ -157,20 +143,8 @@ Wichtig:
 - Wenn benoetigte Dateien fehlen, zeigt die App eine Warnung.
 - Zusaetzliche Dateien, die nicht im Profil stehen, koennen trotzdem importiert werden.
 
-## Unterschiede: Eingebettet vs Desktop
+## Fehlerbehebung
 
-- **Embedded (Addon in Odoo)**: voller Funktionsumfang.
-- **Desktop Standalone**: funktioniert ohne Addon, aber einige Funktionen fehlen (z. B. Dry Run/Zeilenvalidierung, Server-Logs und serverseitige Profilfunktionen).
-
-## Schnelle Fehlerbehebung
-
-- Verbindung schlaegt fehl:
-  - Host, Port, SSL, DB, Username/Password erneut pruefen.
-  - Login zuerst in der normalen Odoo-Weboberflaeche testen.
-- Viele Zeilenfehler:
-  - Delimiter/Encoding pruefen.
-  - Feldzuordnungen und Pflichtfelder erneut pruefen.
-  - Fehlgeschlagene Zeilen exportieren und nur korrigierte Zeilen erneut importieren.
-- Profil wird nicht wie erwartet angewendet:
-  - Sicherstellen, dass CSV-Dateinamen zu den Profil-Dateinamen passen.
-  - Mapping und Import-Reihenfolge in der Profiles-Seite pruefen.
+- **Verbindung schlaegt fehl**: Host, Port, SSL, Datenbank, Username und Password erneut pruefen. Login zuerst in der normalen Odoo-Weboberflaeche testen.
+- **Viele Zeilenfehler**: Delimiter und Encoding pruefen. Feldzuordnungen und Pflichtfelder erneut pruefen. Fehlgeschlagene Zeilen exportieren und nur korrigierte Zeilen erneut importieren.
+- **Profil wird nicht wie erwartet angewendet**: Sicherstellen, dass CSV-Dateinamen zu den erwarteten Profil-Dateinamen passen. Mapping und Import-Reihenfolge in der Profiles-Seite pruefen.
