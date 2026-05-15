@@ -331,23 +331,33 @@ async function sendCommand(cmd: Record<string, unknown>): Promise<Record<string,
 function killPythonProcess(): void {
   if (pythonProcess) {
     console.log('[python] Killing subprocess (cancel requested)')
+    const dying = pythonProcess
+
+    // Null out shared state immediately so ensurePythonStarted() can spawn a
+    // fresh process right away and the process exit event can't race with a
+    // new import's pending promise.
+    pythonProcess = null
+    rl?.close()
+    rl = null
+
+    // Resolve any in-flight command with a clean cancellation result so the
+    // caller sees { type: 'cancelled' } rather than the { type: 'error' } that
+    // the exit handler would emit once the OS process actually dies.
+    if (pendingResolve) {
+      const resolve = pendingResolve
+      pendingResolve = null
+      pendingTimeoutReset = null
+      resolve({ type: 'cancelled', message: 'Import cancelled' })
+    }
+
     if (process.platform === 'win32') {
       // Windows: SIGTERM/SIGKILL are ignored. kill() without signal calls TerminateProcess.
-      pythonProcess.kill()
-      pythonProcess = null
+      dying.kill()
     } else {
-      // Unix: graceful SIGTERM, then force SIGKILL after 2s.
-      // Capture the specific process reference so the timeout never
-      // accidentally kills a newly-started subprocess (e.g. after a skip).
-      const dying = pythonProcess
+      // Unix: graceful SIGTERM, then force SIGKILL after 2s if it hasn't exited.
       dying.kill('SIGTERM')
       setTimeout(() => {
-        if (!dying.killed) {
-          dying.kill('SIGKILL')
-        }
-        if (pythonProcess === dying) {
-          pythonProcess = null
-        }
+        if (!dying.killed) dying.kill('SIGKILL')
       }, 2000)
     }
   }

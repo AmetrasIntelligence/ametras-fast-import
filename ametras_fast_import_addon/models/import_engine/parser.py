@@ -174,13 +174,17 @@ def count_csv_rows(
     has_header: bool = True,
 ) -> int:
     """
-    Count rows in a CSV file efficiently without parsing all fields.
+    Count data rows in a CSV file efficiently without parsing all fields.
+
+    Skips blank lines (lines that are empty or contain only whitespace/commas)
+    to stay consistent with parse_csv_file's skipEmptyLines behaviour.
     Subtracts 1 for the header row if has_header is True.
     """
     count = 0
     with _open_file(file_path, encoding) as f:
-        for _ in f:
-            count += 1
+        for line in f:
+            if line.strip():
+                count += 1
     if has_header and count > 0:
         count -= 1
     return count

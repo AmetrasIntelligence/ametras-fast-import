@@ -91,6 +91,7 @@ interface ElectronAPI {
     stop: () => Promise<{ ok: boolean }>
     authenticate: (params: { url: string; db: string; login: string; password: string }) => Promise<Record<string, unknown>>
     import: (payload: Record<string, unknown>) => Promise<PythonImportResult>
+    analyze: (payload: { fileId: string; encoding?: string; delimiter?: string }) => Promise<{ ok: boolean; result?: Record<string, unknown>; error?: string }>
     models: (payload: { url: string; db: string; uid: number; password: string }) => Promise<Record<string, unknown>>
     fields: (payload: { url: string; db: string; uid: number; password: string; model: string }) => Promise<Record<string, unknown>>
     progress: () => Promise<Record<string, unknown>[]>
@@ -217,6 +218,8 @@ contextBridge.exposeInMainWorld('api', {
     authenticate: (params: { url: string; db: string; login: string; password: string }) =>
       ipcRenderer.invoke('python:authenticate', params),
     import: (payload: Record<string, unknown>) => ipcRenderer.invoke('python:import', payload),
+    analyze: (payload: { fileId: string; encoding?: string; delimiter?: string }) =>
+      ipcRenderer.invoke('python:analyze', payload),
     models: (payload: { url: string; db: string; uid: number; password: string }) =>
       ipcRenderer.invoke('python:models', payload),
     fields: (payload: { url: string; db: string; uid: number; password: string; model: string }) =>

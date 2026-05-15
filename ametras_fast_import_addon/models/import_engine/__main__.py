@@ -22,7 +22,7 @@ from .constants import (
     PROGRESS_TYPE_AUTH_OK, PROGRESS_TYPE_MODELS, PROGRESS_TYPE_FIELDS,
     PROGRESS_TYPE_ANALYSIS, PROGRESS_TYPE_CANCELLED,
 )
-from .importer import Importer, ImportConfig
+from .importer import Importer, ImportConfig, ImportFileSummary
 from .parser import ParseOptions, ParsedRow, analyze_csv_file
 from .progress import JsonLinesReporter
 
@@ -138,14 +138,15 @@ def _handle_import(cmd: dict) -> None:
         all_errors: list[dict] = []
 
         for file_path in file_paths:
-            results = importer.import_csv_file(file_path, options, workers=workers)
-            ok_count = sum(1 for r in results if r.ok)
-            fail_count = sum(1 for r in results if not r.ok)
-            all_success += ok_count
-            all_failed += fail_count
+            summary: ImportFileSummary = importer.import_csv_file(file_path, options, workers=workers)
+            if summary.file_error:
+                # Whole-file error already emitted via reporter.error(); skip stats.
+                continue
+            all_success += summary.success
+            all_failed += summary.failed
             all_errors.extend(
                 {'row': r.row_index, 'error': r.error, 'file': file_path}
-                for r in results if not r.ok
+                for r in summary.errors
             )
 
         # Limit errors sent back to prevent stdout overflow on large imports.

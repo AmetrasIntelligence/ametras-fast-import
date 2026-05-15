@@ -73,12 +73,16 @@ def make_config(batch_size=10, with_id=True) -> ImportConfig:
     )
 
 
-def run_retry(importer: Importer, rows: list) -> list:
-    """Call _import_sequential_with_retry and return all_results."""
+def run_retry(importer: Importer, rows: list):
+    """Call _import_sequential_with_retry; returns (success, failed, error_rows)."""
     with patch('time.sleep'):
-        all_results = []
-        importer._import_sequential_with_retry(rows, all_results, len(rows), 0, 0, 0)
-    return all_results
+        all_errors = []
+        success, failed = importer._import_sequential_with_retry(
+            importer._iter_batches(iter(rows), importer.config.batch_size),
+            all_errors,
+            len(rows),
+        )
+    return success, failed, all_errors
 
 
 class TestShrinkOnTimeout(unittest.TestCase):
@@ -89,9 +93,9 @@ class TestShrinkOnTimeout(unittest.TestCase):
         importer = Importer(backend, config)
 
         rows = make_rows(5, with_id=True)
-        results = run_retry(importer, rows)
+        success, failed, _ = run_retry(importer, rows)
 
-        self.assertTrue(any(r.ok for r in results), "Some rows should succeed after shrink")
+        self.assertGreater(success, 0, "Some rows should succeed after shrink")
 
     def test_no_timeout_means_no_shrink(self):
         """Happy path: no errors, adapter stays at initial level."""
@@ -100,10 +104,11 @@ class TestShrinkOnTimeout(unittest.TestCase):
         importer = Importer(backend, config)
 
         rows = make_rows(3, with_id=True)
-        results = run_retry(importer, rows)
+        success, failed, errors = run_retry(importer, rows)
 
-        self.assertTrue(all(r.ok for r in results))
-        self.assertEqual(len(results), 3)
+        self.assertEqual(failed, 0)
+        self.assertEqual(success, 3)
+        self.assertEqual(errors, [])
 
 
 class TestIdempotencyGuard(unittest.TestCase):
@@ -116,11 +121,14 @@ class TestIdempotencyGuard(unittest.TestCase):
         rows = make_rows(2, with_id=False)
 
         with patch('time.sleep'):
-            all_results = []
-            importer._import_sequential_with_retry(rows, all_results, len(rows), 0, 0, 0)
+            all_errors = []
+            importer._import_sequential_with_retry(
+                importer._iter_batches(iter(rows), importer.config.batch_size),
+                all_errors,
+                len(rows),
+            )
 
-        failed = [r for r in all_results if not r.ok]
-        idm_errors = [r for r in failed if 'safe retry skipped' in (r.error or '')]
+        idm_errors = [r for r in all_errors if 'safe retry skipped' in (r.error or '')]
         self.assertGreaterEqual(len(idm_errors), 1)
 
     def test_safe_rows_retried_after_timeout(self):
@@ -142,11 +150,15 @@ class TestIdempotencyGuard(unittest.TestCase):
         rows = [ParsedRow(index=1, data={'name': 'A', 'id': 'mod.recA'})]
 
         with patch('time.sleep'):
-            all_results = []
-            importer._import_sequential_with_retry(rows, all_results, 1, 0, 0, 0)
+            all_errors = []
+            success, failed = importer._import_sequential_with_retry(
+                importer._iter_batches(iter(rows), importer.config.batch_size),
+                all_errors,
+                1,
+            )
 
-        self.assertEqual(len(all_results), 1)
-        self.assertTrue(all_results[0].ok, f"Row should succeed on retry: {all_results[0].error}")
+        self.assertEqual(success, 1)
+        self.assertEqual(failed, 0)
 
 
 class TestBudgetEnforcement(unittest.TestCase):
@@ -172,12 +184,16 @@ class TestBudgetEnforcement(unittest.TestCase):
                  2.0,                                      # sleep-loop exit (2.0 - 0 >= 1.0)
                  STANDALONE_TIMEOUT_RETRY_BUDGET_SECONDS + 1,  # 2nd elapsed check — exhausted
              ]):
-            all_results = []
-            importer._import_sequential_with_retry(rows, all_results, 1, 0, 0, 0)
+            all_errors = []
+            success, failed = importer._import_sequential_with_retry(
+                importer._iter_batches(iter(rows), importer.config.batch_size),
+                all_errors,
+                1,
+            )
 
-        self.assertEqual(len(all_results), 1)
-        self.assertFalse(all_results[0].ok)
-        self.assertIn('budget exhausted', all_results[0].error.lower())
+        self.assertEqual(len(all_errors), 1)
+        self.assertFalse(all_errors[0].ok)
+        self.assertIn('budget exhausted', all_errors[0].error.lower())
 
 
 if __name__ == '__main__':
