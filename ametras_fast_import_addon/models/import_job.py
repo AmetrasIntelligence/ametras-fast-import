@@ -23,11 +23,15 @@ from .import_engine.parser import (
 
 _logger = logging.getLogger(__name__)
 
-# Cap on how many errors we serialise into csv_import_log.error_log on every
-# progress commit and on the final write. The frontend keeps a deduplicated
-# tail; the server only needs the latest slice for live polling. Larger errors
-# blobs make every progress write expensive and inflate the log table.
-MAX_ERROR_LOG_ENTRIES = 100
+# Errors stored in error_log on each live-poll progress commit.
+# Kept small so every progress write is cheap and poll responses stay compact.
+# The client accumulates a deduplicated set across polls.
+MAX_POLL_ERROR_ENTRIES = 100
+
+# Errors stored in error_log on the final write (_finalize).
+# Determines how many errors are available for historical log views and
+# CSV downloads after the import completes.
+MAX_FINAL_ERROR_ENTRIES = 5_000
 
 
 class ControlSignal(enum.Enum):
@@ -610,7 +614,7 @@ class ImportJob:
             'success_rows': all_success,
             'failed_rows': all_failed,
             'file_progress': json.dumps(file_progress),
-            'error_log': json.dumps(all_errors[-MAX_ERROR_LOG_ENTRIES:]),
+            'error_log': json.dumps(all_errors[-MAX_POLL_ERROR_ENTRIES:]),
             'heartbeat': odoo_fields.Datetime.now(),
         })
         self.env.cr.commit()
@@ -630,7 +634,7 @@ class ImportJob:
             'success_rows': all_success,
             'failed_rows': all_failed,
             'total_rows': all_success + all_failed,
-            'error_log': json.dumps(all_errors[-MAX_ERROR_LOG_ENTRIES:]),
+            'error_log': json.dumps(all_errors[-MAX_FINAL_ERROR_ENTRIES:]),
             'file_progress': json.dumps(file_progress),
             'current_file': '',
         })

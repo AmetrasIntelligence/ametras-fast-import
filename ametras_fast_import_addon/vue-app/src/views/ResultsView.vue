@@ -82,7 +82,7 @@ function exportErrorsCSV() {
   const headers = ['filename', 'row_number', 'error', 'timestamp']
   const lines = [headers.join(',')]
 
-  for (const error of run.errors) {
+  for (const error of run.downloadErrors) {
     lines.push([
       error.filename,
       error.rowNumber,
@@ -126,7 +126,7 @@ async function collectFailedRows(): Promise<{
 }> {
   // Group errors by filename
   const errorsByFile = new Map<string, number[]>()
-  for (const err of run.errors) {
+  for (const err of run.downloadErrors) {
     if (err.rowNumber <= 0) continue
     const list = errorsByFile.get(err.filename) || []
     list.push(err.rowNumber)

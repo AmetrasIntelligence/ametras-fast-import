@@ -50,6 +50,11 @@ export const useRunStore = defineStore('run', () => {
     files: {}
   })
   const errors = ref<ImportRowError[]>([])
+  /**
+   * Full unbounded list of all errors — used for CSV downloads.
+   * `errors` is capped at MAX_ERRORS for UI rendering only.
+   */
+  const downloadErrors = ref<ImportRowError[]>([])
   const errorKeys = new Set<string>()
   /** Total errors seen lifetime; may exceed errors.length when capped. */
   const totalErrorsSeen = ref(0)
@@ -210,6 +215,7 @@ export const useRunStore = defineStore('run', () => {
       files
     }
     errors.value = []
+    downloadErrors.value = []
     errorKeys.clear()
     progressSamples.value = []
     runStartTime.value = Date.now()
@@ -258,10 +264,12 @@ export const useRunStore = defineStore('run', () => {
     if (errorKeys.has(key)) return
     errorKeys.add(key)
     totalErrorsSeen.value++
-    if (errors.value.length >= MAX_ERRORS) {
-      errors.value.shift()
+    // Display list: hard cap at MAX_ERRORS (no eviction — keeps first N for UI)
+    if (errors.value.length < MAX_ERRORS) {
+      errors.value.push(error)
     }
-    errors.value.push(error)
+    // Download list: unbounded — always accumulates every error
+    downloadErrors.value.push(error)
   }
 
   function setState(newState: ImportState) {
@@ -281,6 +289,7 @@ export const useRunStore = defineStore('run', () => {
       files: {}
     }
     errors.value = []
+    downloadErrors.value = []
     errorKeys.clear()
     totalErrorsSeen.value = 0
     lastHeartbeat.value = null
@@ -358,13 +367,17 @@ export const useRunStore = defineStore('run', () => {
       const key = `${e.filename}:${e.rowNumber}:${e.error.substring(0, 80)}`
       if (!errorKeys.has(key)) {
         errorKeys.add(key)
-        errors.value.push({
+        const newError: ImportRowError = {
           filename: e.filename,
           rowNumber: e.rowNumber,
           rawData: {},
           error: e.error,
           timestamp: now,
-        })
+        }
+        if (errors.value.length < MAX_ERRORS) {
+          errors.value.push(newError)
+        }
+        downloadErrors.value.push(newError)
       }
     }
   }
@@ -393,13 +406,15 @@ export const useRunStore = defineStore('run', () => {
       files,
     }
 
-    errors.value = log.error_log.map((e: { filename: string; rowNumber: number; error: string }) => ({
+    const loadedErrors = log.error_log.map((e: { filename: string; rowNumber: number; error: string }) => ({
       filename: e.filename,
       rowNumber: e.rowNumber,
       rawData: {},
       error: e.error,
       timestamp: 0,
     }))
+    errors.value = loadedErrors
+    downloadErrors.value = loadedErrors.slice()
 
     state.value = log.state === 'failed' ? ImportState.FAILED : ImportState.COMPLETED
     isDryRun.value = log.is_dry_run
@@ -425,6 +440,7 @@ export const useRunStore = defineStore('run', () => {
     resumeLogId,
     progress,
     errors,
+    downloadErrors,
     totalErrorsSeen,
     runStartTime,
     isHistoricalLog,

@@ -900,16 +900,26 @@ describe('RunStore', () => {
   // P3.6 — errors memory cap
   // ---------------------------------------------------------------------------
   describe('errors memory cap', () => {
-    it('caps errors at MAX_ERRORS by dropping the oldest', () => {
+    it('caps display errors at MAX_ERRORS by hard-stopping (no eviction)', () => {
       const store = useRunStore()
       store.initRun(['f.csv'], new Map([['f.csv', MAX_ERRORS + 10]]))
       for (let i = 0; i < MAX_ERRORS + 5; i++) {
         store.addError({ filename: 'f.csv', rowNumber: i + 1, rawData: {}, error: `e${i}`, timestamp: i })
       }
       expect(store.errors).toHaveLength(MAX_ERRORS)
-      // Oldest rows (low rowNumber) are gone; newest are at the end
+      // First MAX_ERRORS are kept (no eviction); first row number is still 1
       const rowNums = store.errors.map(e => e.rowNumber)
-      expect(rowNums[0]).toBe(6)  // first 5 were dropped
+      expect(rowNums[0]).toBe(1)
+      expect(rowNums[MAX_ERRORS - 1]).toBe(MAX_ERRORS)
+    })
+
+    it('downloadErrors accumulates all errors beyond the display cap', () => {
+      const store = useRunStore()
+      store.initRun(['f.csv'], new Map([['f.csv', MAX_ERRORS + 10]]))
+      for (let i = 0; i < MAX_ERRORS + 5; i++) {
+        store.addError({ filename: 'f.csv', rowNumber: i + 1, rawData: {}, error: `e${i}`, timestamp: i })
+      }
+      expect(store.downloadErrors).toHaveLength(MAX_ERRORS + 5)
     })
 
     it('totalErrorsSeen tracks lifetime count beyond the cap', () => {
@@ -921,12 +931,13 @@ describe('RunStore', () => {
       expect(store.totalErrorsSeen).toBe(MAX_ERRORS + 5)
     })
 
-    it('reset clears totalErrorsSeen', () => {
+    it('reset clears totalErrorsSeen and downloadErrors', () => {
       const store = useRunStore()
       store.initRun(['f.csv'], new Map([['f.csv', 10]]))
       store.addError({ filename: 'f.csv', rowNumber: 1, rawData: {}, error: 'e', timestamp: 0 })
       store.reset()
       expect(store.totalErrorsSeen).toBe(0)
+      expect(store.downloadErrors).toHaveLength(0)
     })
   })
 })
