@@ -146,18 +146,10 @@ find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 
 cd - > /dev/null
 
-# On macOS, re-sign all Mach-O binaries with clean ad-hoc signatures.
-# python-build-standalone ships binaries with linker-signed ad-hoc signatures
-# that conflict with electron-builder's app bundle signing, causing macOS
-# Gatekeeper to report the .app as "damaged".
-if [ "$PLATFORM" = "darwin" ]; then
-  echo "==> Re-signing Mach-O binaries for clean ad-hoc signatures..."
-  find "${DEST_DIR}" -type f | while read -r f; do
-    if file "$f" | grep -q Mach-O; then
-      codesign --force --sign - "$f" 2>/dev/null || true
-    fi
-  done
-fi
+# No pre-signing needed on macOS.
+# The afterSign hook in package.json runs codesign --force --deep --sign -
+# on the whole .app bundle after electron-builder finishes, which re-signs
+# all nested Mach-O binaries (including these) in one consistent pass.
 
 # Verify the binary exists
 if [ "$PLATFORM" = "win32" ]; then
