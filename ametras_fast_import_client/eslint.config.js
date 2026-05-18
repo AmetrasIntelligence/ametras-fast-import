@@ -9,6 +9,7 @@ export default tseslint.config(
     'electron/**/*.js', 'electron/**/*.d.ts',  // compiled output from .ts
     'vite.config.js',                           // compiled output from .ts
     'electron/preload.cjs',                     // CommonJS bridge, not lintable as ESM
+    'scripts/*.cjs',                            // electron-builder hooks (CommonJS), not lintable as ESM
   ] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
