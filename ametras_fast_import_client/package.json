@@ -53,6 +53,7 @@
   "build": {
     "appId": "com.ametras.fast-import",
     "productName": "Ametras Fast Import",
+    "afterSign": "scripts/after-sign.cjs",
     "directories": {
       "output": "release"
     },
