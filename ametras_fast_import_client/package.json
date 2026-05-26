@@ -62,13 +62,16 @@
       "dist-electron/**/*"
     ],
     "mac": {
-      "target": "dmg"
+      "target": "dmg",
+      "artifactName": "Ametras_Fast_Import_MAC_v.${version}.${ext}"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "artifactName": "Ametras_Fast_Import_WIN_v.${version}.${ext}"
     },
     "linux": {
-      "target": "AppImage"
+      "target": "AppImage",
+      "artifactName": "Ametras_Fast_Import_LINUX_v.${version}.${ext}"
     }
   }
 }
