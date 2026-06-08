@@ -32,6 +32,9 @@ from .constants import (
     STANDALONE_POST_TIMEOUT_SUCCESS_THRESHOLD,
     STANDALONE_TIMEOUT_RETRY_BUDGET_SECONDS,
     TIMEOUT_RETRY_BASE_DELAY, TIMEOUT_RETRY_MAX_DELAY,
+    NOTICE_BATCH_SHRUNK, NOTICE_UNSAFE_ROWS_SKIPPED,
+    NOTICE_RETRY_BUDGET_EXHAUSTED, NOTICE_WAITING_FOR_RETRY,
+    NOTICE_SAFE_RETRY_TIMED_OUT,
 )
 from .transformer import transform_row_data
 from .resolver import prefetch_references, resolve_row
@@ -429,6 +432,15 @@ class Importer:
                             "Batch timeout (level %d), shrinking to %d rows and retrying.",
                             escalation_level, adapter.current_size,
                         )
+                        self.reporter.notice(
+                            NOTICE_BATCH_SHRUNK,
+                            "Batch timed out — shrinking to {0} rows and retrying.".format(
+                                adapter.current_size
+                            ),
+                            level=escalation_level,
+                            batch_size=adapter.current_size,
+                            previous_batch_size=len(batch),
+                        )
                         new_size = adapter.current_size
                         sub_batches = [
                             batch[i:i + new_size]
@@ -444,6 +456,14 @@ class Importer:
                         _logger.warning(
                             "%d rows lack id/.id mapping — failing to avoid duplicates "
                             "(reasons: %s).", len(idm.unsafe), idm.reason_counts,
+                        )
+                        self.reporter.notice(
+                            NOTICE_UNSAFE_ROWS_SKIPPED,
+                            "{0} rows lack id/.id mapping — failing to avoid duplicates.".format(
+                                len(idm.unsafe)
+                            ),
+                            count=len(idm.unsafe),
+                            reason_counts=dict(idm.reason_counts),
                         )
                         for row in idm.unsafe:
                             all_errors.append(RowResult(
@@ -469,6 +489,15 @@ class Importer:
                                 "Failing %d remaining safe rows.",
                                 elapsed, len(pending_safe),
                             )
+                            self.reporter.notice(
+                                NOTICE_RETRY_BUDGET_EXHAUSTED,
+                                "Timeout retry budget exhausted ({0:.0f}s) — "
+                                "failing {1} remaining rows.".format(
+                                    elapsed, len(pending_safe)
+                                ),
+                                elapsed_seconds=round(elapsed, 1),
+                                failed_rows=len(pending_safe),
+                            )
                             for row in pending_safe:
                                 all_errors.append(RowResult(
                                     ok=False, row_index=row.index,
@@ -492,6 +521,16 @@ class Importer:
                             "At minimum batch size with %d safe rows. "
                             "Waiting %.1fs (attempt %d).",
                             len(pending_safe), delay, escalation_level,
+                        )
+                        self.reporter.notice(
+                            NOTICE_WAITING_FOR_RETRY,
+                            "At minimum batch size with {0} safe rows — "
+                            "waiting {1:.1f}s before retry (attempt {2}).".format(
+                                len(pending_safe), delay, escalation_level
+                            ),
+                            safe_rows=len(pending_safe),
+                            delay_seconds=round(delay, 1),
+                            attempt=escalation_level,
                         )
                         sleep_start = _time.monotonic()
                         while _time.monotonic() - sleep_start < delay:
@@ -517,6 +556,14 @@ class Importer:
                             _logger.warning(
                                 "Retry of %d safe rows also timed out (attempt %d).",
                                 len(pending_safe), escalation_level,
+                            )
+                            self.reporter.notice(
+                                NOTICE_SAFE_RETRY_TIMED_OUT,
+                                "Retry of {0} safe rows also timed out (attempt {1}).".format(
+                                    len(pending_safe), escalation_level
+                                ),
+                                safe_rows=len(pending_safe),
+                                attempt=escalation_level,
                             )
 
         return success, failed

@@ -264,10 +264,14 @@ export const useRunStore = defineStore('run', () => {
     if (errorKeys.has(key)) return
     errorKeys.add(key)
     totalErrorsSeen.value++
-    // Display list: hard cap at MAX_ERRORS (no eviction — keeps first N for UI)
-    if (errors.value.length < MAX_ERRORS) {
-      errors.value.push(error)
+    // Display list: cap at MAX_ERRORS with FIFO eviction — always show the
+    // MOST RECENT N errors. Previously the cap discarded new errors once full,
+    // so the UI froze on the first 5,000 and you couldn't see what happened
+    // later in the run. The download list (downloadErrors) keeps every error.
+    if (errors.value.length >= MAX_ERRORS) {
+      errors.value.shift()
     }
+    errors.value.push(error)
     // Download list: unbounded — always accumulates every error
     downloadErrors.value.push(error)
   }
@@ -363,10 +367,16 @@ export const useRunStore = defineStore('run', () => {
 
     // Merge errors (server truncates to 100 — don't lose earlier ones)
     const now = Date.now()
+    // NOTE: in addon mode, the server polling response is capped server-side
+    // at MAX_POLL_ERROR_ENTRIES = 100 entries per poll (see import_job.py).
+    // If more than 100 errors occur between two polls, the middle ones are
+    // lost server-side and never reach this code — that's a separate concern
+    // from the client-side display cap below.
     for (const e of data.errors) {
       const key = `${e.filename}:${e.rowNumber}:${e.error.substring(0, 80)}`
       if (!errorKeys.has(key)) {
         errorKeys.add(key)
+        totalErrorsSeen.value++
         const newError: ImportRowError = {
           filename: e.filename,
           rowNumber: e.rowNumber,
@@ -374,9 +384,11 @@ export const useRunStore = defineStore('run', () => {
           error: e.error,
           timestamp: now,
         }
-        if (errors.value.length < MAX_ERRORS) {
-          errors.value.push(newError)
+        // FIFO eviction so the UI always shows the most recent errors.
+        if (errors.value.length >= MAX_ERRORS) {
+          errors.value.shift()
         }
+        errors.value.push(newError)
         downloadErrors.value.push(newError)
       }
     }

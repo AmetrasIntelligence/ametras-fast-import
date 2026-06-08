@@ -127,3 +127,19 @@ PROGRESS_TYPE_AUTH_OK = 'auth_ok'
 PROGRESS_TYPE_MODELS = 'models'
 PROGRESS_TYPE_FIELDS = 'fields'
 PROGRESS_TYPE_CANCELLED = 'cancelled'
+PROGRESS_TYPE_BATCH_ERRORS = 'batch_errors'
+PROGRESS_TYPE_CONNECTION_LOST = 'connection_lost'
+PROGRESS_TYPE_CONNECTION_RESTORED = 'connection_restored'
+PROGRESS_TYPE_NOTICE = 'notice'
+
+# Notice event codes (carried in the "code" field of a notice message).
+# Surfaced to the user so resilience operations are visible, not silent.
+NOTICE_BATCH_SHRUNK = 'batch_shrunk'
+NOTICE_UNSAFE_ROWS_SKIPPED = 'unsafe_rows_skipped'
+NOTICE_RETRY_BUDGET_EXHAUSTED = 'retry_budget_exhausted'
+NOTICE_WAITING_FOR_RETRY = 'waiting_for_retry'
+NOTICE_SAFE_RETRY_TIMED_OUT = 'safe_retry_timed_out'
+
+# Protocol version — bumped when a breaking change is made to the JSON-lines
+# protocol. Electron can use this to refuse incompatible engine versions.
+PROTOCOL_VERSION = 1

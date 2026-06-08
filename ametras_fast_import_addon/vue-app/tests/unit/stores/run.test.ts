@@ -900,17 +900,17 @@ describe('RunStore', () => {
   // P3.6 — errors memory cap
   // ---------------------------------------------------------------------------
   describe('errors memory cap', () => {
-    it('caps display errors at MAX_ERRORS by hard-stopping (no eviction)', () => {
+    it('caps display errors at MAX_ERRORS via FIFO eviction (keeps most recent)', () => {
       const store = useRunStore()
       store.initRun(['f.csv'], new Map([['f.csv', MAX_ERRORS + 10]]))
       for (let i = 0; i < MAX_ERRORS + 5; i++) {
         store.addError({ filename: 'f.csv', rowNumber: i + 1, rawData: {}, error: `e${i}`, timestamp: i })
       }
       expect(store.errors).toHaveLength(MAX_ERRORS)
-      // First MAX_ERRORS are kept (no eviction); first row number is still 1
+      // The OLDEST 5 errors were evicted; we keep the most recent MAX_ERRORS.
       const rowNums = store.errors.map(e => e.rowNumber)
-      expect(rowNums[0]).toBe(1)
-      expect(rowNums[MAX_ERRORS - 1]).toBe(MAX_ERRORS)
+      expect(rowNums[0]).toBe(6)                              // row 1..5 evicted
+      expect(rowNums[MAX_ERRORS - 1]).toBe(MAX_ERRORS + 5)    // most recent is the last row added
     })
 
     it('downloadErrors accumulates all errors beyond the display cap', () => {
@@ -938,6 +938,38 @@ describe('RunStore', () => {
       store.reset()
       expect(store.totalErrorsSeen).toBe(0)
       expect(store.downloadErrors).toHaveLength(0)
+    })
+
+    it('addon-mode polling (updateFromServer) also applies FIFO eviction', () => {
+      const store = useRunStore()
+      store.initRun(['f.csv'], new Map([['f.csv', MAX_ERRORS + 10]]))
+      // Feed errors in batches via updateFromServer (mirrors poll responses).
+      // Each call simulates a new poll with a small batch of fresh errors.
+      const batch = (offset: number, n: number) => ({
+        state: 'running',
+        progress: { 'f.csv': { totalRows: MAX_ERRORS + 10, successCount: 0, failedCount: offset + n } },
+        success_rows: 0,
+        failed_rows: offset + n,
+        total_rows: MAX_ERRORS + 10,
+        current_file: 'f.csv',
+        errors: Array.from({ length: n }, (_, i) => ({
+          filename: 'f.csv',
+          rowNumber: offset + i + 1,
+          error: `e${offset + i}`,
+        })),
+        is_dry_run: false,
+      })
+      const total = MAX_ERRORS + 5
+      for (let i = 0; i < total; i += 50) {
+        store.updateFromServer(batch(i, Math.min(50, total - i)))
+      }
+      expect(store.errors).toHaveLength(MAX_ERRORS)
+      // FIFO eviction keeps most recent
+      expect(store.errors[store.errors.length - 1].rowNumber).toBe(total)
+      // Lifetime counter increments in updateFromServer too
+      expect(store.totalErrorsSeen).toBe(total)
+      // Download list keeps everything
+      expect(store.downloadErrors).toHaveLength(total)
     })
   })
 })

@@ -212,6 +212,10 @@ function getEnginePath(): string {
  */
 function startPythonProcess(pythonPath: string): ChildProcess {
   const enginePath = getEnginePath()
+  // A previous (killed/exited) subprocess may have left queued progress
+  // messages. Without a clean slate the next run will attribute stale rows
+  // to the wrong file as soon as the renderer next polls.
+  messageQueue = []
   const proc = spawn(pythonPath, ['-m', 'import_engine'], {
     cwd: enginePath,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -242,7 +246,13 @@ function startPythonProcess(pythonPath: string): ChildProcess {
         messageQueue.push(msg)
       }
     } catch {
-      // Ignore non-JSON lines (e.g., Python warnings)
+      // Non-JSON lines on stdout are a protocol violation: the Python engine
+      // is supposed to route logging to stderr (see __main__.py). Surface
+      // them so a stray print() or traceback is visible during debugging.
+      // We don't include them in messageQueue because the renderer expects
+      // typed JSON, but we log a truncated preview to the main-process log.
+      const preview = line.length > 300 ? line.slice(0, 300) + '…' : line
+      console.warn('[python] non-JSON stdout (dropped):', preview)
     }
   })
 
@@ -339,6 +349,11 @@ function killPythonProcess(): void {
     pythonProcess = null
     rl?.close()
     rl = null
+
+    // Drop any messages still queued from the dying subprocess so that a
+    // restart for the next file (skip path) or a fresh import doesn't
+    // resurrect stale progress and attribute it to the new file.
+    messageQueue = []
 
     // Resolve any in-flight command with a clean cancellation result so the
     // caller sees { type: 'cancelled' } rather than the { type: 'error' } that
