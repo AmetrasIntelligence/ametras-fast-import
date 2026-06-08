@@ -2,10 +2,10 @@ name: Build
 
 on:
   push:
-    branches: ['16.0']
+    branches: ['16.0', 'python-refactor']
     tags: ['*']
   pull_request:
-    branches: ['16.0']
+    branches: ['16.0', 'python-refactor']
 
 permissions:
   contents: read
