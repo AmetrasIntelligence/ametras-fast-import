@@ -34,6 +34,33 @@ let pendingResolve: ((msg: Record<string, unknown>) => void) | null = null
 let pendingTimeoutReset: (() => void) | null = null
 let messageQueue: Record<string, unknown>[] = []
 
+// Rolling buffer of the most recent stderr lines from the subprocess.
+// Surfaced into error responses so the renderer can show the real cause
+// of a failed startup (DLL load errors on Windows, missing glibc on
+// Linux, missing import_engine module, etc.) instead of a generic
+// "Python process failed to start".
+const STDERR_BUFFER_MAX_LINES = 50
+let stderrBuffer: string[] = []
+let stderrCarry = ''  // partial line carried across chunk boundaries
+
+function appendStderr(text: string): void {
+  // Combine with anything left over from the previous chunk, then split on
+  // newlines. The last fragment may be a partial line — keep it for next time.
+  const combined = stderrCarry + text
+  const parts = combined.split(/\r?\n/)
+  stderrCarry = parts.pop() ?? ''
+  for (const line of parts) {
+    const trimmed = line.replace(/\s+$/, '')
+    if (!trimmed) continue
+    stderrBuffer.push(trimmed)
+    if (stderrBuffer.length > STDERR_BUFFER_MAX_LINES) stderrBuffer.shift()
+  }
+}
+
+function stderrTail(maxLines = 10): string {
+  return stderrBuffer.slice(-maxLines).join('\n')
+}
+
 function getRuntimeArch(): 'x64' | 'arm64' | null {
   switch (process.arch) {
     case 'x64':
@@ -216,10 +243,22 @@ function startPythonProcess(pythonPath: string): ChildProcess {
   // messages. Without a clean slate the next run will attribute stale rows
   // to the wrong file as soon as the renderer next polls.
   messageQueue = []
+  stderrBuffer = []
+  stderrCarry = ''
   const proc = spawn(pythonPath, ['-m', 'import_engine'], {
     cwd: enginePath,
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, PYTHONUNBUFFERED: '1' },
+    env: {
+      ...process.env,
+      PYTHONUNBUFFERED: '1',
+      // Force UTF-8 on stdio. Windows otherwise defaults to the legacy code
+      // page (e.g. cp1252) which can either mangle JSON lines containing
+      // non-ASCII filenames/headers ("ä","ö") or crash with a
+      // UnicodeEncodeError mid-import. UTF-8 mode also affects open()/csv
+      // defaults so source files with non-ASCII content parse consistently.
+      PYTHONIOENCODING: 'utf-8',
+      PYTHONUTF8: '1',
+    },
   })
 
   // Read JSON lines from stdout
@@ -256,9 +295,13 @@ function startPythonProcess(pythonPath: string): ChildProcess {
     }
   })
 
-  // Log stderr for debugging
+  // Log stderr for debugging AND buffer it so it can be surfaced into
+  // error messages — without this the user just sees "Python process
+  // failed to start" with no way to see the underlying cause.
   proc.stderr?.on('data', (data: Buffer) => {
-    console.error('[python]', data.toString().trim())
+    const text = data.toString('utf-8')
+    console.error('[python]', text.trim())
+    appendStderr(text)
   })
 
   proc.on('exit', (code: number | null, signal: string | null) => {
@@ -269,11 +312,13 @@ function startPythonProcess(pythonPath: string): ChildProcess {
     if (pendingResolve) {
       const resolve = pendingResolve
       pendingResolve = null
-      const reason = signal
+      const tail = stderrTail()
+      const base = signal
         ? `Python process was terminated (${signal})`
         : code !== 0
           ? `Python process exited with error (code ${code})`
           : 'Python process exited'
+      const reason = tail ? `${base}\n--- stderr ---\n${tail}` : base
       resolve({ type: 'error', message: reason })
     }
   })
@@ -386,17 +431,31 @@ async function ensurePythonStarted(): Promise<void> {
 
   const pythonPath = await detectPython()
   if (!pythonPath) {
-    throw new Error('Python not found')
+    throw new Error(
+      'Python not found. The bundled runtime could not be loaded and no ' +
+      'system python3 (>= 3.8) is on PATH. On Windows, antivirus software ' +
+      'may have quarantined the bundled python.exe; check Windows Security → ' +
+      'Protection history.'
+    )
   }
 
   pythonProcess = startPythonProcess(pythonPath)
 
-  // Verify it's alive
+  // Verify it's alive. If startup fails the ping response will be the
+  // error from the exit handler (with stderr tail attached) — propagate
+  // that so the renderer can show the real reason instead of the
+  // generic "failed to start".
   const response = await sendCommand({ action: 'ping' })
-  if ((response as Record<string, unknown>).type !== 'pong') {
+  const respObj = response as Record<string, unknown>
+  if (respObj.type !== 'pong') {
     pythonProcess?.kill()
     pythonProcess = null
-    throw new Error('Python process failed to start')
+    const detail = typeof respObj.message === 'string' && respObj.message
+      ? respObj.message
+      : 'no response from subprocess'
+    throw new Error(
+      `Python process failed to start (using ${pythonPath}):\n${detail}`
+    )
   }
 }
 
@@ -428,10 +487,15 @@ ipcMain.handle('python:start', async (_event, payload?: { pythonPath?: string })
   try {
     pythonProcess = startPythonProcess(pythonPath)
 
-    // Verify it's alive with a ping
+    // Verify it's alive with a ping. If startup failed, the response
+    // will be the error from the exit handler (with stderr tail) —
+    // surface that rather than a generic "unexpected response".
     const response = await sendCommand({ action: 'ping' })
     if (response.type !== 'pong') {
-      throw new Error('Unexpected response from Python process')
+      const detail = typeof response.message === 'string' && response.message
+        ? response.message
+        : 'no response from subprocess'
+      throw new Error(`Python process failed to start (using ${pythonPath}):\n${detail}`)
     }
 
     return { ok: true }
