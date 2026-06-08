@@ -1,4 +1,4 @@
-import { ipcMain, safeStorage } from 'electron'
+import { ipcMain, safeStorage, net } from 'electron'
 import { getStoreValue } from './store'
 
 interface OdooSession {
@@ -204,7 +204,7 @@ ipcMain.handle('odoo:listDatabases', async (_event, baseUrl: string) => {
   }
 
   try {
-    const response = await fetch(`${baseUrl}/web/database/list`, {
+    const response = await net.fetch(`${baseUrl}/web/database/list`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -240,7 +240,7 @@ async function performAuthentication(
   login: string,
   password: string
 ): Promise<{ ok: boolean; uid?: number; session_id?: string; server_version?: string; error?: string }> {
-  const response = await fetch(`${baseUrl}/web/session/authenticate`, {
+  const response = await net.fetch(`${baseUrl}/web/session/authenticate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -363,7 +363,7 @@ ipcMain.handle('odoo:call', async (_event, payload: {
       return { ok: false, error: 'Not authenticated', errorCode: 'AUTH_ERROR' }
     }
 
-    const response = await fetch(`${baseUrl}${endpoint}`, {
+    const response = await net.fetch(`${baseUrl}${endpoint}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -440,7 +440,7 @@ ipcMain.handle('odoo:ping', async (_event, baseUrl: string) => {
   }
 
   try {
-    const response = await fetch(`${baseUrl}/web/webclient/version_info`, {
+    const response = await net.fetch(`${baseUrl}/web/webclient/version_info`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

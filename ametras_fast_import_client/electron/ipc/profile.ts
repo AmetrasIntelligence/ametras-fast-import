@@ -1,4 +1,4 @@
-import { ipcMain, dialog } from 'electron'
+import { ipcMain, dialog, net } from 'electron'
 import fs from 'fs/promises'
 import path from 'path'
 import { getOrRefreshSession } from './odoo'
@@ -96,7 +96,7 @@ ipcMain.handle('profile:upload', async (_event, payload: {
     const footerBuf = Buffer.from(footer, 'utf-8')
     const body = Buffer.concat([headerBuf, fileBuffer, footerBuf])
 
-    const response = await fetch(`${baseUrl}/ametras_fast_import/profile/upload`, {
+    const response = await net.fetch(`${baseUrl}/ametras_fast_import/profile/upload`, {
       method: 'POST',
       headers: {
         'Content-Type': `multipart/form-data; boundary=${boundary}`,
@@ -150,7 +150,7 @@ ipcMain.handle('profile:export', async (_event, payload: {
 
     if (canceled || !filePath) return { ok: false }
 
-    const response = await fetch(
+    const response = await net.fetch(
       `${baseUrl}/ametras_fast_import/profile/${profileId}/export`,
       {
         method: 'GET',

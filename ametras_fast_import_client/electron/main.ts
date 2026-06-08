@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, session } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
@@ -41,7 +41,14 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(() => {
+  // Allow servers with self-signed or invalid SSL certificates (e.g. test servers on bare IPs).
+  // net.fetch() in IPC handlers respects this proc; Node.js global fetch() does not.
+  session.defaultSession.setCertificateVerifyProc((_request, callback) => {
+    callback(0)
+  })
+  createWindow()
+})
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
