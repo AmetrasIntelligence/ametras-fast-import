@@ -84,7 +84,13 @@ tar xzf "$TMPFILE" -C "${DEST_DIR}" --strip-components=1
 echo "==> Stripping unnecessary files..."
 cd "${DEST_DIR}"
 
-# Remove pip, ensurepip, test suites, idle, tkinter, docs, and build-only files
+# Remove pip, ensurepip, test suites, idle, tkinter, docs, and build-only files.
+#
+# Platform-portable removals (safe to run everywhere). These either match
+# a Windows-only path (capital "Lib/", "Scripts", "DLLs/", "libs") or use
+# the lib/python*/... pattern which only matches the Linux/macOS layout
+# where the stdlib lives at lib/python3.X/ — no risk of collision with
+# Windows' capital Lib/ here.
 rm -rf \
   bin/2to3 \
   bin/2to3-* \
@@ -113,6 +119,9 @@ rm -rf \
   lib/python*/pydoc_data \
   lib/python*/distutils \
   lib/python*/venv \
+  lib/python*/config-* \
+  lib/python*/__pycache__/doctest.* \
+  lib/python*/__pycache__/pydoc.* \
   Lib/site-packages \
   Lib/ensurepip \
   Lib/idlelib \
@@ -126,16 +135,23 @@ rm -rf \
   Lib/venv \
   share \
   include \
-  lib/itcl* \
-  lib/tcl* \
-  lib/tk* \
-  lib/thread* \
-  lib/libtcl* \
-  lib/python*/config-* \
   lib/pkgconfig \
-  lib/python*/__pycache__/doctest.* \
-  lib/python*/__pycache__/pydoc.* \
   2>/dev/null || true
+
+# Tcl/Tk shared libraries (Linux/macOS only). These patterns MUST NOT run
+# on Windows: NTFS is case-insensitive by default, so `lib/thread*` would
+# resolve into `Lib/` and delete `Lib/threading.py` — a critical stdlib
+# module that `logging` imports at startup. The Windows-side Tcl artifacts
+# are removed above via `tcl`, `DLLs/tcl*.dll`, `DLLs/tk*.dll`, `Lib/tkinter`.
+if [ "$PLATFORM" != "win32" ]; then
+  rm -rf \
+    lib/itcl* \
+    lib/tcl* \
+    lib/tk* \
+    lib/thread* \
+    lib/libtcl* \
+    2>/dev/null || true
+fi
 
 # Remove GUI-only Windows helper
 rm -f pythonw.exe 2>/dev/null || true
@@ -166,6 +182,18 @@ fi
 if [ "$PLATFORM" = "$HOST_PLATFORM" ] && [ "$ARCH" = "$HOST_ARCH" ]; then
   VERSION=$("$PYTHON_BIN" --version 2>&1)
   echo "==> Verified: ${VERSION}"
+
+  # Smoke-test the critical stdlib modules the import engine needs. If the
+  # strip step accidentally removed one of these (it has happened — see the
+  # case-insensitive lib/thread* bug), shipping the runtime would mean every
+  # standalone import dies at startup with an opaque ModuleNotFoundError.
+  # Fail the build instead.
+  echo "==> Smoke-testing stdlib imports..."
+  if ! "$PYTHON_BIN" -c "import threading, logging, json, csv, socket, ssl, urllib.request, xmlrpc.client, http.client, concurrent.futures, queue, dataclasses, typing, collections, io, re, os, sys, time" 2>&1; then
+    echo "ERROR: bundled Python is missing a critical stdlib module — check the rm -rf strip patterns above." >&2
+    exit 1
+  fi
+  echo "==> All critical stdlib modules importable."
 else
   echo "==> Verified: found runtime binary at ${PYTHON_BIN} (execution skipped on ${HOST_PLATFORM}-${HOST_ARCH})"
 fi
