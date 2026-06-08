@@ -18,11 +18,43 @@ const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000
 // Cleanup interval: 5 minutes
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000
 
-// Request timeouts for Odoo RPC calls
+// Request timeouts for Odoo RPC calls.
+//
+// Authentication is the most server-side-expensive call (DB connect,
+// session create, module-graph touch), so it gets the longest budget —
+// cold-starting Odoo or instances with many modules can take 20-30s on
+// the first auth even though the network itself is healthy. 60s leaves
+// headroom while still failing fast on real DNS/refused errors (which
+// surface at the TCP layer in well under a second).
 const RPC_TIMEOUT_MS = 30_000       // 30s for general RPC calls
-const AUTH_TIMEOUT_MS = 15_000      // 15s for authentication
-const DB_LIST_TIMEOUT_MS = 10_000   // 10s for database listing
+const AUTH_TIMEOUT_MS = 60_000      // 60s for authentication
+const DB_LIST_TIMEOUT_MS = 30_000   // 30s for database listing (cold start)
 const HEALTH_CHECK_TIMEOUT_MS = 5_000 // 5s for server ping (health check)
+
+/**
+ * Decide whether a thrown error is an AbortSignal.timeout firing.
+ *
+ * AbortSignal.timeout() rejects with a DOMException of name "TimeoutError"
+ * (Node 18+ / Chromium); older Node sometimes used name "AbortError" with
+ * a message like "This operation was aborted". Both end up in the auth
+ * catch block as a generic "the user aborted a request" string — useless
+ * to the user. Match either shape so we can replace it.
+ */
+function isAbortTimeout(e: unknown): boolean {
+  if (!(e instanceof Error)) return false
+  if (e.name === 'TimeoutError' || e.name === 'AbortError') return true
+  const m = e.message.toLowerCase()
+  return m.includes('aborted') || m.includes('timed out') || m.includes('timeout')
+}
+
+function timeoutMessageForAuth(timeoutMs: number): string {
+  const secs = Math.round(timeoutMs / 1000)
+  return (
+    `The server did not respond within ${secs} seconds. ` +
+    `The Odoo instance may be cold-starting, under heavy load, or unreachable — ` +
+    `verify the URL and that the server is reachable, then try again.`
+  )
+}
 
 const sessions = new Map<string, OdooSession>()
 const pinnedSessions = new Set<string>()
@@ -225,6 +257,9 @@ ipcMain.handle('odoo:listDatabases', async (_event, baseUrl: string) => {
 
     return { ok: true, databases: data.result || [] }
   } catch (e) {
+    if (isAbortTimeout(e)) {
+      return { ok: false, databases: [], error: timeoutMessageForAuth(DB_LIST_TIMEOUT_MS) }
+    }
     const message = e instanceof Error ? e.message : 'Failed to fetch databases'
     return { ok: false, databases: [], error: message }
   }
@@ -333,6 +368,9 @@ ipcMain.handle('odoo:authenticate', async (_event, params: {
 
     return result
   } catch (e) {
+    if (isAbortTimeout(e)) {
+      return { ok: false, error: timeoutMessageForAuth(AUTH_TIMEOUT_MS) }
+    }
     const message = e instanceof Error ? e.message : 'Connection failed'
     return { ok: false, error: message }
   }
