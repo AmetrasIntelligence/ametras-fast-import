@@ -3,7 +3,7 @@
  * Enables CSV import without the ametras_fast_import addon via direct Odoo API calls.
  */
 
-import { ipcMain } from 'electron'
+import { ipcMain, net } from 'electron'
 import { getOrRefreshSession, isSessionExpiredError, invalidateSession } from './odoo'
 
 // ── Addon detection ──────────────────────────────────────────────────
@@ -29,7 +29,7 @@ ipcMain.handle('standalone:detectAddon', async (
 
   try {
     // Try to call the ametras_fast_import/info endpoint
-    const response = await fetch(`${baseUrl}/ametras_fast_import/info`, {
+    const response = await net.fetch(`${baseUrl}/ametras_fast_import/info`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -151,7 +151,7 @@ ipcMain.handle('standalone:load', async (
 
   try {
     // Call model.load() via the standard Odoo RPC endpoint
-    const response = await fetch(`${baseUrl}/web/dataset/call_kw`, {
+    const response = await net.fetch(`${baseUrl}/web/dataset/call_kw`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
