@@ -74,7 +74,7 @@ TMPFILE=$(mktemp)
 trap 'rm -f "$TMPFILE"' EXIT
 
 echo "==> Downloading..."
-curl -fSL --progress-bar -o "$TMPFILE" "$URL"
+curl -fSL --retry 5 --retry-delay 10 --retry-connrefused --progress-bar -o "$TMPFILE" "$URL"
 
 # Extract — python-build-standalone tarballs have a python/ top-level dir
 echo "==> Extracting..."
