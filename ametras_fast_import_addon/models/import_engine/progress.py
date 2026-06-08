@@ -13,6 +13,8 @@ from typing import Optional
 from .constants import (
     PROGRESS_TYPE_FILE_START, PROGRESS_TYPE_PROGRESS,
     PROGRESS_TYPE_FILE_DONE, PROGRESS_TYPE_DONE, PROGRESS_TYPE_ERROR,
+    PROGRESS_TYPE_BATCH_ERRORS, PROGRESS_TYPE_CONNECTION_LOST,
+    PROGRESS_TYPE_CONNECTION_RESTORED, PROGRESS_TYPE_NOTICE,
 )
 
 
@@ -53,6 +55,15 @@ class ProgressReporter(ABC):
     def connection_restored(self, message: str) -> None:
         """Called when connectivity to the server is restored."""
 
+    def notice(self, code: str, message: str, **details) -> None:
+        """Emit a user-visible operational notice (resilience events, retries).
+
+        `code` is a stable machine-readable identifier (see NOTICE_* constants).
+        `message` is human-readable English text. `details` are additional
+        structured fields (batch size, level, elapsed seconds, etc.).
+        Default no-op so reporters that don't care can ignore it.
+        """
+
 
 class NullReporter(ProgressReporter):
     """No-op reporter for addon mode (Vue handles progress via HTTP)."""
@@ -76,6 +87,9 @@ class NullReporter(ProgressReporter):
     def error(self, message: str) -> None:
         pass
 
+    def notice(self, code: str, message: str, **details) -> None:
+        pass
+
 
 class JsonLinesReporter(ProgressReporter):
     """
@@ -84,12 +98,16 @@ class JsonLinesReporter(ProgressReporter):
     Used in Electron subprocess mode. Electron reads stdout line-by-line
     and forwards to Vue via IPC events.
 
-    Protocol:
+    Protocol (PROTOCOL_VERSION = 1):
         {"type": "file_start", "filename": "...", "total_rows": N}
         {"type": "progress", "processed": N, "total": N, "success": N, "failed": N}
         {"type": "file_done", "filename": "...", "success": N, "failed": N}
         {"type": "done", "success": N, "failed": N, "errors": [...]}
         {"type": "error", "message": "..."}
+        {"type": "batch_errors", "errors": [{"row": N, "error": "..."}]}
+        {"type": "connection_lost", "message": "..."}
+        {"type": "connection_restored", "message": "..."}
+        {"type": "notice", "code": "...", "message": "...", "details": {...}}
     """
 
     def __init__(self, stream: Optional[object] = None):
@@ -135,10 +153,16 @@ class JsonLinesReporter(ProgressReporter):
 
     def emit_errors(self, errors: list) -> None:
         if errors:
-            self._emit({'type': 'batch_errors', 'errors': errors})
+            self._emit({'type': PROGRESS_TYPE_BATCH_ERRORS, 'errors': errors})
 
     def connection_lost(self, message: str) -> None:
-        self._emit({'type': 'connection_lost', 'message': message})
+        self._emit({'type': PROGRESS_TYPE_CONNECTION_LOST, 'message': message})
 
     def connection_restored(self, message: str) -> None:
-        self._emit({'type': 'connection_restored', 'message': message})
+        self._emit({'type': PROGRESS_TYPE_CONNECTION_RESTORED, 'message': message})
+
+    def notice(self, code: str, message: str, **details) -> None:
+        payload = {'type': PROGRESS_TYPE_NOTICE, 'code': code, 'message': message}
+        if details:
+            payload['details'] = details
+        self._emit(payload)

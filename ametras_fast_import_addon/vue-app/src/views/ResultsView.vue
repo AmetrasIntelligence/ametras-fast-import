@@ -9,9 +9,12 @@ import { useConfigStore } from '@/stores/config'
 import { ImportState } from '@/types/importState'
 import { showAlert } from '@/utils/dialog'
 import { downloadCSV } from '@/utils/formatters'
+import { downloadBlob } from '@/utils/profileUtils'
+import { buildFailedRowsCsv } from '@/utils/errorExport'
 import { logger } from '@/utils/logger'
 import { Button, Card, Table } from '@/ui'
 import Papa from 'papaparse'
+import JSZip from 'jszip'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -96,7 +99,13 @@ function exportErrorsCSV() {
 
 /**
  * Read a source CSV file and return its parsed rows indexed by row number.
- * Row numbers are 1-based (row 1 = first data row after header).
+ *
+ * Row numbers are 1-based and counted *including blank lines* — this matches
+ * the Python parser's `enumerate(csv.DictReader(f), start=1)` semantics,
+ * which increments the counter for every CSV row but only yields non-empty
+ * ones. Without this alignment, blank lines in the source file shift Papa's
+ * indices relative to Python's, and a retry/export would address the wrong
+ * row of the CSV.
  */
 async function readSourceFile(fileId: string, delimiter: string, encoding: string): Promise<{
   headers: string[]
@@ -106,12 +115,19 @@ async function readSourceFile(fileId: string, delimiter: string, encoding: strin
   const parsed = Papa.parse<Record<string, string>>(content, {
     header: true,
     delimiter: delimiter || ',',
-    skipEmptyLines: true,
+    skipEmptyLines: false,
   })
   const headers = parsed.meta.fields || []
   const rows = new Map<number, Record<string, string>>()
   for (let i = 0; i < parsed.data.length; i++) {
-    rows.set(i + 1, parsed.data[i]) // 1-based row number
+    const row = parsed.data[i]
+    const idx = i + 1
+    // Mirror Python's "skip blank lines but keep the counter going": only
+    // store rows that have at least one non-empty value, but never reuse
+    // an index for a different row.
+    const hasValue = row && Object.values(row).some(v => v != null && v !== '')
+    if (!hasValue) continue
+    rows.set(idx, row)
   }
   return { headers, rows }
 }
@@ -163,25 +179,87 @@ async function collectFailedRows(): Promise<{
   return { byFile, allHeaders: [...allHeaderSet] }
 }
 
-async function exportFailedRows() {
+/**
+ * Map each error row to the failure message(s) for that row, by filename.
+ * Used to attach an __import_error__ column to the exported failed rows.
+ */
+function buildErrorLookup(): Map<string, Map<number, string[]>> {
+  const grouped = new Map<string, Map<number, string[]>>()
+  for (const err of run.downloadErrors) {
+    if (err.rowNumber <= 0) continue
+    if (!grouped.has(err.filename)) grouped.set(err.filename, new Map())
+    const byRow = grouped.get(err.filename)!
+    if (!byRow.has(err.rowNumber)) byRow.set(err.rowNumber, [])
+    byRow.get(err.rowNumber)!.push(err.error)
+  }
+  return grouped
+}
+
+/**
+ * Build a ZIP archive containing one CSV per source file. Each CSV keeps
+ * the original filename (with .csv extension forced if missing), the
+ * original header order, and a trailing __import_error__ column.
+ *
+ * Restored from the 16.0 export feature that was lost during the python-refactor.
+ */
+async function exportFailedRowsZip() {
+  if (isExporting.value) return
+
+  const errorLookup = buildErrorLookup()
+  if (errorLookup.size === 0) {
+    showAlert(t('results.noFailedRowsToExport'))
+    return
+  }
+
   isExporting.value = true
   try {
-    const { byFile, allHeaders } = await collectFailedRows()
-    if (byFile.size === 0) return
-
-    const csvHeaders = ['__source_file__', '__row__', ...allHeaders]
-    const lines = [Papa.unparse([csvHeaders])]
-
-    for (const [filename, { rows }] of byFile) {
-      for (const { rowNum, data } of rows) {
-        const values = [filename, String(rowNum), ...allHeaders.map(h => data[h] ?? '')]
-        lines.push(Papa.unparse([values]))
-      }
+    const { byFile } = await collectFailedRows()
+    if (byFile.size === 0) {
+      const missing = [...errorLookup.keys()].join(', ')
+      showAlert(t('results.failedRowsExportNoFiles', { files: missing || '—' }))
+      return
     }
 
-    downloadCSV(lines.join('\n'), 'failed-rows.csv')
+    const zip = new JSZip()
+    const missingFiles: string[] = []
+
+    // Detect which files we expected (from errorLookup) but couldn't load
+    // their source files in collectFailedRows.
+    for (const filename of errorLookup.keys()) {
+      if (!byFile.has(filename)) missingFiles.push(filename)
+    }
+
+    for (const [filename, { rows, headers }] of byFile) {
+      const rowErrors = errorLookup.get(filename) ?? new Map()
+      const failedRows = rows.map(({ rowNum, data }) => ({
+        rowNumber: rowNum,
+        data,
+        error: (rowErrors.get(rowNum) ?? []).join(' | '),
+      }))
+      if (failedRows.length === 0) continue
+      const exportName = filename.toLowerCase().endsWith('.csv') ? filename : `${filename}.csv`
+      zip.file(exportName, buildFailedRowsCsv(headers, failedRows))
+    }
+
+    if (Object.keys(zip.files).length === 0) {
+      if (missingFiles.length > 0) {
+        showAlert(t('results.failedRowsExportNoFiles', { files: missingFiles.join(', ') }))
+      } else {
+        showAlert(t('results.noFailedRowsToExport'))
+      }
+      return
+    }
+
+    const blob = await zip.generateAsync({ type: 'blob' })
+    downloadBlob(blob, 'import-failed-rows.zip')
+
+    if (missingFiles.length > 0) {
+      showAlert(t('results.failedRowsExportPartial', { files: missingFiles.join(', ') }))
+    }
   } catch (e) {
-    logger.import.error('Failed to export failed rows', { error: (e as Error).message })
+    const message = e instanceof Error ? e.message : String(e)
+    logger.import.error('Failed to export failed rows ZIP', { error: message })
+    showAlert(t('results.failedRowsExportError', { error: message }))
   } finally {
     isExporting.value = false
   }
@@ -328,9 +406,9 @@ function startNew() {
           <Button
             variant="outline"
             :disabled="isExporting"
-            @click="exportFailedRows"
+            @click="exportFailedRowsZip"
           >
-            {{ $t('results.downloadFailedRows') }}
+            {{ $t('results.downloadFailedRowsZip') }}
           </Button>
         </div>
       </Card>
@@ -350,8 +428,8 @@ function startNew() {
           <span class="flex-grow-1">
             {{ $t('results.errorsCap', { shown: run.errors.length.toLocaleString(), total: run.totalErrorsSeen.toLocaleString() }) }}
           </span>
-          <Button variant="outline" size="sm" @click="exportFailedRows">
-            {{ $t('results.downloadFailedRows') }}
+          <Button variant="outline" size="sm" @click="exportFailedRowsZip">
+            {{ $t('results.downloadFailedRowsZip') }}
           </Button>
         </div>
 

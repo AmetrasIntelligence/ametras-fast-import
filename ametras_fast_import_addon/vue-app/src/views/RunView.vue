@@ -29,9 +29,16 @@ let consecutivePollFailures = 0
 // Error state
 const initError = ref<string | null>(null)
 
-// Startup watchdog (90s with no progress)
+// Startup watchdog: 90s with no progress *while online*.
+// Python's RPC_RECONNECT_TIMEOUT is 300s — a standalone import that opens
+// with a slow reconnect is legitimate. If we detect an offline state when
+// the watchdog fires, we re-arm rather than cancel.
 const WATCHDOG_TIMEOUT = 90_000
 let watchdogTimer: ReturnType<typeof setTimeout> | null = null
+
+// Unknown protocol-message-type warnings: log at most once per type to
+// avoid flooding the activity log when a new event arrives in every poll.
+const warnedUnknownTypes = new Set<string>()
 
 // Offline elapsed time tracking
 const offlineElapsed = ref('')
@@ -202,8 +209,43 @@ async function pollProgress() {
           // would double-count completedFiles and cause stale attribution.
         } else if (m.type === 'connection_lost') {
           run.connectionStatus = 'offline'
+          // Suspend the startup watchdog while we're offline; Python may
+          // legitimately spend up to RPC_RECONNECT_TIMEOUT (300s) reconnecting
+          // before the first batch reports any progress.
+          if (watchdogTimer) {
+            clearTimeout(watchdogTimer)
+            watchdogTimer = null
+          }
+          logger.import.warn('Connection lost', { message: m.message || '' })
         } else if (m.type === 'connection_restored') {
           run.connectionStatus = 'online'
+          // Restart the watchdog only if we still have no progress —
+          // otherwise progress events already cleared it.
+          const hasProgress = Object.values(run.progress.files).some(f => f.processedRows > 0)
+          if (!hasProgress && run.state === ImportState.RUNNING_FILE) {
+            startWatchdog()
+          }
+          logger.import.info('Connection restored', { message: m.message || '' })
+        } else if (m.type === 'notice') {
+          // Resilience operations (batch shrink, retry waits, budget exhausted,
+          // etc.) — these used to live in Python stderr only and were invisible.
+          const code = (m.code as string) || 'unknown'
+          const message = (m.message as string) || ''
+          const details = (m.details as Record<string, unknown>) || {}
+          // Budget exhausted is an error; the rest are warnings.
+          if (code === 'retry_budget_exhausted') {
+            logger.import.error(`[${code}] ${message}`, details)
+          } else {
+            logger.import.warn(`[${code}] ${message}`, details)
+          }
+        } else if (m.type) {
+          // Catch-all: surface unknown protocol types in the activity log
+          // so we notice when the Python engine starts emitting something new.
+          const t = m.type as string
+          if (!warnedUnknownTypes.has(t)) {
+            warnedUnknownTypes.add(t)
+            logger.import.warn('Unknown progress message type', { type: t, message: m })
+          }
         }
       }
       // Progress messages arriving means Python→Odoo RPC calls are succeeding.
@@ -261,15 +303,21 @@ function stopPolling() {
 
 function startWatchdog() {
   clearWatchdog()
-  watchdogTimer = setTimeout(() => {
+  const onWatchdogFire = () => {
     const hasProgress = Object.values(run.progress.files).some(f => f.processedRows > 0)
-    if (!hasProgress && run.state === ImportState.RUNNING_FILE) {
-      // Cancel the stuck import so "Try Again" doesn't double-start
-      controlImport('cancel')
-      stopPolling()
-      initError.value = t('run.startupTimeout')
+    if (hasProgress || run.state !== ImportState.RUNNING_FILE) return
+    // If Python is reconnecting (or we got a connection_lost notice), give it
+    // more time rather than aborting a legitimately-waiting import.
+    if (run.connectionStatus === 'offline') {
+      watchdogTimer = setTimeout(onWatchdogFire, WATCHDOG_TIMEOUT)
+      return
     }
-  }, WATCHDOG_TIMEOUT)
+    // Cancel the stuck import so "Try Again" doesn't double-start
+    controlImport('cancel')
+    stopPolling()
+    initError.value = t('run.startupTimeout')
+  }
+  watchdogTimer = setTimeout(onWatchdogFire, WATCHDOG_TIMEOUT)
 }
 
 function clearWatchdog() {
@@ -384,16 +432,37 @@ type RetryData = Map<string, { rows: Array<{ rowNum: number; data: Record<string
  */
 async function runPythonRetry(retryData: RetryData) {
   pythonCancelled = false
+  pythonSkipRequested = false
+  // Defensive: clear any leftover from a previous run that didn't reach
+  // the explicit `currentPythonFile.value = ''` reset (e.g., crashed mid-loop).
+  currentPythonFile.value = ''
+  warnedUnknownTypes.clear()
   const runId = ++currentRunId
   let totalFailed = 0
+  let filesProcessed = 0
+  const unmappedFiles: string[] = []
 
   try {
     for (const [filename, { rows }] of retryData) {
       if (pythonCancelled) break
 
       const mapping = config.fileMappings[filename]
-      if (!mapping) continue
+      if (!mapping) {
+        // Don't silently swallow the file — record it so we can tell the
+        // user, and mark the file as skipped in the UI rather than leaving
+        // it stuck at 0/N looking like the import is hung.
+        unmappedFiles.push(filename)
+        logger.import.warn(
+          `Retry: no field mapping for "${filename}" — skipping. ` +
+          `Re-import this file from the configuration screen to retry it.`
+        )
+        run.startFile(filename)
+        run.skipFile(filename)
+        continue
+      }
 
+      filesProcessed++
+      pythonSkipRequested = false
       currentPythonFile.value = filename
       run.startFile(filename)
 
@@ -417,6 +486,18 @@ async function runPythonRetry(retryData: RetryData) {
       const result = await window.api.python.import(importPayload) as unknown as Record<string, unknown>
       await pollProgress()
 
+      if (result.type === 'cancelled') {
+        // Distinguish skip-kill (continue with next file) from abort (stop).
+        if (pythonSkipRequested && !pythonCancelled) {
+          logger.import.info(`${filename}: Skipped by user (retry)`)
+          run.skipFile(filename)
+          pythonSkipRequested = false
+          continue
+        }
+        run.completeFile(filename)
+        break
+      }
+
       if (result.type === 'done') {
         const success = (result.success as number) || 0
         const failed = (result.failed as number) || 0
@@ -428,9 +509,6 @@ async function runPythonRetry(retryData: RetryData) {
         for (const e of errors) {
           run.addError({ filename, rowNumber: e.row, rawData: {}, error: e.error, timestamp: Date.now() })
         }
-      } else if (result.type === 'cancelled') {
-        run.completeFile(filename)
-        break
       } else if (result.type === 'error') {
         const errorMsg = (result.message as string) || 'Retry failed'
         if (pythonCancelled) break
@@ -445,8 +523,21 @@ async function runPythonRetry(retryData: RetryData) {
     currentPythonFile.value = ''
     await pollProgress()
 
+    // If every file was skipped due to a missing mapping, surface that as
+    // an initError so the user actually understands why nothing happened
+    // — otherwise the view would just say "completed, 0 rows processed".
+    if (filesProcessed === 0 && unmappedFiles.length > 0 && !pythonCancelled) {
+      initError.value = t('run.retryNoMappings')
+    } else if (unmappedFiles.length > 0) {
+      logger.import.warn(
+        `Retry: ${unmappedFiles.length} file(s) skipped due to missing mappings`,
+        { files: unmappedFiles },
+      )
+    }
+
     if (runId === currentRunId && run.state !== ImportState.FAILED) {
-      run.setState(totalFailed > 0 || pythonCancelled ? ImportState.FAILED : ImportState.COMPLETED)
+      const someFailed = totalFailed > 0 || pythonCancelled || filesProcessed === 0
+      run.setState(someFailed ? ImportState.FAILED : ImportState.COMPLETED)
     }
   } finally {
     stopPolling()
@@ -460,6 +551,10 @@ async function runPythonRetry(retryData: RetryData) {
 async function runPythonImport() {
   pythonCancelled = false
   pythonSkipRequested = false
+  // Defensive: clear any leftover from a previous run that didn't reach
+  // the explicit `currentPythonFile.value = ''` reset (e.g., crashed mid-loop).
+  currentPythonFile.value = ''
+  warnedUnknownTypes.clear()
   const runId = ++currentRunId
   let totalFailed = 0
   const allErrors: Array<{ filename: string; rowNumber: number; error: string }> = []
@@ -500,14 +595,22 @@ async function runPythonImport() {
       // when the next iteration changes currentPythonFile.
       await pollProgress()
 
-      // Skip requested: mark file skipped, restart subprocess for next file
-      if (pythonSkipRequested && !pythonCancelled) {
-        logger.import.info(`${filename}: Skipped by user`)
-        run.skipFile(filename)
-        pythonSkipRequested = false
-        // Subprocess was killed by controlImport('skip') — it will be restarted
-        // automatically by ensurePythonStarted() on next python:import call
-        continue
+      // Honor the actual result type first. If a skip was requested but the
+      // file finished before the kill arrived, we must process the 'done'
+      // (or 'error') result rather than marking a completed file as Skipped
+      // and discarding its row counts.
+      if (result.type === 'cancelled') {
+        if (pythonSkipRequested && !pythonCancelled) {
+          // Subprocess was killed by controlImport('skip') — it will be restarted
+          // automatically by ensurePythonStarted() on the next python:import call.
+          logger.import.info(`${filename}: Skipped by user`)
+          run.skipFile(filename)
+          pythonSkipRequested = false
+          continue
+        }
+        // Otherwise: abort, or unexpected exit — stop processing.
+        run.completeFile(filename)
+        break
       }
 
       if (result.type === 'done') {
@@ -550,9 +653,6 @@ async function runPythonImport() {
         if (seenErrors.size > 5) {
           logger.import.warn(`  ... and ${errors.length - 5} more errors`)
         }
-      } else if (result.type === 'cancelled') {
-        run.completeFile(filename)
-        break
       } else if (result.type === 'error') {
         const errorMsg = (result.message as string) || 'Import failed'
 
