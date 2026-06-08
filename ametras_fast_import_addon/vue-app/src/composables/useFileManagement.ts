@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import Papa from 'papaparse'
 import { useFilesStore } from '@/stores/files'
 import { useConfigStore } from '@/stores/config'
 import { useSessionStore } from '@/stores/session'
@@ -133,13 +134,46 @@ export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>
           }) as { ok: boolean; result?: Record<string, unknown>; error?: string }
           if (pyResp.ok && pyResp.result) {
             const r = pyResp.result as Record<string, unknown>
+            // Only accept genuine analysis results — Python errors emit {type:'error'}
+            if (r.type === 'analysis' && Array.isArray(r.headers) && (r.headers as string[]).length > 0) {
+              analysis = {
+                headers: r.headers as string[],
+                rowCount: (r.rowCount as number) || 0,
+                sampleRows: (r.sampleRows as Record<string, string>[]) || [],
+                delimiter: (r.delimiter as string) || ',',
+                hasIdColumn: !!(r.hasIdColumn),
+                hasDotIdColumn: !!(r.hasDotIdColumn),
+              }
+            }
+          }
+        } catch {
+          // Fall through to next fallback
+        }
+      }
+
+      // JS fallback for Electron: use files IPC + PapaParse when Python is unavailable
+      if (analysis.headers.length === 0 && window.api?.files?.readHead && window.api?.files?.countLines) {
+        try {
+          const encoding = config.settings.encoding || 'utf-8'
+          const sample = await window.api.files.readHead(file.id, 65536, encoding)
+          const parsed = Papa.parse<Record<string, string>>(sample, {
+            header: true,
+            skipEmptyLines: true,
+            preview: 6,
+          })
+          const headers = parsed.meta.fields || []
+          if (headers.length > 0) {
+            const lineCount = await window.api.files.countLines(file.id)
+            const sampleRows = parsed.data.slice(0, 5)
+            const hasIdColumn = headers.includes('id')
+            const hasDotIdColumn = headers.some(h => h.endsWith('.id'))
             analysis = {
-              headers: (r.headers as string[]) || [],
-              rowCount: (r.rowCount as number) || 0,
-              sampleRows: (r.sampleRows as Record<string, string>[]) || [],
-              delimiter: (r.delimiter as string) || ',',
-              hasIdColumn: !!(r.hasIdColumn),
-              hasDotIdColumn: !!(r.hasDotIdColumn),
+              headers,
+              rowCount: Math.max(0, lineCount - 1),
+              sampleRows,
+              delimiter: parsed.meta.delimiter || ',',
+              hasIdColumn,
+              hasDotIdColumn,
             }
           }
         } catch {
