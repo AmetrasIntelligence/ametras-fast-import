@@ -4,18 +4,18 @@ Tests for BatchSizeAdapter.
 Port of 16.0's batchSizeAdapter.test.ts scenarios to Python.
 Run with: python3 ametras_fast_import_addon/tests/test_batch_size_adapter.py
 """
-import unittest
-import sys
 import os
+import sys
+import unittest
 
-_engine_path = os.path.join(os.path.dirname(__file__), '..', 'models')
+_engine_path = os.path.join(os.path.dirname(__file__), "..", "models")
 if _engine_path not in sys.path:
     sys.path.insert(0, os.path.abspath(_engine_path))
 
 from import_engine.batch_size_adapter import BatchSizeAdapter
 from import_engine.constants import (
-    BATCH_SIZE_SUCCESS_THRESHOLD,
     BATCH_SIZE_FAILURE_THRESHOLD,
+    BATCH_SIZE_SUCCESS_THRESHOLD,
 )
 
 
@@ -41,8 +41,7 @@ class TestLevelConstruction(unittest.TestCase):
     def test_no_duplicates_sorted(self):
         for max_size in [1, 2, 10, 11, 100, 1000]:
             a = BatchSizeAdapter(max_size)
-            self.assertEqual(a._levels, sorted(set(a._levels)),
-                             f"max_size={max_size}")
+            self.assertEqual(a._levels, sorted(set(a._levels)), f"max_size={max_size}")
 
 
 class TestStartingLevel(unittest.TestCase):
@@ -206,5 +205,5 @@ class TestReset(unittest.TestCase):
         self.assertEqual(a._success_rows, 0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

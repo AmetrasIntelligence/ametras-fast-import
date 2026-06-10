@@ -9,10 +9,7 @@ not batches, so behaviour scales naturally with the configured batch size.
 """
 from __future__ import annotations
 
-from .constants import (
-    BATCH_SIZE_SUCCESS_THRESHOLD,
-    BATCH_SIZE_FAILURE_THRESHOLD,
-)
+from .constants import BATCH_SIZE_FAILURE_THRESHOLD, BATCH_SIZE_SUCCESS_THRESHOLD
 
 
 class BatchSizeAdapter:
@@ -30,9 +27,9 @@ class BatchSizeAdapter:
     """
 
     def __init__(self, max_size: int):
-        levels = sorted(set([1, min(10, max_size), max_size]))
+        levels = sorted({1, min(10, max_size), max_size})
         self._levels = levels
-        self._level = min(1, len(levels) - 1)   # middle rung (or 0 if only 1 level)
+        self._level = min(1, len(levels) - 1)  # middle rung (or 0 if only 1 level)
         self._success_rows = 0
         self._consecutive_failures = 0
         self._success_threshold = BATCH_SIZE_SUCCESS_THRESHOLD
@@ -62,8 +59,10 @@ class BatchSizeAdapter:
         """
         self._consecutive_failures = 0
         self._success_rows += row_count
-        if (self._success_rows >= self._success_threshold
-                and self._level < len(self._levels) - 1):
+        if (
+            self._success_rows >= self._success_threshold
+            and self._level < len(self._levels) - 1
+        ):
             self._level += 1
             self._success_rows = 0
             self._success_threshold = BATCH_SIZE_SUCCESS_THRESHOLD

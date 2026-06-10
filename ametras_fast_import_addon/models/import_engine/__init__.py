@@ -5,8 +5,12 @@ from .backend import OdooBackend, RpcBackend, FieldInfo, TransportError
 from .batch_size_adapter import BatchSizeAdapter
 from .idempotency import assess_timeout_retry_idempotency, IdempotencyResult
 from .constants import (
-    DEFAULT_BATCH_SIZE, MIN_BATCH_SIZE, MAX_BATCH_SIZE,
-    DEFAULT_WORKERS, MIN_WORKERS, MAX_WORKERS,
+    DEFAULT_BATCH_SIZE,
+    MIN_BATCH_SIZE,
+    MAX_BATCH_SIZE,
+    DEFAULT_WORKERS,
+    MIN_WORKERS,
+    MAX_WORKERS,
     STANDARD_DB_ID_MODELS,
 )
 from .transformer import transform_row_data
@@ -19,10 +23,15 @@ from .resolver import (
     resolve_row,
 )
 from .parser import (
-    ParsedRow, ParseOptions,
-    parse_csv_file, parse_csv_batched, parse_csv_string,
-    analyze_csv, analyze_csv_file,
-    count_csv_rows, extract_rows_by_index,
+    ParsedRow,
+    ParseOptions,
+    parse_csv_file,
+    parse_csv_batched,
+    parse_csv_string,
+    analyze_csv,
+    analyze_csv_file,
+    count_csv_rows,
+    extract_rows_by_index,
 )
 from .importer import Importer, ImportConfig, RowResult
 from .progress import ProgressReporter, NullReporter, JsonLinesReporter

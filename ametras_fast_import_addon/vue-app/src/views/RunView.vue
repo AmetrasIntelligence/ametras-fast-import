@@ -23,6 +23,9 @@ const session = useSessionStore()
 // Polling with exponential backoff on failure
 const BASE_POLL_INTERVAL = 500
 const MAX_POLL_INTERVAL = 10_000
+// Require this many consecutive poll failures before showing the offline banner.
+// A single slow response shouldn't flash a warning.
+const OFFLINE_THRESHOLD = 2
 let pollTimer: ReturnType<typeof setTimeout> | null = null
 let consecutivePollFailures = 0
 
@@ -148,6 +151,7 @@ async function pollProgress() {
         current_file: string
         errors: Array<{ filename: string; rowNumber: number; error: string }>
         is_dry_run: boolean
+        connection_status?: string
       }>({
         baseUrl: '',
         endpoint: '/ametras_fast_import/import/progress',
@@ -155,21 +159,19 @@ async function pollProgress() {
       })
 
       if (resp.ok && resp.result) {
+        consecutivePollFailures = 0
+        // connection_status from server sets run.connectionStatus via updateFromServer
         run.updateFromServer(resp.result)
-        if (consecutivePollFailures > 0) {
-          consecutivePollFailures = 0
-          run.connectionStatus = 'online'
-        }
         clearWatchdog()
       } else {
         // odoo.call resolves {ok: false} on network/timeout errors (doesn't throw)
         consecutivePollFailures++
-        run.connectionStatus = 'offline'
+        if (consecutivePollFailures >= OFFLINE_THRESHOLD) run.connectionStatus = 'offline'
         if (resp.error) logger.import.warn('Poll failed', { error: resp.error })
       }
     } catch (e) {
       consecutivePollFailures++
-      run.connectionStatus = 'offline'
+      if (consecutivePollFailures >= OFFLINE_THRESHOLD) run.connectionStatus = 'offline'
       logger.import.warn('Failed to poll progress', { error: (e as Error).message })
     }
   } else if (window.api?.python?.progress) {
@@ -177,10 +179,16 @@ async function pollProgress() {
     try {
       const messages = await window.api.python.progress()
       let gotProgress = false
+      let gotAnyMessage = false
       for (const msg of messages) {
         const m = msg as Record<string, unknown>
+        gotAnyMessage = true
         if (m.type === 'progress') {
           gotProgress = true
+          // Clear mitigation banner once we're making normal progress again
+          if (run.timeoutMitigationActive) {
+            run.setTimeoutMitigation(false)
+          }
           const total = (m.total as number) || 0
           const success = (m.success as number) || 0
           const failed = (m.failed as number) || 0
@@ -227,14 +235,19 @@ async function pollProgress() {
           }
           logger.import.info('Connection restored', { message: m.message || '' })
         } else if (m.type === 'notice') {
-          // Resilience operations (batch shrink, retry waits, budget exhausted,
-          // etc.) — these used to live in Python stderr only and were invisible.
           const code = (m.code as string) || 'unknown'
           const message = (m.message as string) || ''
           const details = (m.details as Record<string, unknown>) || {}
-          // Budget exhausted is an error; the rest are warnings.
           if (code === 'retry_budget_exhausted') {
             logger.import.error(`[${code}] ${message}`, details)
+            run.setTimeoutMitigation(false)
+          } else if (code === 'batch_shrunk' || code === 'waiting_for_retry' || code === 'safe_retry_timed_out') {
+            logger.import.warn(`[${code}] ${message}`, details)
+            run.setTimeoutMitigation(true, {
+              code,
+              batchSize: (details.batch_size as number) ?? undefined,
+              level: (details.level as number) ?? undefined,
+            })
           } else {
             logger.import.warn(`[${code}] ${message}`, details)
           }
@@ -256,6 +269,9 @@ async function pollProgress() {
       }
       // Record progress sample for ETA/throughput in Python mode
       run.recordProgressSample()
+      // Any message from Python counts as a heartbeat for stall detection
+      // (addon mode gets lastHeartbeat from the poll response instead)
+      if (gotAnyMessage) run.setHeartbeat(new Date().toISOString())
       clearWatchdog()
     } catch {
       // Ignore polling errors for local subprocess
@@ -824,6 +840,23 @@ onBeforeRouteLeave(
         </div>
         <div v-if="retryCountdown > 0" class="small text-body-secondary mt-1">
           {{ $t('run.retryingIn', { seconds: retryCountdown }) }}
+        </div>
+      </div>
+    </div>
+
+    <!-- Timeout Mitigation Banner -->
+    <div
+      v-if="run.timeoutMitigationActive && !run.isWaitingForConnection"
+      class="alert alert-info d-flex align-items-center gap-3 mb-0"
+      role="status"
+      aria-live="polite"
+    >
+      <div class="spinner-border spinner-border-sm text-info" role="status" aria-hidden="true"></div>
+      <div>
+        <strong>{{ $t('run.timeoutMitigation.title') }}</strong>
+        <div class="small">{{ $t('run.timeoutMitigation.detail') }}</div>
+        <div v-if="run.timeoutMitigationStatus?.batchSize" class="small text-body-secondary mt-1">
+          {{ $t('run.timeoutMitigation.batchSize', { size: run.timeoutMitigationStatus.batchSize }) }}
         </div>
       </div>
     </div>

@@ -30,6 +30,12 @@ export interface ImportRowError {
   timestamp: number
 }
 
+export interface TimeoutMitigationStatus {
+  code: string
+  batchSize?: number
+  level?: number
+}
+
 // ETA smoothing: sliding window of progress samples
 interface ProgressSample { time: number; progress: number }
 const MAX_SAMPLES = 20
@@ -63,6 +69,9 @@ export const useRunStore = defineStore('run', () => {
   const progressSamples = ref<ProgressSample[]>([])
   /** ISO timestamp of last server heartbeat. null before first poll. */
   const lastHeartbeat = ref<string | null>(null)
+
+  const timeoutMitigationActive = ref(false)
+  const timeoutMitigationStatus = ref<TimeoutMitigationStatus | null>(null)
 
   /**
    * Retry data for standalone mode: failed rows grouped by filename.
@@ -280,6 +289,15 @@ export const useRunStore = defineStore('run', () => {
     state.value = newState
   }
 
+  function setTimeoutMitigation(active: boolean, status: TimeoutMitigationStatus | null = null) {
+    timeoutMitigationActive.value = active
+    timeoutMitigationStatus.value = active ? status : null
+  }
+
+  function setHeartbeat(ts: string) {
+    lastHeartbeat.value = ts
+  }
+
   function reset() {
     state.value = ImportState.IDLE
     isDryRun.value = false
@@ -301,6 +319,8 @@ export const useRunStore = defineStore('run', () => {
     runStartTime.value = null
     isHistoricalLog.value = false
     retryRows.value = null
+    timeoutMitigationActive.value = false
+    timeoutMitigationStatus.value = null
   }
 
   /**
@@ -317,6 +337,7 @@ export const useRunStore = defineStore('run', () => {
     errors: Array<{ filename: string; rowNumber: number; error: string }>
     is_dry_run: boolean
     heartbeat?: string | null
+    connection_status?: string | null
   }) {
     // Map server state to ImportState enum
     const stateMap: Record<string, ImportState> = {
@@ -332,6 +353,9 @@ export const useRunStore = defineStore('run', () => {
     isDryRun.value = data.is_dry_run
     if (data.heartbeat !== undefined) {
       lastHeartbeat.value = data.heartbeat ?? null
+    }
+    if (data.connection_status) {
+      connectionStatus.value = data.connection_status as ConnectionStatus
     }
 
     // Update file progress
@@ -468,6 +492,10 @@ export const useRunStore = defineStore('run', () => {
     lastHeartbeat,
     isStalled,
     stallThresholdMs,
+    timeoutMitigationActive,
+    timeoutMitigationStatus,
+    setTimeoutMitigation,
+    setHeartbeat,
     initRun,
     startFile,
     updateFileProgress,

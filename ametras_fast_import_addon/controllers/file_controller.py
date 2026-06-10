@@ -43,15 +43,17 @@ class FileController(http.Controller):
             fname, checksum, size = self._stream_to_filestore(
                 request.env, uploaded.stream
             )
-            attachment = request.env["ir.attachment"].create({
-                "name": uploaded.filename,
-                "res_model": "ametras_fast_import.file",
-                "res_id": 0,
-                "type": "binary",
-                "store_fname": fname,
-                "file_size": size,
-                "checksum": checksum,
-            })
+            attachment = request.env["ir.attachment"].create(
+                {
+                    "name": uploaded.filename,
+                    "res_model": "ametras_fast_import.file",
+                    "res_id": 0,
+                    "type": "binary",
+                    "store_fname": fname,
+                    "file_size": size,
+                    "checksum": checksum,
+                }
+            )
         except OSError as exc:
             _logger.warning(
                 "Filestore stream write failed (%s); falling back to in-memory path",
@@ -60,19 +62,23 @@ class FileController(http.Controller):
             uploaded.stream.seek(0)
             content = uploaded.stream.read()
             size = len(content)
-            attachment = request.env["ir.attachment"].create({
-                "name": uploaded.filename,
-                "datas": base64.b64encode(content),
-                "res_model": "ametras_fast_import.file",
-                "res_id": 0,
-                "type": "binary",
-            })
+            attachment = request.env["ir.attachment"].create(
+                {
+                    "name": uploaded.filename,
+                    "datas": base64.b64encode(content),
+                    "res_model": "ametras_fast_import.file",
+                    "res_id": 0,
+                    "type": "binary",
+                }
+            )
 
-        return request.make_json_response({
-            "id": str(attachment.id),
-            "name": attachment.name,
-            "size": size,
-        })
+        return request.make_json_response(
+            {
+                "id": str(attachment.id),
+                "name": attachment.name,
+                "size": size,
+            }
+        )
 
     # ------------------------------------------------------------------
     # Read full content
@@ -173,7 +179,11 @@ class FileController(http.Controller):
         offset = int(offset)
         if isinstance(has_header, str):
             has_header = has_header.strip().lower() not in (
-                "0", "false", "no", "off", "",
+                "0",
+                "false",
+                "no",
+                "off",
+                "",
             )
         else:
             has_header = bool(has_header)
