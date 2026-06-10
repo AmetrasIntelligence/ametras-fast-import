@@ -22,14 +22,17 @@ const CLEANUP_INTERVAL_MS = 5 * 60 * 1000
 //
 // Authentication is the most server-side-expensive call (DB connect,
 // session create, module-graph touch), so it gets the longest budget —
-// cold-starting Odoo or instances with many modules can take 20-30s on
-// the first auth even though the network itself is healthy. 60s leaves
-// headroom while still failing fast on real DNS/refused errors (which
-// surface at the TCP layer in well under a second).
-const RPC_TIMEOUT_MS = 30_000       // 30s for general RPC calls
-const AUTH_TIMEOUT_MS = 60_000      // 60s for authentication
-const DB_LIST_TIMEOUT_MS = 30_000   // 30s for database listing (cold start)
-const HEALTH_CHECK_TIMEOUT_MS = 5_000 // 5s for server ping (health check)
+// cold-starting Odoo or instances with many modules can take well over
+// a minute on the first auth even though the network itself is healthy.
+// We err generously: real DNS/refused/TLS-handshake errors surface at
+// the TCP layer in well under a second, so a long upper bound mostly
+// protects users on flaky/cold servers without slowing the failure
+// path. If a customer's Odoo legitimately needs >3 min to authenticate
+// they have a server problem, not a client problem.
+const RPC_TIMEOUT_MS = 30_000          // 30s for general RPC calls
+const AUTH_TIMEOUT_MS = 180_000        // 180s for authentication
+const DB_LIST_TIMEOUT_MS = 60_000      // 60s for database listing (cold start)
+const HEALTH_CHECK_TIMEOUT_MS = 5_000  // 5s for server ping (health check)
 
 /**
  * Decide whether a thrown error is an AbortSignal.timeout firing.
