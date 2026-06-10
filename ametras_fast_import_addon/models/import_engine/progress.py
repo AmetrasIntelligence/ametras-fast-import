@@ -11,10 +11,15 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 from .constants import (
-    PROGRESS_TYPE_FILE_START, PROGRESS_TYPE_PROGRESS,
-    PROGRESS_TYPE_FILE_DONE, PROGRESS_TYPE_DONE, PROGRESS_TYPE_ERROR,
-    PROGRESS_TYPE_BATCH_ERRORS, PROGRESS_TYPE_CONNECTION_LOST,
-    PROGRESS_TYPE_CONNECTION_RESTORED, PROGRESS_TYPE_NOTICE,
+    PROGRESS_TYPE_BATCH_ERRORS,
+    PROGRESS_TYPE_CONNECTION_LOST,
+    PROGRESS_TYPE_CONNECTION_RESTORED,
+    PROGRESS_TYPE_DONE,
+    PROGRESS_TYPE_ERROR,
+    PROGRESS_TYPE_FILE_DONE,
+    PROGRESS_TYPE_FILE_START,
+    PROGRESS_TYPE_NOTICE,
+    PROGRESS_TYPE_PROGRESS,
 )
 
 
@@ -22,12 +27,13 @@ class ProgressReporter(ABC):
     """Abstract progress reporter."""
 
     @abstractmethod
-    def row_completed(self, row_index: int, ok: bool, error: str = '') -> None:
+    def row_completed(self, row_index: int, ok: bool, error: str = "") -> None:
         """Called after each row is processed."""
 
     @abstractmethod
-    def batch_completed(self, processed: int, total: int,
-                        success: int, failed: int) -> None:
+    def batch_completed(
+        self, processed: int, total: int, success: int, failed: int
+    ) -> None:
         """Called after each batch is processed."""
 
     @abstractmethod
@@ -68,11 +74,12 @@ class ProgressReporter(ABC):
 class NullReporter(ProgressReporter):
     """No-op reporter for addon mode (Vue handles progress via HTTP)."""
 
-    def row_completed(self, row_index: int, ok: bool, error: str = '') -> None:
+    def row_completed(self, row_index: int, ok: bool, error: str = "") -> None:
         pass
 
-    def batch_completed(self, processed: int, total: int,
-                        success: int, failed: int) -> None:
+    def batch_completed(
+        self, processed: int, total: int, success: int, failed: int
+    ) -> None:
         pass
 
     def file_started(self, filename: str, total_rows: int) -> None:
@@ -114,55 +121,62 @@ class JsonLinesReporter(ProgressReporter):
         self._stream = stream or sys.stdout
 
     def _emit(self, data: dict) -> None:
-        self._stream.write(json.dumps(data, ensure_ascii=False) + '\n')
+        self._stream.write(json.dumps(data, ensure_ascii=False) + "\n")
         self._stream.flush()
 
-    def row_completed(self, row_index: int, ok: bool, error: str = '') -> None:
+    def row_completed(self, row_index: int, ok: bool, error: str = "") -> None:
         pass  # Too noisy per-row; batch reporting is sufficient
 
-    def batch_completed(self, processed: int, total: int,
-                        success: int, failed: int) -> None:
-        self._emit({
-            'type': PROGRESS_TYPE_PROGRESS,
-            'processed': processed,
-            'total': total,
-            'success': success,
-            'failed': failed,
-        })
+    def batch_completed(
+        self, processed: int, total: int, success: int, failed: int
+    ) -> None:
+        self._emit(
+            {
+                "type": PROGRESS_TYPE_PROGRESS,
+                "processed": processed,
+                "total": total,
+                "success": success,
+                "failed": failed,
+            }
+        )
 
     def file_started(self, filename: str, total_rows: int) -> None:
-        self._emit({
-            'type': PROGRESS_TYPE_FILE_START,
-            'filename': filename,
-            'total_rows': total_rows,
-        })
+        self._emit(
+            {
+                "type": PROGRESS_TYPE_FILE_START,
+                "filename": filename,
+                "total_rows": total_rows,
+            }
+        )
 
     def file_completed(self, filename: str, success: int, failed: int) -> None:
-        self._emit({
-            'type': PROGRESS_TYPE_FILE_DONE,
-            'filename': filename,
-            'success': success,
-            'failed': failed,
-        })
+        self._emit(
+            {
+                "type": PROGRESS_TYPE_FILE_DONE,
+                "filename": filename,
+                "success": success,
+                "failed": failed,
+            }
+        )
 
     def import_completed(self, summary: dict) -> None:
-        self._emit({'type': PROGRESS_TYPE_DONE, **summary})
+        self._emit({"type": PROGRESS_TYPE_DONE, **summary})
 
     def error(self, message: str) -> None:
-        self._emit({'type': PROGRESS_TYPE_ERROR, 'message': message})
+        self._emit({"type": PROGRESS_TYPE_ERROR, "message": message})
 
     def emit_errors(self, errors: list) -> None:
         if errors:
-            self._emit({'type': PROGRESS_TYPE_BATCH_ERRORS, 'errors': errors})
+            self._emit({"type": PROGRESS_TYPE_BATCH_ERRORS, "errors": errors})
 
     def connection_lost(self, message: str) -> None:
-        self._emit({'type': PROGRESS_TYPE_CONNECTION_LOST, 'message': message})
+        self._emit({"type": PROGRESS_TYPE_CONNECTION_LOST, "message": message})
 
     def connection_restored(self, message: str) -> None:
-        self._emit({'type': PROGRESS_TYPE_CONNECTION_RESTORED, 'message': message})
+        self._emit({"type": PROGRESS_TYPE_CONNECTION_RESTORED, "message": message})
 
     def notice(self, code: str, message: str, **details) -> None:
-        payload = {'type': PROGRESS_TYPE_NOTICE, 'code': code, 'message': message}
+        payload = {"type": PROGRESS_TYPE_NOTICE, "code": code, "message": message}
         if details:
-            payload['details'] = details
+            payload["details"] = details
         self._emit(payload)

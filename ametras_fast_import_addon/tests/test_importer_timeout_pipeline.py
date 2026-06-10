@@ -5,18 +5,18 @@ Uses a fake backend that raises TransportError deterministically to test
 shrink-on-timeout, exponential backoff, and idempotency guard.
 Run with: python3 -m pytest ametras_fast_import_addon/tests/test_importer_timeout_pipeline.py
 """
-import sys
 import os
-import time
-from unittest.mock import MagicMock, patch
+import sys
+from unittest.mock import patch
 
-_engine_path = os.path.join(os.path.dirname(__file__), '..', 'models')
+_engine_path = os.path.join(os.path.dirname(__file__), "..", "models")
 if _engine_path not in sys.path:
     sys.path.insert(0, os.path.abspath(_engine_path))
 
 import unittest
-from import_engine.backend import OdooBackend, FieldInfo, TransportError
-from import_engine.importer import Importer, ImportConfig, RowResult
+
+from import_engine.backend import FieldInfo, OdooBackend, TransportError
+from import_engine.importer import ImportConfig, Importer
 from import_engine.parser import ParsedRow
 
 
@@ -24,7 +24,9 @@ def make_rows(n: int, with_id: bool = True) -> list:
     return [
         ParsedRow(
             index=i,
-            data=dict({'name': f'Test{i}'}, id=f'mod.rec{i}') if with_id else {'name': f'Test{i}'}
+            data=dict({"name": f"Test{i}"}, id=f"mod.rec{i}")
+            if with_id
+            else {"name": f"Test{i}"},
         )
         for i in range(1, n + 1)
     ]
@@ -37,7 +39,10 @@ class FakeRpcBackend(OdooBackend):
         self.fail_indices = fail_indices
         self._call_count = 0
         self.create_calls = []
-        self._fields = {'name': FieldInfo('name', 'char'), 'id': FieldInfo('id', 'char')}
+        self._fields = {
+            "name": FieldInfo("name", "char"),
+            "id": FieldInfo("id", "char"),
+        }
 
     def search(self, model, domain, fields=None, limit=None):
         return []
@@ -63,11 +68,11 @@ class FakeRpcBackend(OdooBackend):
 
 
 def make_config(batch_size=10, with_id=True) -> ImportConfig:
-    mappings = {'name': 'name'}
+    mappings = {"name": "name"}
     if with_id:
-        mappings['id'] = 'id'
+        mappings["id"] = "id"
     return ImportConfig(
-        model='res.partner',
+        model="res.partner",
         field_mappings=mappings,
         batch_size=batch_size,
     )
@@ -75,7 +80,7 @@ def make_config(batch_size=10, with_id=True) -> ImportConfig:
 
 def run_retry(importer: Importer, rows: list):
     """Call _import_sequential_with_retry; returns (success, failed, error_rows)."""
-    with patch('time.sleep'):
+    with patch("time.sleep"):
         all_errors = []
         success, failed = importer._import_sequential_with_retry(
             importer._iter_batches(iter(rows), importer.config.batch_size),
@@ -120,7 +125,7 @@ class TestIdempotencyGuard(unittest.TestCase):
 
         rows = make_rows(2, with_id=False)
 
-        with patch('time.sleep'):
+        with patch("time.sleep"):
             all_errors = []
             importer._import_sequential_with_retry(
                 importer._iter_batches(iter(rows), importer.config.batch_size),
@@ -128,7 +133,7 @@ class TestIdempotencyGuard(unittest.TestCase):
                 len(rows),
             )
 
-        idm_errors = [r for r in all_errors if 'safe retry skipped' in (r.error or '')]
+        idm_errors = [r for r in all_errors if "safe retry skipped" in (r.error or "")]
         self.assertGreaterEqual(len(idm_errors), 1)
 
     def test_safe_rows_retried_after_timeout(self):
@@ -147,9 +152,9 @@ class TestIdempotencyGuard(unittest.TestCase):
         config = make_config(batch_size=1, with_id=True)
         importer = Importer(backend, config)
 
-        rows = [ParsedRow(index=1, data={'name': 'A', 'id': 'mod.recA'})]
+        rows = [ParsedRow(index=1, data={"name": "A", "id": "mod.recA"})]
 
-        with patch('time.sleep'):
+        with patch("time.sleep"):
             all_errors = []
             success, failed = importer._import_sequential_with_retry(
                 importer._iter_batches(iter(rows), importer.config.batch_size),
@@ -174,16 +179,19 @@ class TestBudgetEnforcement(unittest.TestCase):
         config = make_config(batch_size=1, with_id=True)
         importer = Importer(backend, config)
 
-        rows = [ParsedRow(index=1, data={'name': 'A', 'id': 'mod.recA'})]
+        rows = [ParsedRow(index=1, data={"name": "A", "id": "mod.recA"})]
 
-        with patch('time.sleep'), \
-             patch('time.monotonic', side_effect=[
-                 0,                                        # budget_start
-                 0,                                        # 1st elapsed check — not exhausted
-                 0,                                        # sleep_start
-                 2.0,                                      # sleep-loop exit (2.0 - 0 >= 1.0)
-                 STANDALONE_TIMEOUT_RETRY_BUDGET_SECONDS + 1,  # 2nd elapsed check — exhausted
-             ]):
+        with patch("time.sleep"), patch(
+            "time.monotonic",
+            side_effect=[
+                0,  # budget_start
+                0,  # 1st elapsed check — not exhausted
+                0,  # sleep_start
+                2.0,  # sleep-loop exit (2.0 - 0 >= 1.0)
+                STANDALONE_TIMEOUT_RETRY_BUDGET_SECONDS
+                + 1,  # 2nd elapsed check — exhausted
+            ],
+        ):
             all_errors = []
             success, failed = importer._import_sequential_with_retry(
                 importer._iter_batches(iter(rows), importer.config.batch_size),
@@ -193,8 +201,8 @@ class TestBudgetEnforcement(unittest.TestCase):
 
         self.assertEqual(len(all_errors), 1)
         self.assertFalse(all_errors[0].ok)
-        self.assertIn('budget exhausted', all_errors[0].error.lower())
+        self.assertIn("budget exhausted", all_errors[0].error.lower())
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

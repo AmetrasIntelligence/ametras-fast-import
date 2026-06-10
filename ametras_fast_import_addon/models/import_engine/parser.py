@@ -9,18 +9,22 @@ from __future__ import annotations
 import csv
 import io
 from dataclasses import dataclass
-from typing import Callable, Iterator, Optional
+from typing import Callable, Iterator
 
 from .constants import (
-    DEFAULT_DELIMITER, DEFAULT_ENCODING, SUPPORTED_DELIMITERS,
-    DELIMITER_DETECTION_SAMPLE_SIZE, FILE_ANALYSIS_SAMPLE_SIZE,
+    DEFAULT_DELIMITER,
+    DEFAULT_ENCODING,
+    DELIMITER_DETECTION_SAMPLE_SIZE,
+    FILE_ANALYSIS_SAMPLE_SIZE,
     SAMPLE_ROW_COUNT,
+    SUPPORTED_DELIMITERS,
 )
 
 
 @dataclass
 class ParsedRow:
     """A single parsed CSV row with its 1-based index."""
+
     index: int
     data: dict[str, str]
 
@@ -28,6 +32,7 @@ class ParsedRow:
 @dataclass
 class ParseOptions:
     """CSV parsing options."""
+
     delimiter: str = DEFAULT_DELIMITER
     encoding: str = DEFAULT_ENCODING
     has_header: bool = True
@@ -36,12 +41,12 @@ class ParseOptions:
 def _open_file(file_path: str, encoding: str = DEFAULT_ENCODING):
     """Open a CSV file with BOM handling and error tolerance."""
     # utf-8-sig handles UTF-8 BOM automatically
-    if encoding in ('utf-8', 'utf-8-sig'):
-        return open(file_path, newline='', encoding='utf-8-sig', errors='replace')
-    return open(file_path, newline='', encoding=encoding, errors='replace')
+    if encoding in ("utf-8", "utf-8-sig"):
+        return open(file_path, newline="", encoding="utf-8-sig", errors="replace")
+    return open(file_path, newline="", encoding=encoding, errors="replace")
 
 
-def _detect_delimiter(sample: str, preferred: str = '') -> str:
+def _detect_delimiter(sample: str, preferred: str = "") -> str:
     """
     Auto-detect CSV delimiter from a sample of the file.
 
@@ -50,7 +55,7 @@ def _detect_delimiter(sample: str, preferred: str = '') -> str:
     """
     if preferred:
         return preferred
-    first_line = sample.split('\n', 1)[0]
+    first_line = sample.split("\n", 1)[0]
     candidates = {d: 0 for d in SUPPORTED_DELIMITERS}
     for char in first_line:
         if char in candidates:
@@ -62,7 +67,7 @@ def _detect_delimiter(sample: str, preferred: str = '') -> str:
 
 def parse_csv_file(
     file_path: str,
-    options: Optional[ParseOptions] = None,
+    options: ParseOptions | None = None,
 ) -> Iterator[ParsedRow]:
     """
     Stream rows from a CSV file path.
@@ -84,7 +89,7 @@ def parse_csv_file(
             reader = csv.DictReader(f, delimiter=detected)
             for idx, row in enumerate(reader, start=1):
                 data = {k.strip(): v for k, v in row.items() if k is not None}
-                if not any(v for v in data.values() if v is not None and v != ''):
+                if not any(v for v in data.values() if v is not None and v != ""):
                     continue  # skip blank/empty lines (mirrors PapaParse skipEmptyLines)
                 yield ParsedRow(index=idx, data=data)
         else:
@@ -98,7 +103,7 @@ def parse_csv_file(
 
 def parse_csv_string(
     content: str,
-    options: Optional[ParseOptions] = None,
+    options: ParseOptions | None = None,
 ) -> Iterator[ParsedRow]:
     """
     Stream rows from a CSV string.
@@ -115,7 +120,7 @@ def parse_csv_string(
         reader = csv.DictReader(io.StringIO(content), delimiter=delimiter)
         for idx, row in enumerate(reader, start=1):
             data = {k.strip(): v for k, v in row.items() if k is not None}
-            if not any(v for v in data.values() if v is not None and v != ''):
+            if not any(v for v in data.values() if v is not None and v != ""):
                 continue  # skip blank/empty lines
             yield ParsedRow(index=idx, data=data)
     else:
@@ -130,7 +135,7 @@ def parse_csv_string(
 def parse_csv_batched(
     source: Iterator[ParsedRow],
     batch_size: int,
-    on_batch: Optional[Callable] = None,
+    on_batch: Callable | None = None,
 ) -> list:
     """
     Collect rows from a source into batches.
@@ -193,7 +198,7 @@ def count_csv_rows(
 def analyze_csv(
     content: str,
     encoding: str = DEFAULT_ENCODING,
-    delimiter: str = '',
+    delimiter: str = "",
 ) -> dict:
     """
     Analyze CSV content: detect headers, delimiter, sample rows, row count.
@@ -217,19 +222,19 @@ def analyze_csv(
     sample = [r.data for r in rows[:SAMPLE_ROW_COUNT]]
 
     return {
-        'headers': headers,
-        'rowCount': len(rows),
-        'sampleRows': sample,
-        'delimiter': detected,
-        'hasIdColumn': 'id' in headers,
-        'hasDotIdColumn': '.id' in headers,
+        "headers": headers,
+        "rowCount": len(rows),
+        "sampleRows": sample,
+        "delimiter": detected,
+        "hasIdColumn": "id" in headers,
+        "hasDotIdColumn": ".id" in headers,
     }
 
 
 def analyze_csv_file(
     file_path: str,
     encoding: str = DEFAULT_ENCODING,
-    delimiter: str = '',
+    delimiter: str = "",
 ) -> dict:
     """
     Analyze a CSV file from disk (Electron subprocess mode).
@@ -249,19 +254,19 @@ def analyze_csv_file(
     row_count = count_csv_rows(file_path, encoding, has_header=True)
 
     return {
-        'headers': headers,
-        'rowCount': row_count,
-        'sampleRows': preview,
-        'delimiter': detected,
-        'hasIdColumn': 'id' in headers,
-        'hasDotIdColumn': '.id' in headers,
+        "headers": headers,
+        "rowCount": row_count,
+        "sampleRows": preview,
+        "delimiter": detected,
+        "hasIdColumn": "id" in headers,
+        "hasDotIdColumn": ".id" in headers,
     }
 
 
 def extract_rows_by_index(
     file_path: str,
     indices: set[int],
-    options: Optional[ParseOptions] = None,
+    options: ParseOptions | None = None,
 ) -> list[ParsedRow]:
     """
     Extract specific rows by their 1-based index.

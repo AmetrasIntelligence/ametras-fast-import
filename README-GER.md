@@ -2,10 +2,13 @@
 
 Sprache: **[EN](README.md)** | **[DE](README-GER.md)**
 
-Ametras Fast Import ist eine **eigenstaendige Desktop-Anwendung** fuer den Import grosser CSV-Dateien in Odoo. Die App laeuft als Electron-Anwendung auf Ihrem Computer und verbindet sich direkt ueber das Netzwerk mit einem beliebigen Odoo 16+-Server.
+Ametras Fast Import ist eine **eigenstaendige Desktop-Anwendung** fuer den Import
+grosser CSV-Dateien in Odoo. Die App laeuft als Electron-Anwendung auf Ihrem Computer
+und verbindet sich direkt ueber das Netzwerk mit einem beliebigen Odoo 16+-Server.
 
-> **Dies ist kein Odoo-Addon.**
-> Auf Ihrem Odoo-Server wird nichts installiert. Die App laeuft vollstaendig auf Ihrem Desktop und kommuniziert mit Odoo ueber die Standard-JSON-RPC-API.
+> **Dies ist kein Odoo-Addon.** Auf Ihrem Odoo-Server wird nichts installiert. Die App
+> laeuft vollstaendig auf Ihrem Desktop und kommuniziert mit Odoo ueber die
+> Standard-JSON-RPC-API.
 
 ## Was Sie benoetigen
 
@@ -22,7 +25,8 @@ Installieren Sie das App-Paket, das Ihr Team bereitstellt:
 - **Windows**: `.exe`
 - **Linux**: `.AppImage`
 
-Die App ist aktuell **nicht von Apple/Microsoft code-signiert**, daher koennen macOS und Windows den ersten Start blockieren.
+Die App ist aktuell **nicht von Apple/Microsoft code-signiert**, daher koennen macOS und
+Windows den ersten Start blockieren.
 
 ### macOS: "App can't be opened" / "developer cannot be verified"
 
@@ -72,7 +76,8 @@ Tipps:
 Oben in Import:
 
 - **Profile tab**: bestehendes Import-Profil auswaehlen (optional).
-- **Settings tab**: Import-Verhalten konfigurieren (siehe Abschnitt Einstellungen unten).
+- **Settings tab**: Import-Verhalten konfigurieren (siehe Abschnitt Einstellungen
+  unten).
 
 ### 3) Jede Datei konfigurieren
 
@@ -118,16 +123,19 @@ In `Import -> Settings`:
 - **Delimiter**: Komma, Semikolon, Tab oder Auto-Erkennung.
 - **Skip header row**: standardmaessig aktiv fuer uebliche CSV-Dateien.
 
-Die Standardwerte sind fuer die meisten Importe geeignet. Passen Sie **Batch Size** nur an, wenn Sie ein anderes Performance-Verhalten benoetigen.
+Die Standardwerte sind fuer die meisten Importe geeignet. Passen Sie **Batch Size** nur
+an, wenn Sie ein anderes Performance-Verhalten benoetigen.
 
 ## Profile
 
-Profile helfen dabei, Import-Konfigurationen wiederzuverwenden (Modellzuordnung, Feldzuordnung, Reihenfolge, Einstellungen).
+Profile helfen dabei, Import-Konfigurationen wiederzuverwenden (Modellzuordnung,
+Feldzuordnung, Reihenfolge, Einstellungen).
 
 ### In `Import` erstellen oder aktualisieren
 
 - **Save as New Profile**: aktuelle Konfiguration als neues Profil speichern.
-- **Update Profile**: das ausgewaehlte Profil mit den aktuellen Aenderungen aktualisieren.
+- **Update Profile**: das ausgewaehlte Profil mit den aktuellen Aenderungen
+  aktualisieren.
 
 ### In `Profiles` verwalten
 
@@ -145,6 +153,11 @@ Wichtig:
 
 ## Fehlerbehebung
 
-- **Verbindung schlaegt fehl**: Host, Port, SSL, Datenbank, Username und Password erneut pruefen. Login zuerst in der normalen Odoo-Weboberflaeche testen.
-- **Viele Zeilenfehler**: Delimiter und Encoding pruefen. Feldzuordnungen und Pflichtfelder erneut pruefen. Fehlgeschlagene Zeilen exportieren und nur korrigierte Zeilen erneut importieren.
-- **Profil wird nicht wie erwartet angewendet**: Sicherstellen, dass CSV-Dateinamen zu den erwarteten Profil-Dateinamen passen. Mapping und Import-Reihenfolge in der Profiles-Seite pruefen.
+- **Verbindung schlaegt fehl**: Host, Port, SSL, Datenbank, Username und Password erneut
+  pruefen. Login zuerst in der normalen Odoo-Weboberflaeche testen.
+- **Viele Zeilenfehler**: Delimiter und Encoding pruefen. Feldzuordnungen und
+  Pflichtfelder erneut pruefen. Fehlgeschlagene Zeilen exportieren und nur korrigierte
+  Zeilen erneut importieren.
+- **Profil wird nicht wie erwartet angewendet**: Sicherstellen, dass CSV-Dateinamen zu
+  den erwarteten Profil-Dateinamen passen. Mapping und Import-Reihenfolge in der
+  Profiles-Seite pruefen.

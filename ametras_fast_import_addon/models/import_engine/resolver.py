@@ -14,18 +14,25 @@ from collections import defaultdict
 from typing import Any
 
 from .constants import (
-    STANDARD_DB_ID_MODELS, DEFAULT_IMPORT_MODULE,
-    FIELD_EXTERNAL_ID, FIELD_OPERATION, FIELD_ID,
+    DEFAULT_IMPORT_MODULE,
+    FIELD_EXTERNAL_ID,
+    FIELD_ID,
+    FIELD_OPERATION,
     MODEL_IR_MODEL_DATA,
+    STANDARD_DB_ID_MODELS,
 )
 
 _logger = logging.getLogger(__name__)
 
 # Re-export for backward compatibility
 __all__ = [
-    'STANDARD_DB_ID_MODELS',
-    'is_external_id', 'parse_refs', 'normalize_ext_id', 'lookup_ref',
-    'prefetch_references', 'resolve_row',
+    "STANDARD_DB_ID_MODELS",
+    "is_external_id",
+    "parse_refs",
+    "normalize_ext_id",
+    "lookup_ref",
+    "prefetch_references",
+    "resolve_row",
 ]
 
 
@@ -51,7 +58,7 @@ def parse_refs(value: str | None) -> list[str]:
     """
     if not value:
         return []
-    delimiter = '|' if '|' in value else ','
+    delimiter = "|" if "|" in value else ","
     return [x.strip() for x in value.split(delimiter) if x.strip()]
 
 
@@ -63,8 +70,8 @@ def normalize_ext_id(value: str) -> tuple[str, str]:
     - "name" -> ("__import__", "name")
     """
     value = value.strip()
-    if '.' in value:
-        module, name = value.split('.', 1)
+    if "." in value:
+        module, name = value.split(".", 1)
         return (module, name)
     return (DEFAULT_IMPORT_MODULE, value)
 
@@ -78,9 +85,7 @@ def lookup_ref(model_name: str, value: str, ref_map: dict) -> int:
     module, name = normalize_ext_id(value)
     key = (model_name, module, name)
     if key not in ref_map:
-        raise ValueError(
-            f"External ID '{value}' not found for model {model_name}"
-        )
+        raise ValueError(f"External ID '{value}' not found for model {model_name}")
     return ref_map[key]
 
 
@@ -117,11 +122,11 @@ def prefetch_references(
 
             field = field_info[field_name]
 
-            if field.type == 'many2one' and isinstance(value, str):
+            if field.type == "many2one" and isinstance(value, str):
                 if is_external_id(value):
                     refs_by_model[field.comodel_name].add(value)
 
-            elif field.type == 'many2many' and isinstance(value, str):
+            elif field.type == "many2many" and isinstance(value, str):
                 if is_external_id(value):
                     for ref in parse_refs(value):
                         refs_by_model[field.comodel_name].add(ref)
@@ -136,15 +141,15 @@ def prefetch_references(
         imd_records = backend.search_read(
             MODEL_IR_MODEL_DATA,
             [
-                ('model', '=', target_model),
-                ('module', 'in', modules),
-                ('name', 'in', names),
+                ("model", "=", target_model),
+                ("module", "in", modules),
+                ("name", "in", names),
             ],
-            ['module', 'name', 'res_id'],
+            ["module", "name", "res_id"],
         )
 
         for imd in imd_records:
-            ref_map[(target_model, imd['module'], imd['name'])] = imd['res_id']
+            ref_map[(target_model, imd["module"], imd["name"])] = imd["res_id"]
 
     return ref_map
 
@@ -191,11 +196,9 @@ def resolve_row(
         field = field_info[field_name]
 
         # Many2One field resolution
-        if field.type == 'many2one':
+        if field.type == "many2one":
             if isinstance(value, str) and is_external_id(value):
-                resolved[field_name] = lookup_ref(
-                    field.comodel_name, value, ref_map
-                )
+                resolved[field_name] = lookup_ref(field.comodel_name, value, ref_map)
             elif isinstance(value, int):
                 # Integer value = database ID (from /.id mapping).
                 # Accept for all models — the user explicitly opted in
@@ -214,13 +217,10 @@ def resolve_row(
                 resolved[field_name] = value
 
         # Many2Many field resolution
-        elif field.type == 'many2many':
+        elif field.type == "many2many":
             if isinstance(value, str) and is_external_id(value):
                 refs = parse_refs(value)
-                ids = [
-                    lookup_ref(field.comodel_name, ref, ref_map)
-                    for ref in refs
-                ]
+                ids = [lookup_ref(field.comodel_name, ref, ref_map) for ref in refs]
                 resolved[field_name] = [(6, 0, ids)]
             elif isinstance(value, list):
                 resolved[field_name] = value

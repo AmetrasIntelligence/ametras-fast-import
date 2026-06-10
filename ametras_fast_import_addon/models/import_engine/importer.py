@@ -18,30 +18,47 @@ import time as _time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace as dc_replace
-from typing import Callable, Iterator, Optional
+from typing import Callable, Iterator
 
-from .backend import OdooBackend, FieldInfo, TransportError
+from .backend import FieldInfo, OdooBackend, TransportError
 from .constants import (
-    DEFAULT_BATCH_SIZE, MIN_BATCH_SIZE, MAX_BATCH_SIZE,
-    MIN_WORKERS, MAX_WORKERS, DEFAULT_WORKERS,
-    DEFAULT_IMPORT_MODULE, MODEL_IR_MODEL_DATA,
-    FIELD_EXTERNAL_ID, FIELD_OPERATION, FIELD_ID,
-    OP_CREATE, OP_UPDATE, OP_SKIP, VALID_OPERATIONS,
-    STRATEGY_EXTERNAL_ID, STRATEGY_SEARCH_KEYS, STRATEGY_DB_ID,
-    STRATEGY_CREATE, STRATEGY_EXPLICIT_OP,
+    DEFAULT_BATCH_SIZE,
+    DEFAULT_IMPORT_MODULE,
+    FIELD_EXTERNAL_ID,
+    FIELD_ID,
+    FIELD_OPERATION,
+    MAX_WORKERS,
+    MIN_WORKERS,
+    MODEL_IR_MODEL_DATA,
+    NOTICE_BATCH_SHRUNK,
+    NOTICE_RETRY_BUDGET_EXHAUSTED,
+    NOTICE_SAFE_RETRY_TIMED_OUT,
+    NOTICE_UNSAFE_ROWS_SKIPPED,
+    NOTICE_WAITING_FOR_RETRY,
+    OP_CREATE,
+    OP_SKIP,
+    OP_UPDATE,
     STANDALONE_POST_TIMEOUT_SUCCESS_THRESHOLD,
     STANDALONE_TIMEOUT_RETRY_BUDGET_SECONDS,
-    TIMEOUT_RETRY_BASE_DELAY, TIMEOUT_RETRY_MAX_DELAY,
-    NOTICE_BATCH_SHRUNK, NOTICE_UNSAFE_ROWS_SKIPPED,
-    NOTICE_RETRY_BUDGET_EXHAUSTED, NOTICE_WAITING_FOR_RETRY,
-    NOTICE_SAFE_RETRY_TIMED_OUT,
+    STRATEGY_CREATE,
+    STRATEGY_DB_ID,
+    STRATEGY_EXPLICIT_OP,
+    STRATEGY_EXTERNAL_ID,
+    STRATEGY_SEARCH_KEYS,
+    TIMEOUT_RETRY_BASE_DELAY,
+    TIMEOUT_RETRY_MAX_DELAY,
+    VALID_OPERATIONS,
 )
-from .transformer import transform_row_data
-from .resolver import prefetch_references, resolve_row
 from .parser import (
-    ParsedRow, ParseOptions, parse_csv_file, parse_csv_batched, count_csv_rows,
+    ParsedRow,
+    ParseOptions,
+    count_csv_rows,
+    parse_csv_batched,
+    parse_csv_file,
 )
-from .progress import ProgressReporter, NullReporter
+from .progress import NullReporter, ProgressReporter
+from .resolver import prefetch_references, resolve_row
+from .transformer import transform_row_data
 
 _logger = logging.getLogger(__name__)
 
@@ -53,10 +70,11 @@ class _DryRunRollback(Exception):
 @dataclass
 class ImportConfig:
     """Configuration for an import run."""
+
     model: str
     field_mappings: dict  # CSV column -> Odoo field
     use_external_id: bool = False
-    search_keys: Optional[list[str]] = None
+    search_keys: list[str] | None = None
     dry_run: bool = False
     strict: bool = False
     batch_size: int = DEFAULT_BATCH_SIZE
@@ -65,13 +83,14 @@ class ImportConfig:
 @dataclass
 class RowResult:
     """Result of importing a single row."""
+
     ok: bool
     row_index: int
-    error: Optional[str] = None
-    record_id: Optional[int] = None
-    external_id: Optional[str] = None
-    action: Optional[str] = None  # 'created', 'updated', 'skipped'
-    strategy: Optional[str] = None
+    error: str | None = None
+    record_id: int | None = None
+    external_id: str | None = None
+    action: str | None = None  # 'created', 'updated', 'skipped'
+    strategy: str | None = None
     dry_run: bool = False
 
 
@@ -83,10 +102,11 @@ class ImportFileSummary:
     successes are never accumulated in memory — only the (typically small)
     failure set is kept.
     """
+
     success: int
     failed: int
-    errors: list[RowResult]           # only failed rows
-    file_error: Optional[str] = None  # whole-file error (bad config, access denied)
+    errors: list[RowResult]  # only failed rows
+    file_error: str | None = None  # whole-file error (bad config, access denied)
 
 
 class Importer:
@@ -104,14 +124,18 @@ class Importer:
         summary = importer.import_csv_file('/path/to/file.csv', workers=4)
     """
 
-    def __init__(self, backend: OdooBackend, config: ImportConfig,
-                 reporter: Optional[ProgressReporter] = None,
-                 cancel_check: Optional[Callable[[], bool]] = None):
+    def __init__(
+        self,
+        backend: OdooBackend,
+        config: ImportConfig,
+        reporter: ProgressReporter | None = None,
+        cancel_check: Callable[[], bool] | None = None,
+    ):
         self.backend = backend
         self.config = config
         self.reporter = reporter or NullReporter()
         self.cancel_check = cancel_check
-        self._field_info_cache: Optional[dict[str, FieldInfo]] = None
+        self._field_info_cache: dict[str, FieldInfo] | None = None
         self._cancelled = False
 
     def _get_field_info(self) -> dict[str, FieldInfo]:
@@ -160,8 +184,7 @@ class Importer:
             )
         except ValueError as e:
             return [
-                RowResult(ok=False, row_index=t[0], error=str(e))
-                for t in transformed
+                RowResult(ok=False, row_index=t[0], error=str(e)) for t in transformed
             ]
 
         # 3. Import row by row with savepoints
@@ -171,7 +194,7 @@ class Importer:
                 row_index, row_data, field_info, ref_map
             )
             results.append(result)
-            self.reporter.row_completed(row_index, result.ok, result.error or '')
+            self.reporter.row_completed(row_index, result.ok, result.error or "")
 
         return results
 
@@ -189,7 +212,7 @@ class Importer:
     def import_csv_file(
         self,
         file_path: str,
-        options: Optional[ParseOptions] = None,
+        options: ParseOptions | None = None,
         workers: int = 1,
     ) -> ImportFileSummary:
         """
@@ -209,6 +232,7 @@ class Importer:
             ImportFileSummary with counts and only the failed RowResults.
         """
         import os
+
         opts = options or ParseOptions()
         workers = max(MIN_WORKERS, min(MAX_WORKERS, workers))
 
@@ -216,8 +240,8 @@ class Importer:
         filename = os.path.basename(file_path)
         self.reporter.file_started(filename, total_rows)
 
-        self.backend.check_access_rights(self.config.model, 'create')
-        self.backend.check_access_rights(self.config.model, 'write')
+        self.backend.check_access_rights(self.config.model, "create")
+        self.backend.check_access_rights(self.config.model, "write")
 
         if self.config.search_keys:
             field_info = self._get_field_info()
@@ -225,13 +249,16 @@ class Importer:
                 if key not in field_info:
                     error = f"Search key '{key}' not found on model {self.config.model}"
                     self.reporter.error(error)
-                    return ImportFileSummary(success=0, failed=0, errors=[], file_error=error)
+                    return ImportFileSummary(
+                        success=0, failed=0, errors=[], file_error=error
+                    )
 
         all_errors: list[RowResult] = []
         success = 0
         failed = 0
 
         from .backend import RpcBackend  # local import avoids circular dependency
+
         is_rpc = isinstance(self.backend, RpcBackend)
 
         source = parse_csv_file(file_path, opts)
@@ -259,9 +286,9 @@ class Importer:
                     self.reporter.batch_completed(
                         success + failed, total_rows, success, failed
                     )
-                    self.reporter.emit_errors([
-                        {'row': r.row_index, 'error': r.error} for r in errs
-                    ])
+                    self.reporter.emit_errors(
+                        [{"row": r.row_index, "error": r.error} for r in errs]
+                    )
 
                 parse_csv_batched(source, self.config.batch_size, process_batch)
         else:
@@ -293,9 +320,10 @@ class Importer:
                     self.reporter.batch_completed(
                         success + failed, total_rows, success, failed
                     )
-                    self.reporter.emit_errors([
-                        {'row': r.row_index, 'error': r.error} for r in errs
-                    ])
+                    self.reporter.emit_errors(
+                        [{"row": r.row_index, "error": r.error} for r in errs]
+                    )
+
                 return _on_done
 
             with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -304,9 +332,7 @@ class Importer:
                         break
                     sem.acquire()  # blocks until a callback has freed a slot
                     future = executor.submit(self.import_rows, batch)
-                    future.add_done_callback(
-                        _make_callback([r.index for r in batch])
-                    )
+                    future.add_done_callback(_make_callback([r.index for r in batch]))
                 # executor.__exit__ calls shutdown(wait=True):
                 # all pending callbacks complete before this block exits
 
@@ -315,11 +341,14 @@ class Importer:
         if failed > 0:
             _logger.info(
                 "%s: %d/%d rows imported, %d failed",
-                filename, success, success + failed, failed,
+                filename,
+                success,
+                success + failed,
+                failed,
             )
             seen_errors: set[str] = set()
             for r in all_errors:
-                msg = r.error or ''
+                msg = r.error or ""
                 key = msg[:80]
                 if key not in seen_errors:
                     seen_errors.add(key)
@@ -416,10 +445,12 @@ class Importer:
                     failed += len(errs)
                     processed += len(results)
                     adapter.record_success(len(batch))
-                    self.reporter.batch_completed(processed, total_rows, success, failed)
-                    self.reporter.emit_errors([
-                        {'row': r.row_index, 'error': r.error} for r in errs
-                    ])
+                    self.reporter.batch_completed(
+                        processed, total_rows, success, failed
+                    )
+                    self.reporter.emit_errors(
+                        [{"row": r.row_index, "error": r.error} for r in errs]
+                    )
 
                 except TransportError:
                     escalation_level += 1
@@ -430,11 +461,12 @@ class Importer:
                     if stepped_down:
                         _logger.warning(
                             "Batch timeout (level %d), shrinking to %d rows and retrying.",
-                            escalation_level, adapter.current_size,
+                            escalation_level,
+                            adapter.current_size,
                         )
                         self.reporter.notice(
                             NOTICE_BATCH_SHRUNK,
-                            "Batch timed out — shrinking to {0} rows and retrying.".format(
+                            "Batch timed out — shrinking to {} rows and retrying.".format(
                                 adapter.current_size
                             ),
                             level=escalation_level,
@@ -443,39 +475,48 @@ class Importer:
                         )
                         new_size = adapter.current_size
                         sub_batches = [
-                            batch[i:i + new_size]
+                            batch[i : i + new_size]
                             for i in range(0, len(batch), new_size)
                         ]
                         pending.extendleft(reversed(sub_batches))
                         continue
 
                     # Already at minimum batch size — assess idempotency
-                    idm = assess_timeout_retry_idempotency(batch, self.config.field_mappings)
+                    idm = assess_timeout_retry_idempotency(
+                        batch, self.config.field_mappings
+                    )
 
                     if idm.unsafe:
                         _logger.warning(
                             "%d rows lack id/.id mapping — failing to avoid duplicates "
-                            "(reasons: %s).", len(idm.unsafe), idm.reason_counts,
+                            "(reasons: %s).",
+                            len(idm.unsafe),
+                            idm.reason_counts,
                         )
                         self.reporter.notice(
                             NOTICE_UNSAFE_ROWS_SKIPPED,
-                            "{0} rows lack id/.id mapping — failing to avoid duplicates.".format(
+                            "{} rows lack id/.id mapping — failing to avoid duplicates.".format(
                                 len(idm.unsafe)
                             ),
                             count=len(idm.unsafe),
                             reason_counts=dict(idm.reason_counts),
                         )
                         for row in idm.unsafe:
-                            all_errors.append(RowResult(
-                                ok=False, row_index=row.index,
-                                error=(
-                                    "missing id/.id: safe retry skipped to avoid "
-                                    "duplicate records"
-                                ),
-                            ))
+                            all_errors.append(
+                                RowResult(
+                                    ok=False,
+                                    row_index=row.index,
+                                    error=(
+                                        "missing id/.id: safe retry skipped to avoid "
+                                        "duplicate records"
+                                    ),
+                                )
+                            )
                         failed += len(idm.unsafe)
                         processed += len(idm.unsafe)
-                        self.reporter.batch_completed(processed, total_rows, success, failed)
+                        self.reporter.batch_completed(
+                            processed, total_rows, success, failed
+                        )
 
                     pending_safe = list(idm.safe)
                     while pending_safe:
@@ -487,25 +528,29 @@ class Importer:
                             _logger.error(
                                 "Timeout retry budget exhausted (%.0fs). "
                                 "Failing %d remaining safe rows.",
-                                elapsed, len(pending_safe),
+                                elapsed,
+                                len(pending_safe),
                             )
                             self.reporter.notice(
                                 NOTICE_RETRY_BUDGET_EXHAUSTED,
-                                "Timeout retry budget exhausted ({0:.0f}s) — "
-                                "failing {1} remaining rows.".format(
+                                "Timeout retry budget exhausted ({:.0f}s) — "
+                                "failing {} remaining rows.".format(
                                     elapsed, len(pending_safe)
                                 ),
                                 elapsed_seconds=round(elapsed, 1),
                                 failed_rows=len(pending_safe),
                             )
                             for row in pending_safe:
-                                all_errors.append(RowResult(
-                                    ok=False, row_index=row.index,
-                                    error=(
-                                        f"Timed out after {elapsed:.0f}s at minimum "
-                                        f"batch size — retry budget exhausted"
-                                    ),
-                                ))
+                                all_errors.append(
+                                    RowResult(
+                                        ok=False,
+                                        row_index=row.index,
+                                        error=(
+                                            f"Timed out after {elapsed:.0f}s at minimum "
+                                            f"batch size — retry budget exhausted"
+                                        ),
+                                    )
+                                )
                             failed += len(pending_safe)
                             processed += len(pending_safe)
                             pending_safe = []
@@ -520,12 +565,14 @@ class Importer:
                         _logger.info(
                             "At minimum batch size with %d safe rows. "
                             "Waiting %.1fs (attempt %d).",
-                            len(pending_safe), delay, escalation_level,
+                            len(pending_safe),
+                            delay,
+                            escalation_level,
                         )
                         self.reporter.notice(
                             NOTICE_WAITING_FOR_RETRY,
-                            "At minimum batch size with {0} safe rows — "
-                            "waiting {1:.1f}s before retry (attempt {2}).".format(
+                            "At minimum batch size with {} safe rows — "
+                            "waiting {:.1f}s before retry (attempt {}).".format(
                                 len(pending_safe), delay, escalation_level
                             ),
                             safe_rows=len(pending_safe),
@@ -546,20 +593,26 @@ class Importer:
                             failed += len(safe_errs)
                             processed += len(safe_results)
                             adapter.record_success(len(pending_safe))
-                            self.reporter.batch_completed(processed, total_rows, success, failed)
-                            self.reporter.emit_errors([
-                                {'row': r.row_index, 'error': r.error} for r in safe_errs
-                            ])
+                            self.reporter.batch_completed(
+                                processed, total_rows, success, failed
+                            )
+                            self.reporter.emit_errors(
+                                [
+                                    {"row": r.row_index, "error": r.error}
+                                    for r in safe_errs
+                                ]
+                            )
                             pending_safe = []
                         except TransportError:
                             escalation_level += 1
                             _logger.warning(
                                 "Retry of %d safe rows also timed out (attempt %d).",
-                                len(pending_safe), escalation_level,
+                                len(pending_safe),
+                                escalation_level,
                             )
                             self.reporter.notice(
                                 NOTICE_SAFE_RETRY_TIMED_OUT,
-                                "Retry of {0} safe rows also timed out (attempt {1}).".format(
+                                "Retry of {} safe rows also timed out (attempt {}).".format(
                                     len(pending_safe), escalation_level
                                 ),
                                 safe_rows=len(pending_safe),
@@ -573,11 +626,14 @@ class Importer:
     # -------------------------------------------------------------------------
 
     def _import_single_row_safe(
-        self, row_index: int, row_data: dict,
-        field_info: dict[str, FieldInfo], ref_map: dict,
+        self,
+        row_index: int,
+        row_data: dict,
+        field_info: dict[str, FieldInfo],
+        ref_map: dict,
     ) -> RowResult:
         """Import a single row with savepoint isolation."""
-        result: Optional[RowResult] = None
+        result: RowResult | None = None
         try:
             with self.backend.savepoint():
                 self.backend.flush_all()
@@ -598,7 +654,9 @@ class Importer:
             raise
         except Exception as e:
             error_msg = str(e)
-            _logger.debug("Row %d failed (%s): %s", row_index, self.config.model, error_msg)
+            _logger.debug(
+                "Row %d failed (%s): %s", row_index, self.config.model, error_msg
+            )
             return RowResult(ok=False, row_index=row_index, error=error_msg)
 
     def _import_row(self, row: dict) -> RowResult:
@@ -625,21 +683,26 @@ class Importer:
 
         if not record_id and self.config.strict and missing_keys:
             return RowResult(
-                ok=False, row_index=0,
-                error=f"Missing search keys: {', '.join(missing_keys)}"
+                ok=False,
+                row_index=0,
+                error=f"Missing search keys: {', '.join(missing_keys)}",
             )
 
         if record_id:
             self.backend.write(self.config.model, [record_id], row)
             return RowResult(
-                ok=True, row_index=0,
-                record_id=record_id, external_id=external_id,
-                action='updated', strategy=strategy_used,
+                ok=True,
+                row_index=0,
+                record_id=record_id,
+                external_id=external_id,
+                action="updated",
+                strategy=strategy_used,
             )
 
         if db_id:
             return RowResult(
-                ok=False, row_index=0,
+                ok=False,
+                row_index=0,
                 error=f"Record with .id={db_id} not found in {self.config.model}",
             )
 
@@ -647,14 +710,20 @@ class Importer:
         if self.config.use_external_id and external_id:
             self._create_external_id(new_id, external_id)
         return RowResult(
-            ok=True, row_index=0,
-            record_id=new_id, external_id=external_id,
-            action='created', strategy=STRATEGY_CREATE,
+            ok=True,
+            row_index=0,
+            record_id=new_id,
+            external_id=external_id,
+            action="created",
+            strategy=STRATEGY_CREATE,
         )
 
     def _resolve_record(
-        self, row: dict, external_id: Optional[str], db_id: Optional[int],
-    ) -> tuple[Optional[int], Optional[str], list[str]]:
+        self,
+        row: dict,
+        external_id: str | None,
+        db_id: int | None,
+    ) -> tuple[int | None, str | None, list[str]]:
         """Find existing record using the standard lookup chain."""
         if self.config.use_external_id and external_id:
             record_id = self._find_by_external_id(external_id)
@@ -664,8 +733,7 @@ class Importer:
         missing_keys: list[str] = []
         if self.config.search_keys:
             missing_keys = [
-                k for k in self.config.search_keys
-                if k not in row or row[k] == ''
+                k for k in self.config.search_keys if k not in row or row[k] == ""
             ]
             if not missing_keys:
                 record_id = self._find_by_search_keys(row)
@@ -679,16 +747,21 @@ class Importer:
         return None, None, missing_keys
 
     def _handle_explicit_operation(
-        self, row: dict, operation: str,
-        external_id: Optional[str], db_id: Optional[int],
+        self,
+        row: dict,
+        operation: str,
+        external_id: str | None,
+        db_id: int | None,
     ) -> RowResult:
         """Handle explicit operation column (__op__: create, update, skip)."""
         operation = operation.lower().strip()
 
         if operation == OP_SKIP:
             return RowResult(
-                ok=True, row_index=0,
-                action='skipped', strategy=STRATEGY_EXPLICIT_OP,
+                ok=True,
+                row_index=0,
+                action="skipped",
+                strategy=STRATEGY_EXPLICIT_OP,
             )
 
         elif operation == OP_CREATE:
@@ -696,88 +769,96 @@ class Importer:
             if self.config.use_external_id and external_id:
                 self._create_external_id(new_id, external_id)
             return RowResult(
-                ok=True, row_index=0,
-                record_id=new_id, external_id=external_id,
-                action='created', strategy=STRATEGY_EXPLICIT_OP,
+                ok=True,
+                row_index=0,
+                record_id=new_id,
+                external_id=external_id,
+                action="created",
+                strategy=STRATEGY_EXPLICIT_OP,
             )
 
         elif operation == OP_UPDATE:
             record_id, _, _ = self._resolve_record(row, external_id, db_id)
             if not record_id:
                 return RowResult(
-                    ok=False, row_index=0,
-                    error='Update requested but record not found',
+                    ok=False,
+                    row_index=0,
+                    error="Update requested but record not found",
                 )
             self.backend.write(self.config.model, [record_id], row)
             return RowResult(
-                ok=True, row_index=0,
-                record_id=record_id, external_id=external_id,
-                action='updated', strategy=STRATEGY_EXPLICIT_OP,
+                ok=True,
+                row_index=0,
+                record_id=record_id,
+                external_id=external_id,
+                action="updated",
+                strategy=STRATEGY_EXPLICIT_OP,
             )
 
         else:
-            valid = ', '.join(sorted(VALID_OPERATIONS))
+            valid = ", ".join(sorted(VALID_OPERATIONS))
             return RowResult(
-                ok=False, row_index=0,
+                ok=False,
+                row_index=0,
                 error=f"Unknown operation: {operation}. Valid: {valid}",
             )
 
-    def _find_by_search_keys(self, row: dict) -> Optional[int]:
+    def _find_by_search_keys(self, row: dict) -> int | None:
         """Find record by natural key search. All keys must match exactly."""
-        domain = [
-            (key, '=', row[key])
-            for key in self.config.search_keys
-            if key in row
-        ]
+        domain = [(key, "=", row[key]) for key in self.config.search_keys if key in row]
         if len(domain) != len(self.config.search_keys):
             return None
 
         ids = self.backend.search(self.config.model, domain, limit=2)
         if isinstance(ids, list) and len(ids) > 0:
             if isinstance(ids[0], dict):
-                return ids[0]['id']
+                return ids[0]["id"]
             if len(ids) > 1:
                 _logger.warning(
                     "Natural key search found %d records for %s. Using first.",
-                    len(ids), self.config.model
+                    len(ids),
+                    self.config.model,
                 )
             return ids[0]
         return None
 
-    def _find_by_external_id(self, external_id: str) -> Optional[int]:
+    def _find_by_external_id(self, external_id: str) -> int | None:
         """Find record by external ID (module.name format)."""
-        if '.' not in external_id:
-            external_id = f'{DEFAULT_IMPORT_MODULE}.{external_id}'
+        if "." not in external_id:
+            external_id = f"{DEFAULT_IMPORT_MODULE}.{external_id}"
 
-        module, name = external_id.split('.', 1)
+        module, name = external_id.split(".", 1)
 
         results = self.backend.search_read(
             MODEL_IR_MODEL_DATA,
             [
-                ('module', '=', module),
-                ('name', '=', name),
-                ('model', '=', self.config.model),
+                ("module", "=", module),
+                ("name", "=", name),
+                ("model", "=", self.config.model),
             ],
-            ['res_id'],
+            ["res_id"],
             limit=1,
         )
 
         if results:
-            res_id = results[0]['res_id']
+            res_id = results[0]["res_id"]
             if self.backend.browse_exists(self.config.model, res_id):
                 return res_id
         return None
 
     def _create_external_id(self, record_id: int, external_id: str) -> None:
         """Create ir.model.data entry for external ID."""
-        if '.' in external_id:
-            module, name = external_id.split('.', 1)
+        if "." in external_id:
+            module, name = external_id.split(".", 1)
         else:
             module, name = DEFAULT_IMPORT_MODULE, external_id
 
-        self.backend.create(MODEL_IR_MODEL_DATA, {
-            'module': module,
-            'name': name,
-            'model': self.config.model,
-            'res_id': record_id,
-        })
+        self.backend.create(
+            MODEL_IR_MODEL_DATA,
+            {
+                "module": module,
+                "name": name,
+                "model": self.config.model,
+                "res_id": record_id,
+            },
+        )

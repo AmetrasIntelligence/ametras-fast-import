@@ -215,7 +215,12 @@
     "tryAgain": "Try Again",
     "startupTimeout": "Import startup timed out (90s). The server may be slow or a network call hung. Please try again.",
     "retryNoMappings": "Cannot retry: no field mappings found for the failed files. Re-configure the import and try again.",
-    "activityLog": "Activity Log"
+    "activityLog": "Activity Log",
+    "timeoutMitigation": {
+      "title": "Experiencing server timeouts",
+      "detail": "Automatically reducing batch size and retrying. Import will continue at a reduced speed.",
+      "batchSize": "Current batch size: {size} rows"
+    }
   },
   "results": {
     "dryRunComplete": "Dry Run Complete",

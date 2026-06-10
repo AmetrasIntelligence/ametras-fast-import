@@ -2,7 +2,7 @@
 ORM backend — direct Odoo ORM access when running inside the Odoo server.
 The only file in models/ whose sole purpose is bridging OdooBackend to the ORM.
 """
-from .import_engine.backend import OdooBackend, FieldInfo
+from .import_engine.backend import FieldInfo, OdooBackend
 
 
 class OrmBackend(OdooBackend):
@@ -40,7 +40,7 @@ class OrmBackend(OdooBackend):
             result[name] = FieldInfo(
                 name=name,
                 type=field.type,
-                comodel_name=getattr(field, 'comodel_name', '') or '',
+                comodel_name=getattr(field, "comodel_name", "") or "",
             )
         self._field_cache[model] = result
         return result

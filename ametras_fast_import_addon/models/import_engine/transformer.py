@@ -7,8 +7,12 @@ Handles id/.id fields, relational reference suffixes (/id, /.id), and __op__.
 from __future__ import annotations
 
 from .constants import (
-    FIELD_EXTERNAL_ID, FIELD_OPERATION, FIELD_ID, FIELD_DB_ID,
-    SUFFIX_DB_ID, SUFFIX_EXTERNAL_ID,
+    FIELD_DB_ID,
+    FIELD_EXTERNAL_ID,
+    FIELD_ID,
+    FIELD_OPERATION,
+    SUFFIX_DB_ID,
+    SUFFIX_EXTERNAL_ID,
 )
 
 
@@ -29,8 +33,8 @@ def transform_row_data(
     result: dict[str, str | int] = {}
 
     for csv_col, odoo_field in field_mappings.items():
-        value = row_data.get(csv_col, '')
-        if value is None or value == '':
+        value = row_data.get(csv_col, "")
+        if value is None or value == "":
             continue
 
         # Handle id/.id fields specially for upsert
@@ -52,13 +56,13 @@ def transform_row_data(
         # Handle reference suffixes: /.id for database ID, /id for external ID
         if odoo_field.endswith(SUFFIX_DB_ID):
             try:
-                target_field = odoo_field[:-len(SUFFIX_DB_ID)]
+                target_field = odoo_field[: -len(SUFFIX_DB_ID)]
                 result[target_field] = int(value)
             except (ValueError, TypeError):
                 pass
             continue
         if odoo_field.endswith(SUFFIX_EXTERNAL_ID):
-            target_field = odoo_field[:-len(SUFFIX_EXTERNAL_ID)]
+            target_field = odoo_field[: -len(SUFFIX_EXTERNAL_ID)]
             result[target_field] = value
             continue
 

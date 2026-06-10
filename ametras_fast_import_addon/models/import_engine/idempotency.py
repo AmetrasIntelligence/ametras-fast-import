@@ -25,13 +25,13 @@ if TYPE_CHECKING:
 
 @dataclass
 class IdempotencyResult:
-    safe: list['ParsedRow'] = field(default_factory=list)
-    unsafe: list['ParsedRow'] = field(default_factory=list)
+    safe: list[ParsedRow] = field(default_factory=list)
+    unsafe: list[ParsedRow] = field(default_factory=list)
     reason_counts: dict[str, int] = field(default_factory=dict)
 
 
 def assess_timeout_retry_idempotency(
-    rows: list['ParsedRow'],
+    rows: list[ParsedRow],
     field_mappings: dict[str, str],
 ) -> IdempotencyResult:
     """
@@ -54,29 +54,27 @@ def assess_timeout_retry_idempotency(
     result = IdempotencyResult()
 
     # Find CSV column names that map to 'id' and '.id' target fields
-    id_col = next(
-        (col for col, tgt in field_mappings.items() if tgt == 'id'), None
-    )
+    id_col = next((col for col, tgt in field_mappings.items() if tgt == "id"), None)
     dot_id_col = next(
-        (col for col, tgt in field_mappings.items() if tgt == '.id'), None
+        (col for col, tgt in field_mappings.items() if tgt == ".id"), None
     )
 
     if id_col is None and dot_id_col is None:
         # No key mapping at all — retrying any row risks a duplicate
         for row in rows:
             result.unsafe.append(row)
-        result.reason_counts['missing_key_mapping'] = len(rows)
+        result.reason_counts["missing_key_mapping"] = len(rows)
         return result
 
     for row in rows:
-        id_val = str(row.data.get(id_col, '')).strip() if id_col else ''
-        dot_id_val = str(row.data.get(dot_id_col, '')).strip() if dot_id_col else ''
+        id_val = str(row.data.get(id_col, "")).strip() if id_col else ""
+        dot_id_val = str(row.data.get(dot_id_col, "")).strip() if dot_id_col else ""
 
         if id_val or dot_id_val:
             result.safe.append(row)
         else:
             result.unsafe.append(row)
-            key = 'empty_external_and_database_id'
+            key = "empty_external_and_database_id"
             result.reason_counts[key] = result.reason_counts.get(key, 0) + 1
 
     return result
