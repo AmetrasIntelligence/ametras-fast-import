@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfigStore, type RunSettings } from '@/stores/config'
 import { usePlatformStore } from '@/stores/platform'
 import { useSessionStore } from '@/stores/session'
 import { useSettingsOptions } from '@/composables/useSettingsOptions'
+import { fetchLanguages, type OdooLanguage } from '@/api/odooClient'
 
 const { t } = useI18n()
 const config = useConfigStore()
@@ -47,6 +48,24 @@ const workersError = computed(() => {
   if (workers < 1) return t('settings.validation.workersMin')
   if (workers > MAX_WORKERS) return t('settings.validation.workersMax')
   return null
+})
+
+// Installed languages for the dropdown. Empty → fall back to manual text entry.
+const languages = ref<OdooLanguage[]>([])
+
+onMounted(async () => {
+  if (!platform.capabilities.lang) return
+  try {
+    const { languages: langs, userLang } = await fetchLanguages()
+    languages.value = langs
+    // Default the import language to the logged-in user's language (once);
+    // an explicit selection is preserved because settings.lang is then non-empty.
+    if (!config.settings.lang && userLang) {
+      config.setSettings({ lang: userLang })
+    }
+  } catch {
+    languages.value = []
+  }
 })
 </script>
 
@@ -140,7 +159,18 @@ const workersError = computed(() => {
       </div>
       <div>
         <label class="form-label small text-body-secondary mb-1">{{ $t('settings.language') }}</label>
+        <!-- Dropdown of installed languages; manual code entry if none could be fetched. -->
+        <select
+          v-if="languages.length > 0"
+          :value="config.settings.lang"
+          class="form-select form-select-sm"
+          :disabled="!platform.capabilities.lang"
+          @change="config.setSettings({ lang: ($event.target as HTMLSelectElement).value })"
+        >
+          <option v-for="l in languages" :key="l.code" :value="l.code">{{ l.name }} ({{ l.code }})</option>
+        </select>
         <input
+          v-else
           :value="config.settings.lang"
           type="text"
           class="form-control form-control-sm"

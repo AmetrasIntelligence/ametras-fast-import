@@ -107,8 +107,13 @@ class ImportJob:
         self.env.cr.commit()
 
         config = json.loads(self.log.job_config)
-        backend = OrmBackend(self.env)
         settings = config.get("settings", {})
+        # Honor the user-selected import language so translatable fields
+        # (name, description, …) are written in that language instead of the
+        # job worker's default context — otherwise everything saves as English.
+        lang = settings.get("lang")
+        env = self.env.with_context(lang=lang) if lang else self.env
+        backend = OrmBackend(env)
         batch_size = max(
             MIN_BATCH_SIZE,
             min(MAX_BATCH_SIZE, settings.get("batchSize", DEFAULT_BATCH_SIZE)),
