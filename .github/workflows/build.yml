@@ -1,8 +1,10 @@
 name: Build
 
 on:
+  # Only long-lived branches build on push; feature/integration branches are
+  # covered by their pull request (avoids the push + PR double build).
   push:
-    branches: ['16.0', 'python-refactor']
+    branches: ['16.0']
     tags: ['*']
   pull_request:
     branches: ['16.0', 'python-refactor']
