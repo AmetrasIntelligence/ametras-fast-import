@@ -1,11 +1,3 @@
-export interface ErrorLogExportEntry {
-  filename: string
-  rowNumber: number
-  error: string
-  timestamp: number
-  rawData?: Record<string, string>
-}
-
 export interface FailedRowCsvEntry {
   rowNumber: number
   data: Record<string, string>
@@ -42,49 +34,6 @@ function inferHeadersFromRows(rows: FailedRowCsvEntry[]): string[] {
     }
   }
   return ordered
-}
-
-export function buildUnifiedErrorLogCsv(errors: ErrorLogExportEntry[]): string {
-  const headers = ['filename', 'row_number', 'error', 'timestamp', 'raw_data_json']
-  const lines = [headers.join(',')]
-
-  for (const error of errors) {
-    const timestampIso = Number.isFinite(error.timestamp) && error.timestamp > 0
-      ? new Date(error.timestamp).toISOString()
-      : ''
-    const rawDataJson = error.rawData && Object.keys(error.rawData).length > 0
-      ? JSON.stringify(error.rawData)
-      : ''
-
-    lines.push([
-      csvCell(error.filename),
-      csvCell(error.rowNumber),
-      csvCell(error.error),
-      csvCell(timestampIso),
-      csvCell(rawDataJson),
-    ].join(','))
-  }
-
-  return lines.join('\n')
-}
-
-export function groupRowErrorsByFile(errors: ErrorLogExportEntry[]): Map<string, Map<number, string[]>> {
-  const grouped = new Map<string, Map<number, string[]>>()
-
-  for (const error of errors) {
-    if (error.rowNumber <= 0) continue
-
-    if (!grouped.has(error.filename)) {
-      grouped.set(error.filename, new Map())
-    }
-    const rowMap = grouped.get(error.filename)!
-    if (!rowMap.has(error.rowNumber)) {
-      rowMap.set(error.rowNumber, [])
-    }
-    rowMap.get(error.rowNumber)!.push(error.error)
-  }
-
-  return grouped
 }
 
 export function buildFailedRowsCsv(

@@ -40,7 +40,9 @@ async function callKw<T>(model: string, method: string, args: unknown[], kwargs:
   return response.result
 }
 
-function encodeProfileData(profile: Omit<ImportProfile, 'id' | 'createdAt' | 'updatedAt' | 'isStandalone'>): string {
+type EncodableProfile = Omit<ImportProfile, 'id' | 'createdAt' | 'updatedAt' | 'isStandalone'>
+
+function encodeProfileData(profile: EncodableProfile): string {
   const json = JSON.stringify(profile)
   // Handle non-ASCII characters
   return btoa(unescape(encodeURIComponent(json)))
@@ -79,9 +81,9 @@ export function attachmentToProfile(rec: AttachmentRecord): ImportProfile {
   }
 }
 
-function profileToAttachmentData(data: Record<string, unknown>): Record<string, unknown> {
-  // Extract only profile-relevant fields (not id, timestamps, isStandalone)
-  const { id: _id, createdAt: _ca, updatedAt: _ua, isStandalone: _is, ...profileData } = data
+function profileToAttachmentData(profile: ImportProfile): EncodableProfile {
+  // Strip runtime-only fields (id, timestamps, isStandalone) before serializing
+  const { id: _id, createdAt: _ca, updatedAt: _ua, isStandalone: _is, ...profileData } = profile
   return profileData
 }
 
@@ -115,15 +117,17 @@ export async function getAttachmentProfile(id: number): Promise<ImportProfile | 
 /**
  * Create a new attachment profile. Returns the created profile with server-assigned ID and timestamps.
  */
-export async function createAttachmentProfile(data: Omit<ImportProfile, 'id' | 'createdAt' | 'updatedAt' | 'isStandalone'>): Promise<ImportProfile> {
+export async function createAttachmentProfile(data: EncodableProfile): Promise<ImportProfile> {
   const datas = encodeProfileData(data)
-  const ids = await callKw<number[]>(
+  // Odoo's create returns number[] for list-of-dicts args, or number for a single dict.
+  // We pass [dict] here, so number[] is expected — but defend in case the API surface shifts.
+  const ids = await callKw<number[] | number>(
     'ir.attachment',
     'create',
     [{ name: NAME_PREFIX + data.name, datas }],
     {}
   )
-  const newId = Array.isArray(ids) ? ids[0] : ids as unknown as number
+  const newId = Array.isArray(ids) ? ids[0] : ids
   const profile = await getAttachmentProfile(newId)
   if (!profile) throw new Error('Failed to read back created profile')
   return profile
@@ -136,9 +140,8 @@ export async function updateAttachmentProfile(id: number, data: Partial<ImportPr
   const existing = await getAttachmentProfile(id)
   if (!existing) throw new Error('Attachment profile not found')
 
-  const merged = { ...existing, ...data }
-  const profileData = profileToAttachmentData(merged as unknown as Record<string, unknown>)
-  const datas = encodeProfileData(profileData as Omit<ImportProfile, 'id' | 'createdAt' | 'updatedAt' | 'isStandalone'>)
+  const merged: ImportProfile = { ...existing, ...data }
+  const datas = encodeProfileData(profileToAttachmentData(merged))
   const vals: Record<string, unknown> = { datas }
   if (data.name !== undefined) vals.name = NAME_PREFIX + data.name
   await callKw<boolean>(

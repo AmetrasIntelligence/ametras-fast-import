@@ -33,7 +33,9 @@ export const DEFAULT_RUN_SETTINGS: RunSettings = {
   skipHeader: true,
   dryRun: false,
   lang: 'de_DE',
-  standaloneWorkers: 3
+  // 4 matches the engine's previous effective default (DEFAULT_WORKERS), which
+  // ran regardless of this setting before it was wired through. Max is 8.
+  standaloneWorkers: 4
 }
 
 export const useConfigStore = defineStore('config', () => {

@@ -1,5 +1,7 @@
 /// <reference types="vite/client" />
 
+import type { ProfileFullData } from '@/types/profileApi'
+
 declare global {
   const __APP_VERSION__: string
 }
@@ -55,17 +57,7 @@ interface OdooCallResult<T> {
 
 interface ProfileUploadResult {
   ok: boolean
-  result?: {
-    id: number
-    name: string
-    version: string
-    description: string
-    mappings: Array<{ filename: string; model: string; searchKeys?: string[]; strict?: boolean }>
-    sequence: Array<{ order: number; filename: string; requires?: string[] }>
-    run_settings: Record<string, string>
-    field_mappings: Array<{ filename: string; csvHeader?: string; csvColumn?: string; odooField: string; required?: boolean; transform?: string; notes?: string }>
-    [key: string]: unknown
-  }
+  result?: ProfileFullData
   error?: string
 }
 

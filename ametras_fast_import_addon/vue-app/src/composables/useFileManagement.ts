@@ -23,7 +23,6 @@ export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>
   const models = ref<OdooModel[]>([])
   const modelSuggestions = ref<Map<string, { model: OdooModel; score: number } | null>>(new Map())
   const fieldSuggestionsApplied = ref<Set<string>>(new Set())
-  const loading = ref(false)
   const loadError = ref<string | null>(null)
   const validationResults = ref<Map<string, { ok: boolean; message?: string; data?: Record<string, string | number> }>>(new Map())
   const validationTrigger = ref(0)
@@ -83,15 +82,12 @@ export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>
   }
 
   async function loadInitialData() {
-    loading.value = true
     loadError.value = null
     try {
       models.value = await fetchModels()
       await savedMappings.load()
     } catch (e) {
       loadError.value = t('config.failedToLoadModels', { error: e instanceof Error ? e.message : String(e) })
-    } finally {
-      loading.value = false
     }
   }
 

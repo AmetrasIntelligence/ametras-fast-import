@@ -9,7 +9,7 @@
  * UI-created profiles go to ir.attachment for cross-device availability.
  */
 
-import type { ImportProfile, ProfileMapping, ProfileSequenceItem } from '@/types/importProfile'
+import type { ImportProfile, ProfileCreateData, ProfileMapping, ProfileSequenceItem } from '@/types/importProfile'
 import { DEFAULT_RUN_SETTINGS, type RunSettings } from '@/stores/config'
 import {
   parseProfileCSV,
@@ -148,23 +148,12 @@ export async function importStandaloneProfile(file: File): Promise<ImportProfile
 
 export type StandaloneTarget = 'local' | 'server'
 
-interface StandaloneCreateData {
-  name: string
-  version?: string
-  description?: string
-  odooMinVersion?: string
-  mappings: ProfileMapping[]
-  sequence: ProfileSequenceItem[]
-  runSettings: Partial<RunSettings>
-  fieldMappings?: import('@/types/fieldMapping').FieldMapping[]
-}
-
 /**
  * Create a standalone profile.
  * target='local' → Electron store (negative ID, offline-capable)
  * target='server' → ir.attachment (positive ID, cross-device)
  */
-export async function createStandaloneProfile(data: StandaloneCreateData, target: StandaloneTarget = 'server'): Promise<ImportProfile> {
+export async function createStandaloneProfile(data: ProfileCreateData, target: StandaloneTarget = 'server'): Promise<ImportProfile> {
   if (target === 'local') {
     return createLocalProfile(data)
   }
@@ -183,7 +172,7 @@ export async function createStandaloneProfile(data: StandaloneCreateData, target
 /**
  * Create a profile in local Electron store only.
  */
-async function createLocalProfile(data: StandaloneCreateData): Promise<ImportProfile> {
+async function createLocalProfile(data: ProfileCreateData): Promise<ImportProfile> {
   const now = Date.now()
   const profile: ImportProfile = {
     id: nextLocalId--,
@@ -242,16 +231,7 @@ export async function pushProfileToServer(localId: number): Promise<ImportProfil
  * Update an existing standalone profile.
  * Routes to local or attachment backend based on ID sign.
  */
-export async function updateStandaloneProfile(id: number, data: {
-  name?: string
-  version?: string
-  description?: string
-  odooMinVersion?: string
-  mappings?: ProfileMapping[]
-  sequence?: ProfileSequenceItem[]
-  runSettings?: Partial<RunSettings>
-  fieldMappings?: import('@/types/fieldMapping').FieldMapping[]
-}): Promise<ImportProfile> {
+export async function updateStandaloneProfile(id: number, data: Partial<ProfileCreateData>): Promise<ImportProfile> {
   // Negative IDs → local Electron store
   if (id < 0) {
     const profiles = await loadLocalProfiles()

@@ -132,13 +132,14 @@ class TrackingReporter(ProgressReporter):
     def row_completed(self, row_index, ok, error=""):
         self.rows.append({"row_index": row_index, "ok": ok, "error": error})
 
-    def batch_completed(self, processed, total, success, failed):
+    def batch_completed(self, processed, total, success, failed, batch_size=0):
         self.batches.append(
             {
                 "processed": processed,
                 "total": total,
                 "success": success,
                 "failed": failed,
+                "batch_size": batch_size,
             }
         )
 

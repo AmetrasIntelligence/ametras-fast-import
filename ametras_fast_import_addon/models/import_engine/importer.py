@@ -31,6 +31,7 @@ from .constants import (
     MIN_WORKERS,
     MODEL_IR_MODEL_DATA,
     NOTICE_BATCH_SHRUNK,
+    NOTICE_IMPORT_CONFIG,
     NOTICE_RETRY_BUDGET_EXHAUSTED,
     NOTICE_SAFE_RETRY_TIMED_OUT,
     NOTICE_UNSAFE_ROWS_SKIPPED,
@@ -261,6 +262,26 @@ class Importer:
 
         is_rpc = isinstance(self.backend, RpcBackend)
 
+        # Announce the effective run configuration (concurrency, batch size,
+        # RPC timeout) so it's visible in the client console — these were
+        # previously only knowable from server-side stderr.
+        rpc_timeout = getattr(self.backend, "timeout", None) if is_rpc else None
+        self.reporter.notice(
+            NOTICE_IMPORT_CONFIG,
+            "{fn}: {w} worker(s){par}, batch size {b}{to}.".format(
+                fn=filename,
+                w=workers,
+                par=" (parallel)" if workers > 1 else " (sequential)",
+                b=self.config.batch_size,
+                to=", RPC timeout {}s".format(rpc_timeout) if rpc_timeout else "",
+            ),
+            workers=workers,
+            batch_size=self.config.batch_size,
+            parallel=workers > 1,
+            rpc_timeout_seconds=rpc_timeout,
+            total_rows=total_rows,
+        )
+
         source = parse_csv_file(file_path, opts)
 
         if workers <= 1:
@@ -284,7 +305,7 @@ class Importer:
                     success += len(results) - len(errs)
                     failed += len(errs)
                     self.reporter.batch_completed(
-                        success + failed, total_rows, success, failed
+                        success + failed, total_rows, success, failed, len(results)
                     )
                     self.reporter.emit_errors(
                         [{"row": r.row_index, "error": r.error} for r in errs]
@@ -318,7 +339,11 @@ class Importer:
                         all_errors.extend(errs)
                     sem.release()  # slot freed only after results are consumed
                     self.reporter.batch_completed(
-                        success + failed, total_rows, success, failed
+                        success + failed,
+                        total_rows,
+                        success,
+                        failed,
+                        len(batch_results),
                     )
                     self.reporter.emit_errors(
                         [{"row": r.row_index, "error": r.error} for r in errs]
@@ -446,7 +471,7 @@ class Importer:
                     processed += len(results)
                     adapter.record_success(len(batch))
                     self.reporter.batch_completed(
-                        processed, total_rows, success, failed
+                        processed, total_rows, success, failed, len(results)
                     )
                     self.reporter.emit_errors(
                         [{"row": r.row_index, "error": r.error} for r in errs]
@@ -515,7 +540,7 @@ class Importer:
                         failed += len(idm.unsafe)
                         processed += len(idm.unsafe)
                         self.reporter.batch_completed(
-                            processed, total_rows, success, failed
+                            processed, total_rows, success, failed, len(idm.unsafe)
                         )
 
                     pending_safe = list(idm.safe)
@@ -594,7 +619,11 @@ class Importer:
                             processed += len(safe_results)
                             adapter.record_success(len(pending_safe))
                             self.reporter.batch_completed(
-                                processed, total_rows, success, failed
+                                processed,
+                                total_rows,
+                                success,
+                                failed,
+                                len(safe_results),
                             )
                             self.reporter.emit_errors(
                                 [

@@ -6,6 +6,7 @@ import { useFilesStore } from '@/stores/files'
 import { useConfigStore } from '@/stores/config'
 import { useProfilesStore } from '@/stores/profiles'
 import { useRunStore } from '@/stores/run'
+import { usePlatformStore } from '@/stores/platform'
 import { showConfirm } from '@/utils/dialog'
 import { useFieldMetadata } from '@/composables/useFieldMetadata'
 import { useFileManagement } from '@/composables/useFileManagement'
@@ -26,6 +27,7 @@ const filesStore = useFilesStore()
 const config = useConfigStore()
 const profiles = useProfilesStore()
 const run = useRunStore()
+const platform = usePlatformStore()
 
 // Composables
 const fieldMetadata = useFieldMetadata()
@@ -248,8 +250,8 @@ async function proceed() {
               @update:strict="fileManagement.toggleStrictForFile(file.name, $event)"
             />
 
-            <!-- 4. Validate Button -->
-            <div v-if="config.getFileMapping(file.name)?.model && Object.keys(config.getFileMapping(file.name)?.fieldMappings || {}).length > 0" class="csv-config-section">
+            <!-- 4. Validate Button (random-row dry-run — unavailable in standalone, where dry-run can't roll back) -->
+            <div v-if="platform.capabilities.rowValidation && config.getFileMapping(file.name)?.model && Object.keys(config.getFileMapping(file.name)?.fieldMappings || {}).length > 0" class="csv-config-section">
               <Button
                 variant="outline"
                 size="sm"

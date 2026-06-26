@@ -13,7 +13,10 @@ MIN_BATCH_SIZE = 10
 MAX_BATCH_SIZE = 1000
 DEFAULT_WORKERS = 4
 MIN_WORKERS = 1
-MAX_WORKERS = 4
+# Per-row RPC import is latency-bound, so throughput scales ~linearly with
+# workers until the server saturates. Capped at 8 to bound DB lock contention
+# (the parallel path has no adaptive backpressure — see importer.py).
+MAX_WORKERS = 8
 
 # ---------------------------------------------------------------------------
 # Retry / resilience
@@ -146,6 +149,10 @@ NOTICE_UNSAFE_ROWS_SKIPPED = "unsafe_rows_skipped"
 NOTICE_RETRY_BUDGET_EXHAUSTED = "retry_budget_exhausted"
 NOTICE_WAITING_FOR_RETRY = "waiting_for_retry"
 NOTICE_SAFE_RETRY_TIMED_OUT = "safe_retry_timed_out"
+# Operational visibility notices (not resilience actions, just observability).
+NOTICE_IMPORT_CONFIG = "import_config"  # concurrency / batch size / timeouts at start
+NOTICE_RPC_RETRY = "rpc_retry"  # a single RPC call is being retried
+NOTICE_RPC_TIMEOUT = "rpc_timeout"  # a single RPC call timed out (then retried)
 
 # Protocol version — bumped when a breaking change is made to the JSON-lines
 # protocol. Electron can use this to refuse incompatible engine versions.

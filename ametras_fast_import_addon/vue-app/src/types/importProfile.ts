@@ -1,6 +1,21 @@
 import type { RunSettings } from '@/stores/config'
 import type { FieldMapping } from '@/types/fieldMapping'
 
+/**
+ * Data required to create or update a profile.
+ * Used by both server (api/profileApi.ts) and standalone (api/profileStorage.ts) backends.
+ */
+export interface ProfileCreateData {
+  name: string
+  version?: string
+  description?: string
+  odooMinVersion?: string
+  mappings: ProfileMapping[]
+  sequence: ProfileSequenceItem[]
+  runSettings: Partial<RunSettings>
+  fieldMappings?: FieldMapping[]
+}
+
 export interface ImportProfile {
   id: number
   name: string
@@ -14,6 +29,11 @@ export interface ImportProfile {
   richFieldMappings?: FieldMapping[]
   createdAt: number
   updatedAt: number
+  /**
+   * Runtime-only flag — true when the profile came from local Electron storage
+   * or ir.attachment (standalone client paths). Never persisted: serialization
+   * code strips this via `Omit<..., 'isStandalone'>` (see attachmentProfiles.ts).
+   */
   isStandalone?: boolean
 }
 
