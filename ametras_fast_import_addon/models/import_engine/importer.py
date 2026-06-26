@@ -248,7 +248,7 @@ class Importer:
             field_info = self._get_field_info()
             for key in self.config.search_keys:
                 if key not in field_info:
-                    error = f"Search key '{key}' not found on model {self.config.model}"
+                    error = f"Search key {key!r} not found on model {self.config.model}"
                     self.reporter.error(error)
                     return ImportFileSummary(
                         success=0, failed=0, errors=[], file_error=error
@@ -479,8 +479,9 @@ class Importer:
 
                 except TransportError:
                     escalation_level += 1
+                    success_threshold = STANDALONE_POST_TIMEOUT_SUCCESS_THRESHOLD
                     stepped_down = adapter.record_timeout(
-                        success_threshold_after_timeout=STANDALONE_POST_TIMEOUT_SUCCESS_THRESHOLD
+                        success_threshold_after_timeout=success_threshold
                     )
 
                     if stepped_down:

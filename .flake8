@@ -7,6 +7,12 @@ select = C,E,F,W,B,B9
 # E203: whitespace before ':' (black behaviour)
 # E501: flake8 line length (covered by bugbear B950)
 # W503: line break before binary operator (black behaviour)
-ignore = E203,E501,W503,E702,E231,W603,W604,E221,E222,E201,E202,E241
+# B027: empty methods in our ABCs are intentional optional override hooks
+#       (e.g. progress reporter callbacks), not missing @abstractmethod
+ignore = E203,E501,W503,E702,E231,W603,W604,E221,E222,E201,E202,E241,B027
 per-file-ignores=
     __init__.py:F401
+    # Odoo manifests are bare dict literals (B018 useless-expression by design)
+    __manifest__.py:B018
+    # Standalone-runnable tests insert sys.path before importing the engine
+    */tests/*.py:E402
