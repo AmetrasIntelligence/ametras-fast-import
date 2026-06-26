@@ -23,6 +23,10 @@ const login = ref('')
 const password = ref('')
 const loading = ref(false)
 const error = ref<string | null>(null)
+// Discovered databases for the entered server. Empty → fall back to manual entry
+// (server has db listing disabled, is unreachable, or hasn't been probed yet).
+const databases = ref<string[]>([])
+const dbListLoading = ref(false)
 const showAdvanced = ref(false)
 const selectedProfileId = ref('')
 const showEncryptionPrompt = ref(false)
@@ -126,6 +130,33 @@ function parseUrl(url: string) {
   }
 }
 
+// Probe the server for its database list (pre-auth, no credentials needed).
+// On success we show a dropdown; if listing is disabled/unreachable we silently
+// fall back to the manual text field. Standalone mode only.
+async function discoverDatabases() {
+  if (!host.value.trim()) return
+  dbListLoading.value = true
+  try {
+    const res = await window.api.odoo.listDatabases(buildUrl())
+    if (res.ok && res.databases.length > 0) {
+      databases.value = res.databases
+      // Single-tenant servers: auto-select the only db. If the current value
+      // isn't among the discovered ones, clear it so the user must pick.
+      if (databases.value.length === 1) {
+        db.value = databases.value[0]
+      } else if (db.value && !databases.value.includes(db.value)) {
+        db.value = ''
+      }
+    } else {
+      databases.value = []
+    }
+  } catch {
+    databases.value = []
+  } finally {
+    dbListLoading.value = false
+  }
+}
+
 async function handleLogin() {
   // Check if user has made a credential storage choice yet
   const pref = await window.api.store.get('credentialEncryption')
@@ -175,6 +206,9 @@ function onProfileSelect(id: string) {
     parseUrl(profile.baseUrl)
     db.value = profile.db
     login.value = profile.name
+    // Refresh the db list for the profile's server (keeps profile.db selected
+    // if it's still present; falls back to text entry otherwise).
+    discoverDatabases()
   }
 }
 
@@ -253,6 +287,7 @@ function removeSelectedProfile() {
             class="form-control form-control-sm"
             :placeholder="$t('login.serverHostPlaceholder')"
             required
+            @blur="discoverDatabases"
           />
         </div>
 
@@ -312,8 +347,21 @@ function removeSelectedProfile() {
         <div>
           <label for="csv-database" class="form-label small fw-medium mb-1">
             {{ $t('login.database') }}
+            <span v-if="dbListLoading" class="text-body-tertiary fw-normal" style="font-size: 0.7rem;">…</span>
           </label>
+          <!-- Dropdown when the server exposes its db list; manual entry otherwise. -->
+          <select
+            v-if="databases.length > 0"
+            id="csv-database"
+            v-model="db"
+            class="form-select form-select-sm"
+            required
+          >
+            <option value="" disabled>{{ $t('login.databasePlaceholder') }}</option>
+            <option v-for="d in databases" :key="d" :value="d">{{ d }}</option>
+          </select>
           <input
+            v-else
             id="csv-database"
             v-model="db"
             class="form-control form-control-sm"

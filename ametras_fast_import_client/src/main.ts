@@ -45,8 +45,11 @@ const platform = usePlatformStore(pinia)
 // Configure platform with full capabilities — downgraded only if Python is missing.
 platform.configure({
   capabilities: {
-    dryRun: true,
-    rowValidation: true,
+    // Dry-run and random-row validation both rely on a server-side savepoint
+    // rollback, which standalone (XML-RPC) can't do — a "dry run" would actually
+    // write. Both are disabled here.
+    dryRun: false,
+    rowValidation: false,
     searchKeys: true,
     serverLogs: false,
     serverProfiles: false,
@@ -54,6 +57,8 @@ platform.configure({
   },
   limitations: [
     'Server-side import logs not available',
+    'Dry-run not available',
+    'Row validation not available',
   ],
 })
 
