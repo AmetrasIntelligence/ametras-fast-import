@@ -47,6 +47,45 @@ export async function fetchModels(): Promise<OdooModel[]> {
   }))
 }
 
+export interface OdooLanguage {
+  code: string
+  name: string
+}
+
+/**
+ * Fetch the languages installed/active on the server plus the current user's
+ * language. Uses res.lang.get_installed() (a model method, not a domain search)
+ * so it works over RPC and avoids servers with quirky search overrides.
+ */
+export async function fetchLanguages(): Promise<{ languages: OdooLanguage[]; userLang: string | null }> {
+  const session = useSessionStore()
+  if (!session.baseUrl) throw new Error('Not connected')
+  const db = session.currentServer?.db
+
+  const installed = await window.api.odoo.call<Array<[string, string]>>({
+    baseUrl: session.baseUrl,
+    db,
+    endpoint: '/web/dataset/call_kw',
+    params: { model: 'res.lang', method: 'get_installed', args: [], kwargs: {} }
+  })
+  const languages: OdooLanguage[] = installed.ok && installed.result
+    ? installed.result.map(([code, name]) => ({ code, name }))
+    : []
+
+  let userLang: string | null = null
+  if (session.uid) {
+    const users = await window.api.odoo.call<Array<{ lang: string }>>({
+      baseUrl: session.baseUrl,
+      db,
+      endpoint: '/web/dataset/call_kw',
+      params: { model: 'res.users', method: 'read', args: [[session.uid], ['lang']], kwargs: {} }
+    })
+    if (users.ok && users.result && users.result[0]) userLang = users.result[0].lang
+  }
+
+  return { languages, userLang }
+}
+
 interface FileProgressData {
   totalRows: number
   successCount: number

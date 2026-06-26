@@ -523,6 +523,7 @@ async function runPythonRetry(retryData: RetryData) {
         use_external_id: mapping.fieldMappings && Object.values(mapping.fieldMappings).includes('id'),
         dry_run: effectiveDryRun(),
         strict: mapping.strict || false,
+        lang: platform.capabilities.lang ? config.settings.lang : undefined,
       }))
 
       const result = await window.api.python.import(importPayload) as unknown as Record<string, unknown>
@@ -627,6 +628,7 @@ async function runPythonImport() {
         strict: mapping.strict || false,
         batch_size: config.settings.batchSize || 200,
         workers: config.settings.standaloneWorkers || 4,
+        lang: platform.capabilities.lang ? config.settings.lang : undefined,
         delimiter: config.settings.delimiter || ',',
         encoding: config.settings.encoding || 'utf-8',
       }))

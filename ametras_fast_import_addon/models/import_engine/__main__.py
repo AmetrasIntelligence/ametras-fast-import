@@ -60,6 +60,7 @@ def _get_backend(
     cmd: dict,
     cancel_event: threading.Event | None = None,
     reporter: ProgressReporter | None = None,
+    lang: str | None = None,
 ) -> RpcBackend:
     """Create RpcBackend from command credentials. Reuses uid if provided."""
     if "uid" in cmd:
@@ -70,12 +71,14 @@ def _get_backend(
             cmd["password"],
             cancel_event=cancel_event,
             reporter=reporter,
+            lang=lang,
         )
     backend = RpcBackend.authenticate(
         cmd["url"], cmd["db"], cmd["login"], cmd["password"]
     )
     backend._cancel_event = cancel_event
     backend._reporter = reporter or backend._reporter
+    backend.lang = lang
     return backend
 
 
@@ -97,7 +100,9 @@ def _handle_import(cmd: dict) -> None:
     cancel_event = threading.Event()
 
     try:
-        backend = _get_backend(cmd, cancel_event=cancel_event, reporter=reporter)
+        backend = _get_backend(
+            cmd, cancel_event=cancel_event, reporter=reporter, lang=cmd.get("lang")
+        )
 
         config = ImportConfig(
             model=cmd["model"],

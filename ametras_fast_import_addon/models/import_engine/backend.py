@@ -147,6 +147,7 @@ class RpcBackend(OdooBackend):
         cancel_event: threading.Event | None = None,
         reporter: ProgressReporter | None = None,
         ssl_verify: bool = False,
+        lang: str | None = None,
     ):
         self.url = url
         self.db = db
@@ -155,6 +156,9 @@ class RpcBackend(OdooBackend):
         self.timeout = timeout
         self.max_retries = max_retries
         self.ssl_verify = ssl_verify
+        # Odoo language for writes: translatable fields (name, description, …)
+        # are stored in this language. None -> the RPC user's default language.
+        self.lang = lang
         self._cancel_event = cancel_event
         self._reporter: ProgressReporter = reporter or NullReporter()
         self._thread_local = threading.local()
@@ -231,6 +235,15 @@ class RpcBackend(OdooBackend):
         """
         last_error: Exception | None = None
 
+        # Inject the configured language into the call context so translatable
+        # fields are written/read in that language (None -> RPC user default).
+        call_kwargs = dict(kwargs or {})
+        if self.lang:
+            call_kwargs["context"] = {
+                "lang": self.lang,
+                **call_kwargs.get("context", {}),
+            }
+
         # Phase 1: Quick retries
         for attempt in range(self.max_retries):
             if self._is_cancelled():
@@ -240,7 +253,7 @@ class RpcBackend(OdooBackend):
                 socket.setdefaulttimeout(self.timeout)
                 proxy = self._get_proxy()
                 return proxy.execute_kw(
-                    self.db, self.uid, self.password, model, method, args, kwargs or {}
+                    self.db, self.uid, self.password, model, method, args, call_kwargs
                 )
             except xmlrpc.client.Fault as e:
                 # Odoo application error — don't retry
@@ -298,7 +311,7 @@ class RpcBackend(OdooBackend):
                 socket.setdefaulttimeout(self.timeout)
                 proxy = self._get_proxy()
                 result = proxy.execute_kw(
-                    self.db, self.uid, self.password, model, method, args, kwargs or {}
+                    self.db, self.uid, self.password, model, method, args, call_kwargs
                 )
                 self._reporter.connection_restored(
                     f"Connection restored. Resuming import."
