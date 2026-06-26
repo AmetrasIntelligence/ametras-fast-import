@@ -261,7 +261,6 @@ class RpcBackend(OdooBackend):
             except (
                 xmlrpc.client.ProtocolError,
                 socket.timeout,
-                ConnectionError,
                 OSError,
             ) as e:
                 last_error = e
@@ -279,7 +278,8 @@ class RpcBackend(OdooBackend):
                     is_timeout = isinstance(e, socket.timeout)
                     self._reporter.notice(
                         NOTICE_RPC_TIMEOUT if is_timeout else NOTICE_RPC_RETRY,
-                        "{model}.{method} {what} (attempt {n}/{max}) — retrying in {d}s.".format(
+                        "{model}.{method} {what} (attempt {n}/{max}) — "
+                        "retrying in {d}s.".format(
                             model=model,
                             method=method,
                             what="timed out" if is_timeout else "failed",
@@ -314,7 +314,7 @@ class RpcBackend(OdooBackend):
                     self.db, self.uid, self.password, model, method, args, call_kwargs
                 )
                 self._reporter.connection_restored(
-                    f"Connection restored. Resuming import."
+                    "Connection restored. Resuming import."
                 )
                 _logger.info("Connection restored after reconnect wait")
                 return result
@@ -323,7 +323,6 @@ class RpcBackend(OdooBackend):
             except (
                 xmlrpc.client.ProtocolError,
                 socket.timeout,
-                ConnectionError,
                 OSError,
             ) as e:
                 last_error = e

@@ -85,7 +85,7 @@ def lookup_ref(model_name: str, value: str, ref_map: dict) -> int:
     module, name = normalize_ext_id(value)
     key = (model_name, module, name)
     if key not in ref_map:
-        raise ValueError(f"External ID '{value}' not found for model {model_name}")
+        raise ValueError(f"External ID {value!r} not found for model {model_name}")
     return ref_map[key]
 
 
@@ -210,7 +210,7 @@ def resolve_row(
                 resolved[field_name] = value
                 if field.comodel_name not in STANDARD_DB_ID_MODELS:
                     warnings.append(
-                        f"Field '{field_name}' uses database ID {value}. "
+                        f"Field {field_name!r} uses database ID {value}. "
                         f"Consider migrating to external ID for portability."
                     )
             else:

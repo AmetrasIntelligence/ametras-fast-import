@@ -66,7 +66,7 @@ class CSVImportController(http.Controller):
             field_info = backend.get_field_info(model)
             for key in search_keys:
                 if key not in field_info:
-                    return {"error": f"Search key '{key}' not found on model {model}"}
+                    return {"error": f"Search key {key!r} not found on model {model}"}
 
         config = ImportConfig(
             model=model,

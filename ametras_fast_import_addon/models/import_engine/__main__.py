@@ -34,7 +34,7 @@ from .constants import (
 )
 from .importer import ImportConfig, Importer, ImportFileSummary
 from .parser import ParsedRow, ParseOptions, analyze_csv_file
-from .progress import JsonLinesReporter
+from .progress import JsonLinesReporter, ProgressReporter
 
 # Route logs to stderr so they don't interfere with the JSON protocol on stdout
 logging.basicConfig(
@@ -133,7 +133,7 @@ def _handle_import(cmd: dict) -> None:
             if row_indices and len(row_indices) == len(raw_rows):
                 parsed = [
                     ParsedRow(index=idx, data=row)
-                    for idx, row in zip(row_indices, raw_rows)
+                    for idx, row in zip(row_indices, raw_rows, strict=False)
                 ]
             else:
                 parsed = [

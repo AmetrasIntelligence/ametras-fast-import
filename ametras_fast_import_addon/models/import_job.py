@@ -101,7 +101,7 @@ class ImportJob:
     # Public entry point
     # ------------------------------------------------------------------
 
-    def run(self):
+    def run(self):  # noqa: C901 — sequential orchestrator; splitting would obscure flow
         """Execute the full import. Called by the queue_job worker."""
         self.log.write({"job_state": "running"})
         self.env.cr.commit()
@@ -500,9 +500,10 @@ class ImportJob:
 
     def _refresh_flags(self):
         """Re-read control flags from DB (Vue writes them via the control endpoint)."""
+        # Table name is the ORM model's _table (not user input), so S608 is safe.
         self.env.cr.execute(
-            f"SELECT job_cancel_requested, job_pause_requested, job_skip_file "  # noqa: S608 — table name comes from the ORM, not user input
-            f"FROM {self.log._table} WHERE id = %s",
+            "SELECT job_cancel_requested, job_pause_requested, job_skip_file "
+            f"FROM {self.log._table} WHERE id = %s",  # noqa: S608
             (self.log.id,),
         )
         row = self.env.cr.fetchone()

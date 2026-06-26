@@ -48,6 +48,7 @@ models_pkg.__path__ = [_engine_path]
 models_pkg.__package__ = "models"
 sys.modules["models"] = models_pkg
 
+
 # ── stubs for the relative imports inside import_job.py ───────────────────
 def _stub(name):
     m = types.ModuleType(name)
@@ -249,7 +250,7 @@ class TestEvaluateControl(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class _FakeRow:
+class _FakeRow:  # noqa: B903 — trivial mutable test fixture
     def __init__(self, index):
         self.index = index
 
@@ -423,7 +424,7 @@ class TestProcessRetries(unittest.TestCase):
         errors = [{"filename": "f.csv", "rowNumber": 1, "error": "err"}]
 
         with patch("time.sleep"):
-            results = job._process_retries(
+            job._process_retries(
                 importer,
                 errors,
                 {"retryLimit": 3, "retryDelayMs": 0},
