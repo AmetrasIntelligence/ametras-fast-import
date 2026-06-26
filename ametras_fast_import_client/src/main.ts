@@ -53,7 +53,9 @@ platform.configure({
     searchKeys: true,
     serverLogs: false,
     serverProfiles: false,
-    lang: false,
+    // Language is honored over RPC via the call context (translatable fields are
+    // written in the selected language), so it works in standalone.
+    lang: true,
   },
   limitations: [
     'Server-side import logs not available',
