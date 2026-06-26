@@ -32,9 +32,10 @@ export const DEFAULT_RUN_SETTINGS: RunSettings = {
   delimiter: ',',
   skipHeader: true,
   dryRun: false,
-  // Empty = follow the logged-in user's language. ImportSettings resolves this
-  // to the user's actual lang on load; an explicit pick overrides it.
-  lang: '',
+  // Default to German: imports are typically German data, and defaulting to the
+  // logged-in user's language would write English for en_US users. The language
+  // dropdown lets the user switch per import.
+  lang: 'de_DE',
   // 4 matches the engine's previous effective default (DEFAULT_WORKERS), which
   // ran regardless of this setting before it was wired through. Max is 8.
   standaloneWorkers: 4

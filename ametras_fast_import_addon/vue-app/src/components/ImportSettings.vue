@@ -55,14 +55,10 @@ const languages = ref<OdooLanguage[]>([])
 
 onMounted(async () => {
   if (!platform.capabilities.lang) return
+  // Populate the picker with the server's installed languages. The selection
+  // defaults to config.settings.lang (German); the user can switch per import.
   try {
-    const { languages: langs, userLang } = await fetchLanguages()
-    languages.value = langs
-    // Default the import language to the logged-in user's language (once);
-    // an explicit selection is preserved because settings.lang is then non-empty.
-    if (!config.settings.lang && userLang) {
-      config.setSettings({ lang: userLang })
-    }
+    languages.value = await fetchLanguages()
   } catch {
     languages.value = []
   }
