@@ -1,55 +1,10 @@
 import { useSessionStore } from '@/stores/session'
-import type { ImportProfile, ProfileMapping, ProfileSequenceItem } from '@/types/importProfile'
+import type { ImportProfile, ProfileCreateData, ProfileMapping, ProfileSequenceItem } from '@/types/importProfile'
+import type { BackendFieldMapping, ProfileFullData, ProfileListItem } from '@/types/profileApi'
 import { DEFAULT_RUN_SETTINGS, type RunSettings } from '@/stores/config'
-import { parseTransform, serializeTransform } from '@/types/fieldMapping'
-import type { FieldMapping } from '@/types/fieldMapping'
+import { parseTransform, serializeTransform, type FieldMapping } from '@/types/fieldMapping'
 
-/**
- * Data required to create or update a profile.
- */
-export interface ProfileCreateData {
-  name: string
-  version?: string
-  description?: string
-  odooMinVersion?: string
-  mappings: ProfileMapping[]
-  sequence: ProfileSequenceItem[]
-  runSettings: Partial<RunSettings>
-  fieldMappings?: FieldMapping[]
-}
-
-interface ProfileListItem {
-  id: number
-  name: string
-  version: string
-  description: string
-  odoo_min_version: string
-  derived_from: string
-  created_at: string
-  updated_at: string
-}
-
-interface BackendFieldMapping {
-  filename: string
-  csvHeader?: string
-  csvColumn?: string
-  odooField: string
-  required?: boolean
-  transform?: string
-  notes?: string
-}
-
-interface ProfileFullData extends ProfileListItem {
-  mappings: Array<{
-    filename: string
-    model: string
-    searchKeys?: string[]
-    strict?: boolean
-  }>
-  sequence: Array<{ order: number; filename: string; requires?: string[] }>
-  run_settings: Record<string, string>
-  field_mappings: BackendFieldMapping[]
-}
+export type { ProfileCreateData }
 
 function getSessionInfo(): { baseUrl: string; db?: string } {
   const session = useSessionStore()
@@ -123,8 +78,9 @@ export async function uploadProfileZip(filePath: string): Promise<ImportProfile>
   if (!response.ok) {
     throw new Error(response.error || 'Upload failed')
   }
+  if (!response.result) throw new Error('Empty response from server')
 
-  return toImportProfile(response.result as unknown as ProfileFullData)
+  return toImportProfile(response.result)
 }
 
 /**

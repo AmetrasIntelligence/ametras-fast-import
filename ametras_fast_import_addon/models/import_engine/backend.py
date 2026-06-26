@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from .constants import (
+    NOTICE_RPC_RETRY,
+    NOTICE_RPC_TIMEOUT,
     RPC_MAX_RETRIES,
     RPC_RECONNECT_TIMEOUT,
     RPC_RETRY_BACKOFF_MULTIPLIER,
@@ -258,6 +260,27 @@ class RpcBackend(OdooBackend):
                         self.max_retries,
                         e,
                         delay,
+                    )
+                    # Surface the retry to the client console (DevTools) — not
+                    # just stderr — so timeouts/retries are visible during a run.
+                    is_timeout = isinstance(e, socket.timeout)
+                    self._reporter.notice(
+                        NOTICE_RPC_TIMEOUT if is_timeout else NOTICE_RPC_RETRY,
+                        "{model}.{method} {what} (attempt {n}/{max}) — retrying in {d}s.".format(
+                            model=model,
+                            method=method,
+                            what="timed out" if is_timeout else "failed",
+                            n=attempt + 1,
+                            max=self.max_retries,
+                            d=delay,
+                        ),
+                        model=model,
+                        method=method,
+                        attempt=attempt + 1,
+                        max_retries=self.max_retries,
+                        delay_seconds=delay,
+                        timed_out=is_timeout,
+                        error=str(e),
                     )
                     if hasattr(self._thread_local, "proxy"):
                         del self._thread_local.proxy

@@ -7,6 +7,7 @@ import { useRunStore } from '@/stores/run'
 import { useFilesStore } from '@/stores/files'
 import { useConfigStore } from '@/stores/config'
 import { useSessionStore } from '@/stores/session'
+import { usePlatformStore } from '@/stores/platform'
 import { ImportState } from '@/types/importState'
 import { formatNumber } from '@/utils/formatters'
 import { logger } from '@/utils/logger'
@@ -19,6 +20,11 @@ const run = useRunStore()
 const filesStore = useFilesStore()
 const config = useConfigStore()
 const session = useSessionStore()
+const platform = usePlatformStore()
+
+// Dry-run only takes effect where the backend can roll back (addon/embedded).
+// Standalone (RPC) can't, so never send dry_run=true there — it would write.
+const effectiveDryRun = () => platform.capabilities.dryRun && config.settings.dryRun
 
 // Polling with exponential backoff on failure
 const BASE_POLL_INTERVAL = 500
@@ -203,12 +209,29 @@ async function pollProgress() {
             const fp = run.progress.files[filename]
             if (fp && total > 0) fp.totalRows = total
           }
+          // Per-batch visibility: the engine reports the actual batch size
+          // (which may shrink adaptively under load), so log it as it completes.
+          const batchSize = (m.batch_size as number) || 0
+          if (batchSize > 0) {
+            logger.import.info(`Batch done: ${batchSize} rows`, {
+              file: filename, processed: success + failed, total, success, failed,
+            })
+          }
         } else if (m.type === 'batch_errors') {
           const batchErrors = (m.errors as Array<{ row: number; error: string }>) || []
           const filename = currentPythonFile.value || ''
           if (filename) {
             for (const e of batchErrors) {
               run.addError({ filename, rowNumber: e.row, rawData: {}, error: e.error, timestamp: Date.now() })
+            }
+            // Live row-failure visibility (previously only logged after the
+            // whole file finished). Sample the first error to keep it concise.
+            if (batchErrors.length > 0) {
+              logger.import.warn(`Batch: ${batchErrors.length} row error(s)`, {
+                file: filename,
+                firstRow: batchErrors[0].row,
+                firstError: batchErrors[0].error?.substring(0, 200),
+              })
             }
           }
         } else if (m.type === 'file_start' || m.type === 'file_done') {
@@ -238,7 +261,10 @@ async function pollProgress() {
           const code = (m.code as string) || 'unknown'
           const message = (m.message as string) || ''
           const details = (m.details as Record<string, unknown>) || {}
-          if (code === 'retry_budget_exhausted') {
+          if (code === 'import_config') {
+            // Concurrency / batch size / RPC timeout announced at file start.
+            logger.import.info(`[${code}] ${message}`, details)
+          } else if (code === 'retry_budget_exhausted') {
             logger.import.error(`[${code}] ${message}`, details)
             run.setTimeoutMitigation(false)
           } else if (code === 'batch_shrunk' || code === 'waiting_for_retry' || code === 'safe_retry_timed_out') {
@@ -406,7 +432,7 @@ async function startImport() {
         const filenames = [...pendingRetry.keys()]
         const rowCounts = new Map<string, number>()
         for (const [fname, { rows }] of pendingRetry) rowCounts.set(fname, rows.length)
-        run.initRun(filenames, rowCounts, config.settings.dryRun)
+        run.initRun(filenames, rowCounts, effectiveDryRun())
       } else {
         const filenames = [...config.importSequence]
         const rowCounts = new Map<string, number>()
@@ -417,7 +443,7 @@ async function startImport() {
             rowCounts.set(fname, analysis?.rowCount || 0)
           }
         }
-        run.initRun(filenames, rowCounts, config.settings.dryRun)
+        run.initRun(filenames, rowCounts, effectiveDryRun())
       }
 
       startPolling()
@@ -495,7 +521,7 @@ async function runPythonRetry(retryData: RetryData) {
         field_mappings: mapping.fieldMappings || {},
         search_keys: mapping.searchKeys || null,
         use_external_id: mapping.fieldMappings && Object.values(mapping.fieldMappings).includes('id'),
-        dry_run: config.settings.dryRun || false,
+        dry_run: effectiveDryRun(),
         strict: mapping.strict || false,
       }))
 
@@ -597,9 +623,10 @@ async function runPythonImport() {
         field_mappings: mapping.fieldMappings || {},
         search_keys: mapping.searchKeys || null,
         use_external_id: mapping.fieldMappings && Object.values(mapping.fieldMappings).includes('id'),
-        dry_run: config.settings.dryRun || false,
+        dry_run: effectiveDryRun(),
         strict: mapping.strict || false,
         batch_size: config.settings.batchSize || 200,
+        workers: config.settings.standaloneWorkers || 4,
         delimiter: config.settings.delimiter || ',',
         encoding: config.settings.encoding || 'utf-8',
       }))

@@ -12,20 +12,20 @@ const platform = usePlatformStore()
 const session = useSessionStore()
 const { delimiterOptions, encodingOptions } = useSettingsOptions()
 
+// Server-side import: batch size and workers are hints for the backend
+const BATCH_SIZE_MIN = 10
+const BATCH_SIZE_MAX = 1000
+const MAX_WORKERS = 8
+
 function validateWorkerConfig(workers: number, batchSize: number): { valid: boolean; warning?: string } {
   if (workers > 2 && batchSize < 50) {
     return { valid: true, warning: 'Workers may be inefficient with small batch sizes (< 50 rows)' }
   }
-  if (workers > 4) {
-    return { valid: false, warning: 'Maximum 4 workers allowed' }
+  if (workers > MAX_WORKERS) {
+    return { valid: false, warning: `Maximum ${MAX_WORKERS} workers allowed` }
   }
   return { valid: true }
 }
-
-// Server-side import: batch size and workers are hints for the backend
-const BATCH_SIZE_MIN = 10
-const BATCH_SIZE_MAX = 1000
-const MAX_WORKERS = 4
 
 const workerWarning = computed(() => {
   const { warning } = validateWorkerConfig(config.settings.standaloneWorkers, config.settings.batchSize)

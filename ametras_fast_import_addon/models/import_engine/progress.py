@@ -7,6 +7,7 @@ Two implementations:
 """
 import json
 import sys
+import threading
 from abc import ABC, abstractmethod
 from typing import Optional
 
@@ -32,9 +33,14 @@ class ProgressReporter(ABC):
 
     @abstractmethod
     def batch_completed(
-        self, processed: int, total: int, success: int, failed: int
+        self, processed: int, total: int, success: int, failed: int, batch_size: int = 0
     ) -> None:
-        """Called after each batch is processed."""
+        """Called after each batch is processed.
+
+        `batch_size` is the number of rows in the batch that just completed
+        (0 = unknown). Surfaced so the client can show real batch sizes,
+        including any adaptive shrinking under load.
+        """
 
     @abstractmethod
     def file_started(self, filename: str, total_rows: int) -> None:
@@ -78,7 +84,7 @@ class NullReporter(ProgressReporter):
         pass
 
     def batch_completed(
-        self, processed: int, total: int, success: int, failed: int
+        self, processed: int, total: int, success: int, failed: int, batch_size: int = 0
     ) -> None:
         pass
 
@@ -119,26 +125,33 @@ class JsonLinesReporter(ProgressReporter):
 
     def __init__(self, stream: Optional[object] = None):
         self._stream = stream or sys.stdout
+        # Serialize writes: the parallel import path emits from worker threads
+        # (batch_completed / emit_errors / rpc_retry notices), and interleaved
+        # writes would corrupt the line-delimited JSON protocol.
+        self._lock = threading.Lock()
 
     def _emit(self, data: dict) -> None:
-        self._stream.write(json.dumps(data, ensure_ascii=False) + "\n")
-        self._stream.flush()
+        line = json.dumps(data, ensure_ascii=False) + "\n"
+        with self._lock:
+            self._stream.write(line)
+            self._stream.flush()
 
     def row_completed(self, row_index: int, ok: bool, error: str = "") -> None:
         pass  # Too noisy per-row; batch reporting is sufficient
 
     def batch_completed(
-        self, processed: int, total: int, success: int, failed: int
+        self, processed: int, total: int, success: int, failed: int, batch_size: int = 0
     ) -> None:
-        self._emit(
-            {
-                "type": PROGRESS_TYPE_PROGRESS,
-                "processed": processed,
-                "total": total,
-                "success": success,
-                "failed": failed,
-            }
-        )
+        payload = {
+            "type": PROGRESS_TYPE_PROGRESS,
+            "processed": processed,
+            "total": total,
+            "success": success,
+            "failed": failed,
+        }
+        if batch_size:
+            payload["batch_size"] = batch_size
+        self._emit(payload)
 
     def file_started(self, filename: str, total_rows: int) -> None:
         self._emit(
