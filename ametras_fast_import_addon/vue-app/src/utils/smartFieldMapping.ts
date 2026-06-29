@@ -97,7 +97,10 @@ export function autoMapFields(
     if (header.endsWith('/id') || header.endsWith('/.id')) continue  // Unmatched /id suffix, skip
 
     for (const field of fields) {
-      if (field.readonly || usedFields.has(field.name)) continue
+      // Skip computed non-stored fields: they can't be written and add noise.
+      // Allow readonly stored fields — they're valid import targets on update.
+      if (field.readonly && !field.store) continue
+      if (usedFields.has(field.name)) continue
 
       const score = scoreFieldMatch(header, field)
       if (score >= minScore) {

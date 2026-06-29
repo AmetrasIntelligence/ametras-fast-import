@@ -339,7 +339,8 @@
     "extIdSuffix": "ext ID",
     "dbIdSuffix": "db ID",
     "searchPlaceholder": "Search by name or technical name...",
-    "noResults": "No fields found"
+    "noResults": "No fields found",
+    "readOnly": "read-only"
   },
   "mappingStatus": {
     "valid": "Ready to import",

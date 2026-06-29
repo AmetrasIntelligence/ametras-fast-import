@@ -41,6 +41,8 @@ class OrmBackend(OdooBackend):
                 name=name,
                 type=field.type,
                 comodel_name=getattr(field, "comodel_name", "") or "",
+                readonly=getattr(field, "readonly", False),
+                store=getattr(field, "store", True),
             )
         self._field_cache[model] = result
         return result

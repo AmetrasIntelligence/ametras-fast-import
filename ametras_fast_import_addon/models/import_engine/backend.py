@@ -47,6 +47,8 @@ class FieldInfo:
     name: str
     type: str  # 'many2one', 'many2many', 'char', 'integer', etc.
     comodel_name: str = ""  # Target model for relational fields
+    readonly: bool = False
+    store: bool = True
 
 
 class _NullSavepoint:
@@ -369,13 +371,17 @@ class RpcBackend(OdooBackend):
         if model in self._field_cache:
             return self._field_cache[model]
 
-        raw = self._call(model, "fields_get", [], {"attributes": ["type", "relation"]})
+        raw = self._call(
+            model, "fields_get", [], {"attributes": ["type", "relation", "readonly", "store"]}
+        )
         result = {}
         for name, info in raw.items():
             result[name] = FieldInfo(
                 name=name,
                 type=info.get("type", ""),
                 comodel_name=info.get("relation", ""),
+                readonly=info.get("readonly", False),
+                store=info.get("store", True),
             )
         self._field_cache[model] = result
         return result

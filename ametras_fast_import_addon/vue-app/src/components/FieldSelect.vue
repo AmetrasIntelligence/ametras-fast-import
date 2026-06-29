@@ -15,6 +15,7 @@ interface FieldOption {
   suffix?: string
   fieldType: string
   isRelational: boolean
+  readonly: boolean
 }
 
 const props = defineProps<{
@@ -58,7 +59,8 @@ const allOptions = computed<FieldOption[]>(() => {
     technical: 'id',
     suffix: t('fieldSelect.extIdSuffix'),
     fieldType: 'id',
-    isRelational: false
+    isRelational: false,
+    readonly: false
   })
   opts.push({
     value: '.id',
@@ -66,18 +68,18 @@ const allOptions = computed<FieldOption[]>(() => {
     technical: '.id',
     suffix: t('fieldSelect.dbIdSuffix'),
     fieldType: 'id',
-    isRelational: false
+    isRelational: false,
+    readonly: false
   })
 
-  const writableFields = props.fields.filter(f => !f.readonly)
-
-  for (const f of writableFields) {
+  for (const f of props.fields) {
     opts.push({
       value: f.name,
       label: f.string,
       technical: f.name,
       fieldType: f.type,
-      isRelational: f.type === 'many2one' || f.type === 'many2many'
+      isRelational: f.type === 'many2one' || f.type === 'many2many',
+      readonly: f.readonly
     })
 
     if (f.type === 'many2one' || f.type === 'many2many') {
@@ -87,7 +89,8 @@ const allOptions = computed<FieldOption[]>(() => {
         technical: `${f.name}/id`,
         suffix: t('fieldSelect.extIdSuffix'),
         fieldType: f.type,
-        isRelational: true
+        isRelational: true,
+        readonly: f.readonly
       })
       opts.push({
         value: `${f.name}/.id`,
@@ -95,7 +98,8 @@ const allOptions = computed<FieldOption[]>(() => {
         technical: `${f.name}/.id`,
         suffix: t('fieldSelect.dbIdSuffix'),
         fieldType: f.type,
-        isRelational: true
+        isRelational: true,
+        readonly: f.readonly
       })
     }
   }
@@ -153,6 +157,9 @@ function selectSkip() {
         {{ selectedOption.label }}
         <span v-if="selectedOption.suffix" class="csv-field-sel__suffix">
           [{{ selectedOption.suffix }}]
+        </span>
+        <span v-if="selectedOption.readonly" class="csv-field-sel__readonly-badge">
+          {{ $t('fieldSelect.readOnly') }}
         </span>
       </span>
       <span v-else class="text-body-secondary">{{ $t('common.skip') }}</span>
@@ -214,6 +221,9 @@ function selectSkip() {
                 <span v-if="option.suffix" class="csv-field-sel__suffix">
                   [{{ option.suffix }}]
                 </span>
+                <span v-if="option.readonly" class="csv-field-sel__readonly-badge">
+                  {{ $t('fieldSelect.readOnly') }}
+                </span>
               </div>
               <div class="csv-dropdown__tech">{{ option.technical }}</div>
             </div>
@@ -266,6 +276,17 @@ function selectSkip() {
   font-size: 0.7rem;
   color: var(--bs-primary);
   margin-left: 0.125rem;
+}
+.csv-field-sel__readonly-badge {
+  font-size: 0.65rem;
+  color: var(--bs-warning-text-emphasis, #664d03);
+  background: var(--bs-warning-bg-subtle, #fff3cd);
+  border: 1px solid var(--bs-warning-border-subtle, #ffda6a);
+  border-radius: 3px;
+  padding: 0.1rem 0.3rem;
+  margin-left: 0.25rem;
+  vertical-align: middle;
+  white-space: nowrap;
 }
 .csv-field-sel__type {
   flex-shrink: 0;

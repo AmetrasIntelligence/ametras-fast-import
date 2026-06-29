@@ -34,7 +34,10 @@ export function useFieldMetadata() {
   function buildValidFieldValues(fields: OdooField[]): Set<string> {
     const valid = new Set<string>(['id', '.id'])
     for (const f of fields) {
-      if (f.readonly) continue
+      // Exclude computed non-stored fields: they can never be written.
+      // Readonly stored fields (e.g. interface = Char readonly=True) are
+      // valid targets — the backend writes them on update, skips on create.
+      if (f.readonly && !f.store) continue
       valid.add(f.name)
       if (f.type === 'many2one' || f.type === 'many2many') {
         valid.add(`${f.name}/id`)
