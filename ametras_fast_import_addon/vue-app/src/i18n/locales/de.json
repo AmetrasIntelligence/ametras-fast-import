@@ -63,6 +63,7 @@
   "files": {
     "title": "CSV-Dateien auswählen",
     "addFiles": "Dateien hinzufügen",
+    "analyzing": "Dateien werden analysiert…",
     "noPreview": "Keine Vorschau verfügbar",
     "configureMappings": "Zuordnungen konfigurieren",
     "dropZone": {

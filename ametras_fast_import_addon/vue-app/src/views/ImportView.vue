@@ -127,6 +127,17 @@ async function proceed() {
       {{ fileManagement.loadError.value }}
     </div>
 
+    <!-- Upload/analysis progress feedback -->
+    <div
+      v-if="fileManagement.isAnalyzing.value"
+      class="d-flex align-items-center gap-2 small text-body-secondary"
+      role="status"
+      aria-live="polite"
+    >
+      <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+      {{ $t('files.analyzing') }}
+    </div>
+
     <!-- Show drop zone only when no files yet -->
     <FileDropZone
       v-if="!hasFiles"

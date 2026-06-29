@@ -24,6 +24,7 @@ export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>
   const modelSuggestions = ref<Map<string, { model: OdooModel; score: number } | null>>(new Map())
   const fieldSuggestionsApplied = ref<Set<string>>(new Set())
   const loadError = ref<string | null>(null)
+  const isAnalyzing = ref(false)
   const validationResults = ref<Map<string, { ok: boolean; message?: string; data?: Record<string, string | number> }>>(new Map())
   const validationTrigger = ref(0)
 
@@ -116,87 +117,92 @@ export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>
   async function addFilesAndAnalyze(selected: Array<{ id: string; name: string; size: number }>) {
     filesStore.addFiles(selected)
 
-    for (const file of selected) {
-      let analysis: {
-        headers: string[]; rowCount: number; sampleRows: Record<string, string>[];
-        delimiter: string; hasIdColumn: boolean; hasDotIdColumn: boolean;
-      } = { headers: [], rowCount: 0, sampleRows: [], delimiter: ',', hasIdColumn: false, hasDotIdColumn: false }
-
-      if (window.api?.python?.analyze) {
-        try {
-          const pyResp = await window.api.python.analyze({
-            fileId: file.id,
-            encoding: config.settings.encoding || 'utf-8',
-          }) as { ok: boolean; result?: Record<string, unknown>; error?: string }
-          if (pyResp.ok && pyResp.result) {
-            const r = pyResp.result as Record<string, unknown>
-            // Only accept genuine analysis results — Python errors emit {type:'error'}
-            if (r.type === 'analysis' && Array.isArray(r.headers) && (r.headers as string[]).length > 0) {
-              analysis = {
-                headers: r.headers as string[],
-                rowCount: (r.rowCount as number) || 0,
-                sampleRows: (r.sampleRows as Record<string, string>[]) || [],
-                delimiter: (r.delimiter as string) || ',',
-                hasIdColumn: !!(r.hasIdColumn),
-                hasDotIdColumn: !!(r.hasDotIdColumn),
-              }
-            }
-          }
-        } catch {
-          // Fall through to next fallback
-        }
-      }
-
-      // JS fallback for Electron: use files IPC + PapaParse when Python is unavailable
-      if (analysis.headers.length === 0 && window.api?.files?.readHead && window.api?.files?.countLines) {
-        try {
-          const encoding = config.settings.encoding || 'utf-8'
-          const sample = await window.api.files.readHead(file.id, 65536, encoding)
-          const parsed = Papa.parse<Record<string, string>>(sample, {
-            header: true,
-            skipEmptyLines: true,
-            preview: 6,
-          })
-          const headers = parsed.meta.fields || []
-          if (headers.length > 0) {
-            const lineCount = await window.api.files.countLines(file.id)
-            const sampleRows = parsed.data.slice(0, 5)
-            const hasIdColumn = headers.includes('id')
-            const hasDotIdColumn = headers.some(h => h.endsWith('.id'))
-            analysis = {
-              headers,
-              rowCount: Math.max(0, lineCount - 1),
-              sampleRows,
-              delimiter: parsed.meta.delimiter || ',',
-              hasIdColumn,
-              hasDotIdColumn,
-            }
-          }
-        } catch {
-          // Fall through to Odoo endpoint
-        }
-      }
-
-      if (analysis.headers.length === 0) {
-        const analyzeResp = await window.api.odoo.call<{
+    isAnalyzing.value = true
+    try {
+      for (const file of selected) {
+        let analysis: {
           headers: string[]; rowCount: number; sampleRows: Record<string, string>[];
           delimiter: string; hasIdColumn: boolean; hasDotIdColumn: boolean;
-        }>({
-          baseUrl: '',
-          endpoint: '/ametras_fast_import/file/analyze',
-          params: { file_id: file.id, encoding: config.settings.encoding || 'utf-8' }
-        })
-        if (analyzeResp.ok && analyzeResp.result) {
-          analysis = analyzeResp.result
+        } = { headers: [], rowCount: 0, sampleRows: [], delimiter: ',', hasIdColumn: false, hasDotIdColumn: false }
+
+        if (window.api?.python?.analyze) {
+          try {
+            const pyResp = await window.api.python.analyze({
+              fileId: file.id,
+              encoding: config.settings.encoding || 'utf-8',
+            }) as { ok: boolean; result?: Record<string, unknown>; error?: string }
+            if (pyResp.ok && pyResp.result) {
+              const r = pyResp.result as Record<string, unknown>
+              // Only accept genuine analysis results — Python errors emit {type:'error'}
+              if (r.type === 'analysis' && Array.isArray(r.headers) && (r.headers as string[]).length > 0) {
+                analysis = {
+                  headers: r.headers as string[],
+                  rowCount: (r.rowCount as number) || 0,
+                  sampleRows: (r.sampleRows as Record<string, string>[]) || [],
+                  delimiter: (r.delimiter as string) || ',',
+                  hasIdColumn: !!(r.hasIdColumn),
+                  hasDotIdColumn: !!(r.hasDotIdColumn),
+                }
+              }
+            }
+          } catch {
+            // Fall through to next fallback
+          }
         }
+
+        // JS fallback for Electron: use files IPC + PapaParse when Python is unavailable
+        if (analysis.headers.length === 0 && window.api?.files?.readHead && window.api?.files?.countLines) {
+          try {
+            const encoding = config.settings.encoding || 'utf-8'
+            const sample = await window.api.files.readHead(file.id, 65536, encoding)
+            const parsed = Papa.parse<Record<string, string>>(sample, {
+              header: true,
+              skipEmptyLines: true,
+              preview: 6,
+            })
+            const headers = parsed.meta.fields || []
+            if (headers.length > 0) {
+              const lineCount = await window.api.files.countLines(file.id)
+              const sampleRows = parsed.data.slice(0, 5)
+              const hasIdColumn = headers.includes('id')
+              const hasDotIdColumn = headers.some(h => h.endsWith('.id'))
+              analysis = {
+                headers,
+                rowCount: Math.max(0, lineCount - 1),
+                sampleRows,
+                delimiter: parsed.meta.delimiter || ',',
+                hasIdColumn,
+                hasDotIdColumn,
+              }
+            }
+          } catch {
+            // Fall through to Odoo endpoint
+          }
+        }
+
+        if (analysis.headers.length === 0) {
+          const analyzeResp = await window.api.odoo.call<{
+            headers: string[]; rowCount: number; sampleRows: Record<string, string>[];
+            delimiter: string; hasIdColumn: boolean; hasDotIdColumn: boolean;
+          }>({
+            baseUrl: '',
+            endpoint: '/ametras_fast_import/file/analyze',
+            params: { file_id: file.id, encoding: config.settings.encoding || 'utf-8' }
+          })
+          if (analyzeResp.ok && analyzeResp.result) {
+            analysis = analyzeResp.result
+          }
+        }
+        filesStore.setAnalysis(file.id, analysis)
+
+        initMapping(file.name)
+        generateSuggestion(file.name, file.id)
       }
-      filesStore.setAnalysis(file.id, analysis)
 
-      initMapping(file.name)
-      generateSuggestion(file.name, file.id)
+      config.setSequence(filesStore.files.map(f => f.name))
+    } finally {
+      isAnalyzing.value = false
     }
-
-    config.setSequence(filesStore.files.map(f => f.name))
   }
 
   async function handleDrop(files: File[]) {
@@ -337,6 +343,7 @@ export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>
   return {
     modelSuggestions,
     loadError,
+    isAnalyzing,
     validatingFile,
     canStartImport,
     hasPartialMappings,
