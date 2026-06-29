@@ -13,6 +13,7 @@ export interface OdooField {
   string: string
   required: boolean
   readonly: boolean
+  store: boolean
   relation?: string
 }
 
@@ -277,6 +278,7 @@ export async function fetchModelFields(modelName: string): Promise<OdooField[]> 
     type: string
     required?: boolean
     readonly?: boolean
+    store?: boolean
     relation?: string
   }>>({
     baseUrl: session.baseUrl,
@@ -287,7 +289,7 @@ export async function fetchModelFields(modelName: string): Promise<OdooField[]> 
       method: 'fields_get',
       args: [],
       kwargs: {
-        attributes: ['string', 'type', 'required', 'readonly', 'relation']
+        attributes: ['string', 'type', 'required', 'readonly', 'store', 'relation']
       }
     }
   })
@@ -301,6 +303,7 @@ export async function fetchModelFields(modelName: string): Promise<OdooField[]> 
     string: field.string,
     required: field.required || false,
     readonly: field.readonly || false,
+    store: field.store ?? true,
     relation: field.relation
   }))
 }

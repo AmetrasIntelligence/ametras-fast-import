@@ -689,6 +689,24 @@ class Importer:
             )
             return RowResult(ok=False, row_index=row_index, error=error_msg)
 
+    def _filter_writable(self, row: dict, is_update: bool) -> dict:
+        """Strip fields that must not be written.
+
+        - readonly + non-stored (computed without inverse): always removed.
+        - readonly + stored: allowed on update, stripped on create.
+        """
+        field_info = self._get_field_info()
+        result = {}
+        for key, val in row.items():
+            info = field_info.get(key)
+            if info is not None and info.readonly:
+                if not info.store:
+                    continue  # computed non-stored: can never be written
+                if not is_update:
+                    continue  # readonly stored: skip on create (updates only)
+            result[key] = val
+        return result
+
     def _import_row(self, row: dict) -> RowResult:
         """
         Import single row with deterministic upsert logic.
@@ -719,7 +737,8 @@ class Importer:
             )
 
         if record_id:
-            self.backend.write(self.config.model, [record_id], row)
+            write_row = self._filter_writable(row, is_update=True)
+            self.backend.write(self.config.model, [record_id], write_row)
             return RowResult(
                 ok=True,
                 row_index=0,
@@ -736,7 +755,8 @@ class Importer:
                 error=f"Record with .id={db_id} not found in {self.config.model}",
             )
 
-        new_id = self.backend.create(self.config.model, row)
+        create_row = self._filter_writable(row, is_update=False)
+        new_id = self.backend.create(self.config.model, create_row)
         if self.config.use_external_id and external_id:
             self._create_external_id(new_id, external_id)
         return RowResult(
@@ -795,7 +815,8 @@ class Importer:
             )
 
         elif operation == OP_CREATE:
-            new_id = self.backend.create(self.config.model, row)
+            create_row = self._filter_writable(row, is_update=False)
+            new_id = self.backend.create(self.config.model, create_row)
             if self.config.use_external_id and external_id:
                 self._create_external_id(new_id, external_id)
             return RowResult(
@@ -815,7 +836,8 @@ class Importer:
                     row_index=0,
                     error="Update requested but record not found",
                 )
-            self.backend.write(self.config.model, [record_id], row)
+            write_row = self._filter_writable(row, is_update=True)
+            self.backend.write(self.config.model, [record_id], write_row)
             return RowResult(
                 ok=True,
                 row_index=0,
