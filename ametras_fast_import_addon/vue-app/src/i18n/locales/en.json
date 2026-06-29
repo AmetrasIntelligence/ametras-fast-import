@@ -63,6 +63,7 @@
   "files": {
     "title": "Select CSV Files",
     "addFiles": "Add Files",
+    "analyzing": "Analysing files…",
     "noPreview": "No preview available",
     "configureMappings": "Configure Mappings",
     "dropZone": {

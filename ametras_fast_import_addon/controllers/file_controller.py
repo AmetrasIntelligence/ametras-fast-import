@@ -128,19 +128,29 @@ class FileController(http.Controller):
         methods=["POST"],
     )
     def count_lines(self, file_id, **kwargs):
-        """Count newline bytes in an attachment without loading it all at once.
+        """Count logical lines in an attachment without loading it all at once.
 
         Streams through the file in 64 KB chunks so large files never require
-        the full content in memory at the same time.
+        the full content in memory at the same time. Counts newline bytes, plus
+        one for a final line that has no trailing newline — so a file with a
+        header and a single data row but no trailing newline reports 2 lines,
+        not 1. This matches the Electron ``files:countLines`` readline contract
+        the frontend relies on (otherwise the row count is off by one and a
+        single-data-row file is analysed as 0 rows).
         """
         attachment = request.env["ir.attachment"].browse(int(file_id))
         if not attachment.exists():
             return {"error": "Attachment not found"}
 
         count = 0
+        last_byte = b""
         with self._attachment_fileobj(attachment) as f:
             for chunk in iter(lambda: f.read(65536), b""):
                 count += chunk.count(b"\n")
+                last_byte = chunk[-1:]
+        # Account for a final line not terminated by a newline.
+        if last_byte and last_byte != b"\n":
+            count += 1
         return {"count": count}
 
     # ------------------------------------------------------------------

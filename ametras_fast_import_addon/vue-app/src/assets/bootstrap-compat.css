@@ -33,6 +33,12 @@
 
 /* ── BS 5.3 CSS Custom Properties ─────────────────────────────────── */
 :root {
+  /* Body base — needed so teleported dropdown panels render an opaque
+     background/text instead of falling back to transparent when Odoo's
+     own --bs-body-bg is not in the teleport target's cascade */
+  --bs-body-bg: #fff;
+  --bs-body-color: #212529;
+
   /* Semantic text colors */
   --bs-secondary-color: rgba(33, 37, 41, 0.75);
   --bs-tertiary-color: rgba(33, 37, 41, 0.5);
