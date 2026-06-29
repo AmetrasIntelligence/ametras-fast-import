@@ -276,7 +276,10 @@ class CsvImportLog(models.Model):
                 log.write({"attachment_ids": [(5, 0, 0)]})
                 attachments.unlink()
 
-        # Orphaned attachments (no log linked)
+        # Orphaned upload attachments: uploaded files older than the cutoff that
+        # were never attached to any import log (e.g. the user opened the import
+        # dialog, dropped files, then closed it without starting). These have
+        # res_id=0 and no row in the log<->attachment relation.
         orphans = self.env["ir.attachment"].search(
             [
                 ("res_model", "=", "ametras_fast_import.file"),
@@ -285,13 +288,15 @@ class CsvImportLog(models.Model):
             ]
         )
         if orphans:
-            linked = self.env["ir.attachment"].search(
-                [
-                    ("id", "in", orphans.ids),
-                    ("csv_import_log_attachment_rel.log_id", "!=", False),
-                ]
+            # ir.attachment has no reverse field for the m2m, so resolve the
+            # link from the log side: any of these attachments referenced by a
+            # log must be kept (its lifecycle is handled by the branch above).
+            linked_ids = (
+                self.search([("attachment_ids", "in", orphans.ids)])
+                .mapped("attachment_ids")
+                .ids
             )
-            to_delete = orphans - linked
+            to_delete = orphans.filtered(lambda a: a.id not in linked_ids)
             if to_delete:
                 _logger.info("Deleting %d orphaned import attachments", len(to_delete))
                 to_delete.unlink()
