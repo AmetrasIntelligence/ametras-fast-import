@@ -553,6 +553,76 @@ class TestResolveRow(unittest.TestCase):
 
         self.assertEqual(resolved["tag_ids"], [(6, 0, [1, 2, 3])])
 
+    # -- Regression: APX-3827 -------------------------------------------------
+    # A many2many value that is a bare database ID (numeric string or int) was
+    # passed through raw, so Odoo rejected it with
+    #   ValueError: Wrong value for product.template.route_ids: 6
+    # It must be wrapped in a (6, 0, [ids]) command like the external-id path.
+
+    def test_resolve_m2m_numeric_string_db_id(self):
+        """A single numeric string DB id is wrapped as a replace command."""
+        backend = MockBackend()
+        field_info = {
+            "route_ids": FieldInfo(
+                "route_ids", "many2many", "stock.location.route"
+            ),
+        }
+
+        resolved, warnings = resolve_row(
+            backend,
+            "product.template",
+            field_info,
+            {"route_ids": "6"},  # the exact value from the client's row 400
+            {},
+        )
+
+        self.assertEqual(resolved["route_ids"], [(6, 0, [6])])
+        # Non-standard model → nudge toward external IDs.
+        self.assertTrue(any("database ID" in w for w in warnings))
+
+    def test_resolve_m2m_int_db_id(self):
+        """A single integer DB id (e.g. from /.id) is wrapped."""
+        backend = MockBackend()
+        field_info = {
+            "route_ids": FieldInfo(
+                "route_ids", "many2many", "stock.location.route"
+            ),
+        }
+
+        resolved, _ = resolve_row(
+            backend,
+            "product.template",
+            field_info,
+            {"route_ids": 6},
+            {},
+        )
+
+        self.assertEqual(resolved["route_ids"], [(6, 0, [6])])
+
+    def test_resolve_m2m_delimited_numeric_db_ids(self):
+        """Pipe- and comma-delimited numeric DB ids wrap into one command.
+
+        A delimited numeric string like "6|7" is not .isdigit(), so it must be
+        recognised as DB ids *before* the external-id branch tries to look it
+        up (which would fail as "not found").
+        """
+        backend = MockBackend()
+        field_info = {
+            "route_ids": FieldInfo(
+                "route_ids", "many2many", "stock.location.route"
+            ),
+        }
+
+        for raw, expected in (("6|7", [6, 7]), ("6, 8 ,9", [6, 8, 9])):
+            resolved, _ = resolve_row(
+                backend,
+                "product.template",
+                field_info,
+                {"route_ids": raw},
+                {},
+            )
+            self.assertEqual(resolved["route_ids"], [(6, 0, expected)])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
