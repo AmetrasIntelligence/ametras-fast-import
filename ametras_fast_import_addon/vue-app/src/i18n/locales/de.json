@@ -121,8 +121,7 @@
     "validationRowSuccess": "Zeile {row} würde erfolgreich {action} werden",
     "validationRowError": "Zeile {row}: {error}",
     "validationDryRunOk": "Zeile {row}: Probelauf abgeschlossen",
-    "validationRequestFailed": "Zeile {row}: {error}",
-    "validationFailed": "Validierung fehlgeschlagen"
+    "validationRequestFailed": "Zeile {row}: {error}"
   },
   "settings": {
     "title": "Importeinstellungen",
@@ -275,7 +274,9 @@
     "failedToExport": "Profil konnte nicht exportiert werden: {error}",
     "failedToDelete": "Profil konnte nicht gelöscht werden: {error}",
     "failedToLoad": "Profil konnte nicht geladen werden: {error}",
-    "importFailed": "Import fehlgeschlagen: {error}"
+    "importFailed": "Import fehlgeschlagen: {error}",
+    "saved": "Profil \"{name}\" gespeichert",
+    "failedToSave": "Profil konnte nicht gespeichert werden: {error}"
   },
   "profileSelect": {
     "title": "Import-Profil auswählen",

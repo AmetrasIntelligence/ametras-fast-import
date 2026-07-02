@@ -10,7 +10,7 @@ import { checkOdooCompatibility } from '@/utils/profileUtils'
 import { formatTimestamp } from '@/utils/formatters'
 import { showAlert, showConfirm } from '@/utils/dialog'
 import { createRunConfig } from '@/types/runConfig'
-import type { ImportProfile } from '@/types/importProfile'
+import type { ImportProfile, ProfileCreateData } from '@/types/importProfile'
 import { Button, Card } from '@/ui'
 import ProfileEditor from '@/components/ProfileEditor.vue'
 import { importStandaloneProfile } from '@/api/profileStorage'
@@ -31,6 +31,26 @@ const localImportError = ref<string | null>(null)
 const expandedProfileId = ref<number | null>(null)
 const expandedProfile = ref<ImportProfile | null>(null)
 const loadingProfileId = ref<number | null>(null)
+const savingProfile = ref(false)
+
+// Profiles are editable in place only in the standalone client; embedded Odoo
+// manages profiles through native Odoo views.
+const canEdit = computed(() => !session.isEmbedded)
+
+async function handleProfileSave(data: Partial<ProfileCreateData>) {
+  if (!expandedProfile.value) return
+  savingProfile.value = true
+  try {
+    const updated = await profiles.updateProfile(expandedProfile.value.id, data)
+    expandedProfile.value = updated
+    await profiles.loadProfiles(true)
+    showAlert(t('profiles.saved', { name: updated.name }))
+  } catch (e) {
+    showAlert(t('profiles.failedToSave', { error: (e as Error).message }))
+  } finally {
+    savingProfile.value = false
+  }
+}
 
 // Single-profile mode: when opened from Odoo tree view, show only that profile
 const singleProfileId = ref<number | null>(null)
@@ -334,6 +354,9 @@ function createViewRunConfig(profileId: number) {
             :effective-mappings="expandedProfile.mappings"
             :effective-sequence="expandedProfile.sequence"
             :has-overrides="false"
+            :editable="canEdit"
+            :saving="savingProfile"
+            @save="handleProfileSave"
           />
         </div>
       </Card>

@@ -121,8 +121,7 @@
     "validationRowSuccess": "Row {row} would be {action} successfully",
     "validationRowError": "Row {row}: {error}",
     "validationDryRunOk": "Row {row}: Dry run completed",
-    "validationRequestFailed": "Row {row}: {error}",
-    "validationFailed": "Validation failed"
+    "validationRequestFailed": "Row {row}: {error}"
   },
   "settings": {
     "title": "Import Settings",
@@ -275,7 +274,9 @@
     "failedToExport": "Failed to export profile: {error}",
     "failedToDelete": "Failed to delete profile: {error}",
     "failedToLoad": "Failed to load profile: {error}",
-    "importFailed": "Import failed: {error}"
+    "importFailed": "Import failed: {error}",
+    "saved": "Profile \"{name}\" saved",
+    "failedToSave": "Failed to save profile: {error}"
   },
   "profileSelect": {
     "title": "Select Import Profile",
