@@ -116,15 +116,19 @@ def parse_csv_string(
     if not delimiter:
         delimiter = _detect_delimiter(content[:DELIMITER_DETECTION_SAMPLE_SIZE])
 
+    # newline="" lets the csv module handle universal line endings (LF, CRLF,
+    # and lone CR) itself, matching how files are opened in _open_file. Without
+    # it, StringIO only splits on \n, so CR-only or mixed-CR content raises
+    # "new-line character seen in unquoted field" and analysis fails.
     if opts.has_header:
-        reader = csv.DictReader(io.StringIO(content), delimiter=delimiter)
+        reader = csv.DictReader(io.StringIO(content, newline=""), delimiter=delimiter)
         for idx, row in enumerate(reader, start=1):
             data = {k.strip(): v for k, v in row.items() if k is not None}
             if not any(v for v in data.values() if v is not None and v != ""):
                 continue  # skip blank/empty lines
             yield ParsedRow(index=idx, data=data)
     else:
-        reader = csv.reader(io.StringIO(content), delimiter=delimiter)
+        reader = csv.reader(io.StringIO(content, newline=""), delimiter=delimiter)
         for idx, row in enumerate(reader, start=1):
             if not any(v for v in row if v):
                 continue  # skip blank/empty lines
