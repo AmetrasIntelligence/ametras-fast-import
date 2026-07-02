@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo noupdate="1">
+    <!-- Channel used by csv.import.log.action_start_import (channel="root.csv_import"). -->
+    <record id="channel_csv_import" model="queue.job.channel">
+        <field name="name">csv_import</field>
+        <field name="parent_id" ref="queue_job.channel_root" />
+    </record>
+
+    <!-- The import job commits progress incrementally (live progress + resume),
+         so it must be allowed to commit inside the queue job. Without this the
+         OCA queue_job "forbidden commit" guard aborts every import with
+         "Commit is forbidden in queue jobs". -->
+    <record id="job_function_execute_import" model="queue.job.function">
+        <field name="model_id" ref="model_csv_import_log" />
+        <field name="method">_execute_import</field>
+        <field name="channel_id" ref="channel_csv_import" />
+        <field name="allow_commit" eval="True" />
+    </record>
+</odoo>

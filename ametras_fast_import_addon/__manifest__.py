@@ -1,6 +1,6 @@
 {
     "name": "Ametras Fast Import",
-    "version": "16.0.14",
+    "version": "16.0.15",
     "category": "Tools",
     "summary": "Ametras Fast Import — embedded Vue frontend for CSV importing",
     "description": """
@@ -16,6 +16,7 @@
     "depends": ["base", "web", "queue_job"],
     "data": [
         "security/ir.model.access.csv",
+        "data/queue_job.xml",
         "views/actions.xml",
         "views/menu.xml",
         "data/cron.xml",
