@@ -99,6 +99,28 @@ STANDARD_DB_ID_MODELS = frozenset(
 )
 
 # ---------------------------------------------------------------------------
+# Import call context
+# ---------------------------------------------------------------------------
+# Context applied to every create/write during an import. It disables the
+# mail.thread side-effects that a bulk import must not trigger: follower
+# auto-subscription, creation/tracking log messages, and field tracking.
+#
+# Without this, creating a record runs full mail.thread machinery. On stacks
+# with custom create() overrides that also subscribe a partner (e.g. the
+# creator/responsible), the same follower can be added twice in one create and
+# hit the mail_followers unique constraint
+# (res_model, res_id, partner_id) -> "a partner cannot follow the same object
+# twice". It also avoids spamming chatter and is a significant speed-up.
+#
+# This mirrors the context Odoo's own base_import / data loading use.
+IMPORT_CALL_CONTEXT = {
+    "tracking_disable": True,
+    "mail_create_nosubscribe": True,
+    "mail_create_nolog": True,
+    "mail_notrack": True,  # older Odoo alias for tracking_disable; harmless
+}
+
+# ---------------------------------------------------------------------------
 # Adaptive batch sizing (BatchSizeAdapter)
 # ---------------------------------------------------------------------------
 BATCH_SIZE_SUCCESS_THRESHOLD = 30  # rows before stepping up
