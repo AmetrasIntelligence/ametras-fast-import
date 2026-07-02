@@ -26,11 +26,18 @@ class FileController(http.Controller):
         csrf=False,
     )
     def upload(self, **kwargs):
-        """Upload a CSV file and store it as ir.attachment.
+        """Upload a CSV file and store it as an ir.attachment.
 
-        Streams directly to the Odoo filestore in 64 KB chunks so the full file
-        is never held in a Python bytes object.  Falls back to the in-memory
-        base64 path only if the filestore write fails (e.g. DB-only storage).
+        Streams the upload to the Odoo filestore in 64 KB chunks so a large CSV
+        is never held in memory in one piece, then registers the pre-written
+        content on the attachment.
+
+        The content cannot be attached via the create() vals: passing ``raw``/
+        ``datas`` would require the whole file in memory (defeating streaming),
+        and passing a bare ``store_fname`` is silently ignored by
+        ir.attachment (it only sets store_fname through the datas/raw inverse),
+        leaving an empty attachment whose analysis reports 0 rows. So we create
+        the record first and write the storage columns directly.
         """
         uploaded = request.httprequest.files.get("file")
         if not uploaded:
@@ -39,38 +46,28 @@ class FileController(http.Controller):
                 status=400,
             )
 
+        attachment = request.env["ir.attachment"].create(
+            {
+                "name": uploaded.filename,
+                "res_model": "ametras_fast_import.file",
+                "res_id": 0,
+                "type": "binary",
+            }
+        )
+
         try:
-            fname, checksum, size = self._stream_to_filestore(
-                request.env, uploaded.stream
-            )
-            attachment = request.env["ir.attachment"].create(
-                {
-                    "name": uploaded.filename,
-                    "res_model": "ametras_fast_import.file",
-                    "res_id": 0,
-                    "type": "binary",
-                    "store_fname": fname,
-                    "file_size": size,
-                    "checksum": checksum,
-                }
-            )
+            size = self._store_streamed(request.env, attachment, uploaded.stream)
         except OSError as exc:
+            # Filestore unavailable (e.g. DB-only storage) — fall back to
+            # loading the file and letting Odoo persist it via ``raw``.
             _logger.warning(
-                "Filestore stream write failed (%s); falling back to in-memory path",
+                "Filestore stream write failed (%s); falling back to in-memory raw",
                 exc,
             )
             uploaded.stream.seek(0)
             content = uploaded.stream.read()
             size = len(content)
-            attachment = request.env["ir.attachment"].create(
-                {
-                    "name": uploaded.filename,
-                    "datas": base64.b64encode(content),
-                    "res_model": "ametras_fast_import.file",
-                    "res_id": 0,
-                    "type": "binary",
-                }
-            )
+            attachment.write({"raw": content})
 
         return request.make_json_response(
             {
@@ -235,12 +232,39 @@ class FileController(http.Controller):
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _store_streamed(env, attachment, stream):
+        """Stream ``stream`` to the filestore and register it on ``attachment``.
+
+        Registration is done with a direct column update: passing a bare
+        ``store_fname`` to create()/write() is ignored by ir.attachment (it only
+        sets store_fname through the datas/raw inverse, which needs the whole
+        file in memory). Odoo reads content straight from ``store_fname``, so
+        this is exactly how it stores large files — just without buffering.
+
+        Returns the number of bytes written. Raises OSError if the filestore
+        write fails (caller may fall back to an in-memory path).
+        """
+        fname, checksum, size = FileController._stream_to_filestore(env, stream)
+        env.cr.execute(
+            """
+            UPDATE ir_attachment
+               SET store_fname = %s, file_size = %s, checksum = %s, db_datas = NULL
+             WHERE id = %s
+            """,
+            (fname, size, checksum, attachment.id),
+        )
+        attachment.invalidate_recordset(
+            ["store_fname", "file_size", "checksum", "db_datas", "datas", "raw"]
+        )
+        return size
+
+    @staticmethod
     def _stream_to_filestore(env, stream):
         """Write a file stream to the Odoo filestore without loading it into RAM.
 
         Writes in 64 KB chunks while computing the SHA-1 checksum, then moves
-        the temp file to the permanent content-addressed location that Odoo uses
-        internally (``sha[:2]/sha``).  Only one chunk buffer is ever in memory.
+        the temp file to the permanent content-addressed location Odoo uses
+        internally (``sha[:2]/sha``). Only one chunk buffer is ever in memory.
 
         Returns (store_fname, checksum, size).
         """
