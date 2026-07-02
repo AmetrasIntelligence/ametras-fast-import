@@ -3,6 +3,7 @@ ORM backend — direct Odoo ORM access when running inside the Odoo server.
 The only file in models/ whose sole purpose is bridging OdooBackend to the ORM.
 """
 from .import_engine.backend import FieldInfo, OdooBackend
+from .import_engine.constants import IMPORT_CALL_CONTEXT
 
 
 class OrmBackend(OdooBackend):
@@ -19,10 +20,18 @@ class OrmBackend(OdooBackend):
         return records.ids
 
     def create(self, model, vals):
-        return self.env[model].create(vals).id
+        # Disable mail follower auto-subscription / tracking during import
+        # (see IMPORT_CALL_CONTEXT) to match the RPC backend and Odoo's own
+        # data-loading behaviour.
+        return self.env[model].with_context(**IMPORT_CALL_CONTEXT).create(vals).id
 
     def write(self, model, ids, vals):
-        return self.env[model].browse(ids).write(vals)
+        return (
+            self.env[model]
+            .browse(ids)
+            .with_context(**IMPORT_CALL_CONTEXT)
+            .write(vals)
+        )
 
     def search_read(self, model, domain, fields, limit=None):
         return self.env[model].search_read(domain, fields, limit=limit or 0)

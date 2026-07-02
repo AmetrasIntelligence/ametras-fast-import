@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .constants import (
+    IMPORT_CALL_CONTEXT,
     NOTICE_RPC_RETRY,
     NOTICE_RPC_TIMEOUT,
     RPC_MAX_RETRIES,
@@ -351,10 +352,14 @@ class RpcBackend(OdooBackend):
         return ids
 
     def create(self, model: str, vals: dict) -> int:
-        return self._call(model, "create", [vals])
+        return self._call(
+            model, "create", [vals], {"context": dict(IMPORT_CALL_CONTEXT)}
+        )
 
     def write(self, model: str, ids: list, vals: dict) -> bool:
-        return self._call(model, "write", [ids, vals])
+        return self._call(
+            model, "write", [ids, vals], {"context": dict(IMPORT_CALL_CONTEXT)}
+        )
 
     def search_read(
         self, model: str, domain: list, fields: list, limit: int | None = None
