@@ -2,3 +2,6 @@ id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_csv_import_user,csv.import.user,base.model_ir_model_data,base.group_user,1,0,0,0
 access_csv_import_profile,csv.import.profile,model_csv_import_profile,base.group_user,1,1,1,1
 access_csv_import_log,csv.import.log,model_csv_import_log,base.group_user,1,1,1,1
+access_csv_import_profile_file,csv.import.profile.file,model_csv_import_profile_file,base.group_user,1,1,1,1
+access_csv_import_profile_field_mapping,csv.import.profile.field.mapping,model_csv_import_profile_field_mapping,base.group_user,1,1,1,1
+access_csv_import_profile_setting,csv.import.profile.setting,model_csv_import_profile_setting,base.group_user,1,1,1,1

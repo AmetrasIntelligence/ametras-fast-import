@@ -81,17 +81,15 @@ class ProfileController(http.Controller):
             return {"error": "Profile must have a name"}
 
         try:
-            vals = {
-                "name": data.get("name"),
-                "version": data.get("version", "1.0"),
-                "description": data.get("description", ""),
-                "odoo_min_version": data.get("odoo_min_version", ""),
-                "mappings": json.dumps(data.get("mappings", [])),
-                "sequence": json.dumps(data.get("sequence", [])),
-                "run_settings": json.dumps(data.get("run_settings", {})),
-                "field_mappings": json.dumps(data.get("field_mappings", [])),
-            }
-            record = request.env["csv.import.profile"].create(vals)
+            record = request.env["csv.import.profile"].create(
+                {
+                    "name": data.get("name"),
+                    "version": data.get("version", "1.0"),
+                    "description": data.get("description", ""),
+                    "odoo_min_version": data.get("odoo_min_version", ""),
+                }
+            )
+            record._apply_profile_json(data)
             return record._to_dict(full=True)
         except Exception as e:
             _logger.warning(f"Profile create failed: {e}")
@@ -123,17 +121,13 @@ class ProfileController(http.Controller):
                 vals["description"] = data["description"]
             if "odoo_min_version" in data:
                 vals["odoo_min_version"] = data["odoo_min_version"]
-            if "mappings" in data:
-                vals["mappings"] = json.dumps(data["mappings"])
-            if "sequence" in data:
-                vals["sequence"] = json.dumps(data["sequence"])
-            if "run_settings" in data:
-                vals["run_settings"] = json.dumps(data["run_settings"])
-            if "field_mappings" in data:
-                vals["field_mappings"] = json.dumps(data["field_mappings"])
 
             if vals:
                 profile.write(vals)
+
+            # mappings / sequence / run_settings / field_mappings are stored via
+            # normalized child records; rebuild them from the JSON payload.
+            profile._apply_profile_json(data)
 
             return profile._to_dict(full=True)
         except Exception as e:
@@ -324,17 +318,23 @@ class ProfileController(http.Controller):
     def _create_profile_record(self, parsed):
         """Create an Odoo record from parsed profile data."""
         meta = parsed["meta"]
-        vals = {
-            "name": meta.get("name", "Unnamed Profile"),
-            "version": meta.get("version", "1.0"),
-            "description": meta.get("description", ""),
-            "odoo_min_version": meta.get("odoo_min_version", ""),
-            "mappings": json.dumps(parsed.get("mappings", [])),
-            "sequence": json.dumps(parsed.get("sequence", [])),
-            "run_settings": json.dumps(parsed.get("run_settings", {})),
-            "field_mappings": json.dumps(parsed.get("field_mappings", [])),
-        }
-        return request.env["csv.import.profile"].create(vals)
+        record = request.env["csv.import.profile"].create(
+            {
+                "name": meta.get("name", "Unnamed Profile"),
+                "version": meta.get("version", "1.0"),
+                "description": meta.get("description", ""),
+                "odoo_min_version": meta.get("odoo_min_version", ""),
+            }
+        )
+        record._apply_profile_json(
+            {
+                "mappings": parsed.get("mappings", []),
+                "sequence": parsed.get("sequence", []),
+                "run_settings": parsed.get("run_settings", {}),
+                "field_mappings": parsed.get("field_mappings", []),
+            }
+        )
+        return record
 
     # ── ZIP Generation ───────────────────────────────────────────────
 
