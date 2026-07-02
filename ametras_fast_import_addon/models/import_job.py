@@ -112,7 +112,7 @@ class ImportJob:
         # (name, description, …) are written in that language instead of the
         # job worker's default context — otherwise everything saves as English.
         lang = settings.get("lang")
-        env = self.env.with_context(lang=lang) if lang else self.env
+        env = self.log.with_context(lang=lang).env if lang else self.env
         backend = OrmBackend(env)
         batch_size = max(
             MIN_BATCH_SIZE,
