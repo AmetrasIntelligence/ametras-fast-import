@@ -15,6 +15,8 @@ if _engine_path not in sys.path:
 from import_engine.parser import (
     ParseOptions,
     _detect_delimiter,
+    analyze_csv,
+    analyze_csv_file,
     count_csv_rows,
     extract_rows_by_index,
     parse_csv_batched,
@@ -305,6 +307,59 @@ class TestRowCount(unittest.TestCase):
         path = _write_tmp(content)
         self.assertEqual(count_csv_rows(path), 3)
         os.unlink(path)
+
+    def test_cr_only_line_endings(self):
+        """Classic-Mac CR-only line endings still count correctly."""
+        content = "name\rA\rB\rC\r"
+        path = _write_tmp(content)
+        self.assertEqual(count_csv_rows(path), 3)
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# Analysis (headers + rowCount) — the shape returned by /file/analyze
+# ---------------------------------------------------------------------------
+
+
+class TestAnalyze(unittest.TestCase):
+    """Guards the rowCount reported by analysis across line endings.
+
+    Regression: CR-only / mixed-CR content used to raise
+    "new-line character seen in unquoted field" in the string parser, which
+    surfaced in the UI as an analysis that found 0 rows.
+    """
+
+    LINE_ENDINGS = {"LF": "\n", "CRLF": "\r\n", "CR": "\r"}
+
+    def _csv(self, sep):
+        return sep.join(["id,name", "1,Alice", "2,Bob", "3,Carol"]) + sep
+
+    def test_analyze_csv_row_count_all_line_endings(self):
+        for label, sep in self.LINE_ENDINGS.items():
+            with self.subTest(line_ending=label):
+                result = analyze_csv(self._csv(sep))
+                self.assertEqual(result["rowCount"], 3)
+                self.assertEqual(result["headers"], ["id", "name"])
+
+    def test_analyze_csv_file_row_count_all_line_endings(self):
+        for label, sep in self.LINE_ENDINGS.items():
+            with self.subTest(line_ending=label):
+                path = _write_tmp(self._csv(sep))
+                result = analyze_csv_file(path)
+                os.unlink(path)
+                self.assertEqual(result["rowCount"], 3)
+                self.assertEqual(result["headers"], ["id", "name"])
+
+    def test_parse_csv_string_cr_only(self):
+        """CR-only content parses without raising and yields all data rows."""
+        rows = list(parse_csv_string("id,name\r1,Alice\r2,Bob"))
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0].data["name"], "Alice")
+
+    def test_analyze_csv_preserves_quoted_newlines(self):
+        """Embedded newlines inside quoted fields stay a single row."""
+        result = analyze_csv('id,note\n1,"line one\nline two"\n2,ok\n')
+        self.assertEqual(result["rowCount"], 2)
 
 
 # ---------------------------------------------------------------------------
