@@ -216,14 +216,40 @@ def resolve_row(
             else:
                 resolved[field_name] = value
 
-        # Many2Many field resolution
+        # Many2Many field resolution.
+        #
+        # x2many fields cannot be written with a scalar — Odoo requires command
+        # tuples (e.g. [(6, 0, [ids])]). Every branch below must therefore
+        # produce a command list, never a bare id/string, or Odoo raises
+        # "Wrong value for <field>: <value>".
         elif field.type == "many2many":
-            if isinstance(value, str) and is_external_id(value):
-                refs = parse_refs(value)
-                ids = [lookup_ref(field.comodel_name, ref, ref_map) for ref in refs]
-                resolved[field_name] = [(6, 0, ids)]
-            elif isinstance(value, list):
+            if isinstance(value, list):
+                # Already command tuples (or an id list) — pass through.
                 resolved[field_name] = value
+            elif isinstance(value, int):
+                # Single database ID (e.g. from a /.id mapping).
+                resolved[field_name] = [(6, 0, [value])]
+            elif isinstance(value, str):
+                refs = parse_refs(value)
+                if refs and all(r.isdigit() for r in refs):
+                    # Numeric database IDs — single "6" or delimited "6|7".
+                    # Must be checked BEFORE is_external_id(): a delimited
+                    # numeric string like "6|7" is not .isdigit() so it would
+                    # otherwise be mistaken for external-id refs and looked up
+                    # (and fail as "not found").
+                    resolved[field_name] = [(6, 0, [int(r) for r in refs])]
+                    if field.comodel_name not in STANDARD_DB_ID_MODELS:
+                        warnings.append(
+                            f"Field {field_name!r} uses database ID(s) {value}. "
+                            f"Consider migrating to external ID for portability."
+                        )
+                elif is_external_id(value):
+                    ids = [
+                        lookup_ref(field.comodel_name, ref, ref_map) for ref in refs
+                    ]
+                    resolved[field_name] = [(6, 0, ids)]
+                else:
+                    resolved[field_name] = value
             else:
                 resolved[field_name] = value
 
