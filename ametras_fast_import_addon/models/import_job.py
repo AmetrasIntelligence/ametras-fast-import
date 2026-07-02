@@ -137,6 +137,25 @@ class ImportJob:
         all_errors = []
         file_progress = json.loads(self.log.file_progress or "{}")
         last_commit = time.time()
+
+        # Seed file_progress with every file up-front so the very first progress
+        # poll returns the complete file list (with expected row counts) instead
+        # of files appearing one-by-one as the job reaches them — which also made
+        # the frontend's summed progress denominator grow and the percentage jump.
+        # Only fills in missing entries, so resume/retry runs are untouched. The
+        # seeded totalRows is display-only: the authoritative per-file count still
+        # wins once the file is actually processed (see _init_file_state).
+        seed_counts = config.get("file_row_counts", {})
+        seeded = False
+        for filename in import_sequence:
+            if filename not in file_progress:
+                file_progress[filename] = self._make_empty_file_progress(
+                    totalRows=int(seed_counts.get(filename, 0) or 0)
+                )
+                seeded = True
+        if seeded:
+            self.log.write({"file_progress": json.dumps(file_progress)})
+            self.env.cr.commit()
         job_start_time = time.time()
 
         try:
@@ -600,10 +619,18 @@ class ImportJob:
     ) -> FileRunState:
         """Build initial FileRunState, pre-loading base progress for resume runs."""
         base_fp = file_progress.get(filename, {})
+        # On a genuine resume, base_fp["totalRows"] is the true original total and
+        # must win (the ``total_rows`` arg may be a reduced *pending* count). But a
+        # freshly *seeded* entry (no processed ranges, no failed indices) carries
+        # only a display estimate — there the authoritative count passed in wins.
+        has_prior_progress = bool(
+            base_fp.get("processedRanges") or base_fp.get("failedIndices")
+        )
+        base_total = base_fp.get("totalRows") if has_prior_progress else 0
         state = FileRunState(
             filename=filename,
             base_success=base_fp.get("successCount", 0),
-            original_total=base_fp.get("totalRows") or total_rows,
+            original_total=base_total or total_rows,
         )
         for rng in base_fp.get("processedRanges", []):
             state.processed_indices.update(range(rng[0], rng[1] + 1))
@@ -619,7 +646,10 @@ class ImportJob:
             return []
 
         processed_ranges = fp.get("processedRanges", [])
-        if not processed_ranges and not fp.get("totalRows", 0):
+        # Nothing processed and nothing previously failed → this is a fresh run,
+        # even if the entry was pre-seeded with a display totalRows. (Keying this
+        # on totalRows would misread a seeded entry as a resume.)
+        if not processed_ranges and not fp.get("failedIndices"):
             return None
 
         processed = set()

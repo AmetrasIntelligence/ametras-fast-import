@@ -12,6 +12,20 @@ from ..models.orm_backend import OrmBackend
 _logger = logging.getLogger(__name__)
 
 
+def serialize_heartbeat(dt):
+    """Serialize an Odoo (naive UTC) datetime for the progress poll payload.
+
+    Odoo stores datetimes as naive UTC and ``isoformat()`` emits no timezone
+    designator (e.g. ``"2026-07-02T08:00:00"``). The Vue frontend does
+    ``new Date(value)`` — and per ECMA-262 a ``T``-separated date-time string
+    *without* a designator is parsed in the browser's LOCAL time zone. In any
+    UTC+NN zone that makes the heartbeat look hours old, so the stall watchdog
+    flags the import as "possibly hanging" the instant the first heartbeat is
+    written. Appending ``"Z"`` marks it as UTC so it is parsed correctly.
+    """
+    return (dt.isoformat() + "Z") if dt else None
+
+
 class CSVImportController(http.Controller):
     @http.route("/ametras_fast_import/run", type="json", auth="user", methods=["POST"])
     def run_import(
@@ -287,7 +301,7 @@ class CSVImportController(http.Controller):
             "current_file": log.current_file or "",
             "errors": error_log,  # already capped at MAX_POLL_ERROR_ENTRIES on write
             "is_dry_run": log.is_dry_run,
-            "heartbeat": log.heartbeat.isoformat() if log.heartbeat else None,
+            "heartbeat": serialize_heartbeat(log.heartbeat),
             "connection_status": "online",
         }
 

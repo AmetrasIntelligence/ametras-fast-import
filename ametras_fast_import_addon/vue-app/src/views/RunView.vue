@@ -392,16 +392,32 @@ async function startImport() {
         router.replace('/import')
         return
       }
+      // Per-file expected row counts (from analysis). Sent to the server so the
+      // background job can seed file_progress with ALL files up-front, and used
+      // to seed the client list so every file shows immediately at 0/N instead
+      // of popping in one-by-one as the job reaches each file (which also made
+      // the overall progress denominator grow and the percentage jump around).
+      const rowCountMap = new Map<string, number>()
+      const fileRowCounts: Record<string, number> = {}
+      for (const fname of config.importSequence) {
+        const file = filesStore.files.find(f => f.name === fname)
+        const count = file ? (filesStore.getAnalysis(file.id)?.rowCount || 0) : 0
+        rowCountMap.set(fname, count)
+        fileRowCounts[fname] = count
+      }
+
       // Deep-clone to strip Vue reactive proxies — IPC structured clone can't serialize them
       const importConfig = JSON.parse(JSON.stringify({
         fileMappings: config.fileMappings,
         importSequence: config.importSequence,
         settings: config.settings,
-        total_rows: filesStore.files.reduce((sum, f) => {
-          const analysis = filesStore.getAnalysis(f.id)
-          return sum + (analysis?.rowCount || 0)
-        }, 0),
+        file_row_counts: fileRowCounts,
+        total_rows: Object.values(fileRowCounts).reduce((sum, n) => sum + n, 0),
       }))
+
+      // Seed the client list up-front so all files render immediately; the first
+      // poll's updateFromServer will then return the full set (server-seeded too).
+      run.initRun([...config.importSequence], rowCountMap, effectiveDryRun())
 
       const resp = await window.api.odoo.call<{ logId: number; state: string }>({
         baseUrl: '',

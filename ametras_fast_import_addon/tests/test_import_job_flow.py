@@ -300,6 +300,25 @@ class TestFilterPendingRows(unittest.TestCase):
         }
         self.assertEqual(self.job._filter_pending_rows("f.csv", rows, fp), [])
 
+    def test_seeded_entry_treated_as_fresh(self):
+        # A file_progress entry pre-seeded up-front (so the file shows in the
+        # progress list immediately) carries a display totalRows but has no
+        # processed ranges and no failed indices. It must be treated as a FRESH
+        # run — returning None so every row is imported — not as a resume that
+        # skips rows. Keying freshness on totalRows (the old behaviour) would
+        # misread the seed as a partially-done resume and drop rows.
+        rows = [_FakeRow(i) for i in range(1, 4)]
+        fp = {
+            "seed.csv": {
+                "totalRows": 3,
+                "successCount": 0,
+                "failedCount": 0,
+                "processedRanges": [],
+                "failedIndices": [],
+            }
+        }
+        self.assertIsNone(self.job._filter_pending_rows("seed.csv", rows, fp))
+
 
 # ---------------------------------------------------------------------------
 # _init_file_state
@@ -330,6 +349,24 @@ class TestInitFileState(unittest.TestCase):
         self.assertIn(1, state.processed_indices)
         self.assertIn(3, state.processed_indices)
         self.assertNotIn(4, state.processed_indices)
+
+    def test_seeded_total_does_not_override_authoritative_count(self):
+        # A pre-seeded entry (no processed ranges, no failed indices) carries
+        # only a display estimate of totalRows sent by the frontend. Once the
+        # file is actually processed, the authoritative count passed in must
+        # win — otherwise a wrong estimate would stick as the progress-bar
+        # denominator for the whole run.
+        fp = {
+            "seed.csv": {
+                "totalRows": 999,  # frontend display estimate
+                "successCount": 0,
+                "processedRanges": [],
+                "failedIndices": [],
+            }
+        }
+        state = self.job._init_file_state("seed.csv", 42, fp)
+        self.assertEqual(state.original_total, 42)
+        self.assertEqual(state.base_success, 0)
 
 
 # ---------------------------------------------------------------------------
