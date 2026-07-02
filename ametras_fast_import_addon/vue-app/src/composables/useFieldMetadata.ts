@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { useConfigStore } from '@/stores/config'
 import { fetchModelFields, type OdooField } from '@/api/odooClient'
 import type { FieldMapping, FieldTransform } from '@/types/fieldMapping'
+import { baseFieldName, deriveFieldMetadata } from '@/utils/fieldMetadata'
 
 export function useFieldMetadata() {
   const config = useConfigStore()
@@ -48,32 +49,8 @@ export function useFieldMetadata() {
   }
 
   function computeFieldMetadata(filename: string, csvHeader: string, odooField: string): { transform: FieldTransform; required: boolean } {
-    const baseName = odooField.endsWith('/.id')
-      ? odooField.slice(0, -4)
-      : odooField.endsWith('/id')
-        ? odooField.slice(0, -3)
-        : odooField
-
-    const fieldLookup = getFieldLookup(filename)
-    const field = fieldLookup.get(baseName)
-    const isRelational = field?.type === 'many2one' || field?.type === 'many2many'
-
-    let transform: FieldTransform = { type: 'passthrough' }
-    let required = field?.required ?? false
-
-    if (odooField.endsWith('/id') && isRelational && field?.relation) {
-      transform = field.type === 'many2many'
-        ? { type: 'm2m_ref', model: field.relation }
-        : { type: 'm2o_ref', model: field.relation }
-    } else if (odooField.endsWith('/.id') && isRelational && field?.relation) {
-      transform = { type: 'db_id', model: field.relation }
-    }
-
-    if (csvHeader === 'id' || odooField === 'id') {
-      required = true
-    }
-
-    return { transform, required }
+    const field = getFieldLookup(filename).get(baseFieldName(odooField))
+    return deriveFieldMetadata(field, odooField, csvHeader)
   }
 
   function updateRichMapping(filename: string, csvHeader: string, odooField: string) {
