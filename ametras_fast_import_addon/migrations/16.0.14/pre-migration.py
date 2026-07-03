@@ -1,6 +1,6 @@
 """Preserve the JSON profile payloads before they become stored-computed.
 
-In 16.0.13 the ``mappings`` / ``sequence`` / ``run_settings`` /
+In 16.0.14 the ``mappings`` / ``sequence`` / ``run_settings`` /
 ``field_mappings`` fields on ``csv.import.profile`` change from plain writable
 Text to stored-computed fields backed by normalized child records. When the
 new field definitions load, Odoo recomputes them from the (still empty) child
