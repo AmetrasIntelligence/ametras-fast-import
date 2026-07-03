@@ -1,6 +1,6 @@
 {
     "name": "Ametras Fast Import",
-    "version": "16.0.12",
+    "version": "16.0.13",
     "category": "Tools",
     "summary": "Ametras Fast Import — embedded Vue frontend for CSV importing",
     "description": """

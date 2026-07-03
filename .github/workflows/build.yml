@@ -25,6 +25,7 @@ jobs:
           cd ametras_fast_import_addon
           for f in tests/test_batch_size_adapter.py \
                    tests/test_backend_import_context.py \
+                   tests/test_backend_serialization_retry.py \
                    tests/test_idempotency.py \
                    tests/test_importer_timeout_pipeline.py \
                    tests/test_importer_comprehensive.py \

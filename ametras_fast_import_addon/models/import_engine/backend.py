@@ -21,10 +21,15 @@ from .constants import (
     IMPORT_CALL_CONTEXT,
     NOTICE_RPC_RETRY,
     NOTICE_RPC_TIMEOUT,
+    NOTICE_SERIALIZATION_RETRY,
     RPC_MAX_RETRIES,
     RPC_RECONNECT_TIMEOUT,
     RPC_RETRY_BACKOFF_MULTIPLIER,
     RPC_TIMEOUT_SECONDS,
+    SERIALIZATION_ERROR_SIGNATURES,
+    SERIALIZATION_RETRY_BASE_DELAY,
+    SERIALIZATION_RETRY_MAX_ATTEMPTS,
+    SERIALIZATION_RETRY_MAX_DELAY,
     XMLRPC_COMMON_PATH,
     XMLRPC_OBJECT_PATH,
 )
@@ -185,6 +190,78 @@ class RpcBackend(OdooBackend):
     def _is_cancelled(self) -> bool:
         return self._cancel_event is not None and self._cancel_event.is_set()
 
+    @staticmethod
+    def _is_serialization_fault(fault) -> bool:
+        """True if an XML-RPC Fault is a transient DB serialization/deadlock.
+
+        These GUARANTEE the server transaction rolled back (nothing committed),
+        so re-sending the same call is duplicate-safe.
+        """
+        message = (getattr(fault, "faultString", "") or "").lower()
+        return any(sig in message for sig in SERIALIZATION_ERROR_SIGNATURES)
+
+    def _cancellable_sleep(self, delay: float) -> None:
+        """Sleep up to ``delay`` seconds, waking in ≤0.5s chunks to honor
+        cancellation. Raises RuntimeError if the import is cancelled."""
+        slept = 0.0
+        while slept < delay:
+            if self._is_cancelled():
+                raise RuntimeError("Import cancelled")
+            chunk = min(0.5, delay - slept)
+            _time.sleep(chunk)
+            slept += chunk
+
+    def _execute_kw(self, proxy, model, method, args, call_kwargs):
+        """Run execute_kw, retrying ONLY transient serialization/deadlock Faults.
+
+        A serialization failure / deadlock means the server transaction fully
+        rolled back, so the same call can be re-sent safely (no duplicate risk).
+        Retries are bounded (SERIALIZATION_RETRY_MAX_ATTEMPTS), use capped
+        exponential backoff, and are cancellable. Any other Fault — and every
+        transport error — propagates unchanged to the caller's existing
+        handling. On exhaustion the last Fault is re-raised, so the row ends up
+        marked failed and the import continues; this never hangs or loops.
+        """
+        for attempt in range(SERIALIZATION_RETRY_MAX_ATTEMPTS + 1):
+            try:
+                return proxy.execute_kw(
+                    self.db, self.uid, self.password, model, method, args, call_kwargs
+                )
+            except xmlrpc.client.Fault as e:
+                exhausted = attempt >= SERIALIZATION_RETRY_MAX_ATTEMPTS
+                if exhausted or not self._is_serialization_fault(e):
+                    raise
+                delay = min(
+                    SERIALIZATION_RETRY_BASE_DELAY * (2 ** attempt),
+                    SERIALIZATION_RETRY_MAX_DELAY,
+                )
+                _logger.warning(
+                    "DB serialization/deadlock on %s.%s (attempt %d/%d); "
+                    "retrying in %.1fs: %s",
+                    model,
+                    method,
+                    attempt + 1,
+                    SERIALIZATION_RETRY_MAX_ATTEMPTS,
+                    delay,
+                    e.faultString,
+                )
+                self._reporter.notice(
+                    NOTICE_SERIALIZATION_RETRY,
+                    "Database busy (serialization/deadlock) on {}.{} — "
+                    "retrying in {:.1f}s (attempt {}/{}).".format(
+                        model, method, delay, attempt + 1,
+                        SERIALIZATION_RETRY_MAX_ATTEMPTS,
+                    ),
+                    model=model,
+                    method=method,
+                    attempt=attempt + 1,
+                    max_retries=SERIALIZATION_RETRY_MAX_ATTEMPTS,
+                    delay_seconds=round(delay, 1),
+                )
+                self._cancellable_sleep(delay)
+        # Loop always returns or raises above; this is unreachable.
+        raise AssertionError("unreachable serialization retry loop")
+
     def _check_connectivity(self) -> bool:
         """Quick TCP connect to verify the Odoo host is reachable."""
         from urllib.parse import urlparse
@@ -255,11 +332,11 @@ class RpcBackend(OdooBackend):
             try:
                 socket.setdefaulttimeout(self.timeout)
                 proxy = self._get_proxy()
-                return proxy.execute_kw(
-                    self.db, self.uid, self.password, model, method, args, call_kwargs
-                )
+                return self._execute_kw(proxy, model, method, args, call_kwargs)
             except xmlrpc.client.Fault as e:
-                # Odoo application error — don't retry
+                # Odoo application error — don't retry (transient
+                # serialization/deadlock Faults were already retried and
+                # exhausted inside _execute_kw before reaching here).
                 raise ValueError(f"Odoo error: {e.faultString}") from e
             except (
                 xmlrpc.client.ProtocolError,
@@ -313,9 +390,7 @@ class RpcBackend(OdooBackend):
             try:
                 socket.setdefaulttimeout(self.timeout)
                 proxy = self._get_proxy()
-                result = proxy.execute_kw(
-                    self.db, self.uid, self.password, model, method, args, call_kwargs
-                )
+                result = self._execute_kw(proxy, model, method, args, call_kwargs)
                 self._reporter.connection_restored(
                     "Connection restored. Resuming import."
                 )

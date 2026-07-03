@@ -29,6 +29,33 @@ RPC_RETRY_BACKOFF_MULTIPLIER = 2  # seconds per attempt: 2, 4, 6
 RPC_RECONNECT_TIMEOUT = 300  # Max seconds to wait for connectivity (5 min)
 
 # ---------------------------------------------------------------------------
+# Serialization / deadlock retry (RPC mode)
+# ---------------------------------------------------------------------------
+# A PostgreSQL serialization failure or deadlock (raised e.g. when parallel
+# workers contend on a shared ir.sequence row) surfaces over XML-RPC as a
+# Fault. Unlike a timeout, it GUARANTEES the server transaction fully rolled
+# back — nothing was committed — so re-sending the exact same create/write is
+# duplicate-safe and needs no idempotency guard. We retry it a bounded number
+# of times with capped, cancellable backoff. On exhaustion the Fault is
+# re-raised so the row is marked failed and the import continues — the retry
+# can never hang or run away.
+SERIALIZATION_RETRY_MAX_ATTEMPTS = 5  # retries after the first try (=> ≤6 sends)
+SERIALIZATION_RETRY_BASE_DELAY = 0.5  # seconds; grows 0.5,1,2,4,8…
+SERIALIZATION_RETRY_MAX_DELAY = 8.0  # hard cap per backoff
+# Case-insensitive substrings identifying a transient, safe-to-retry DB
+# concurrency error (English + German locales + psycopg2 class names).
+SERIALIZATION_ERROR_SIGNATURES = (
+    "could not serialize access",
+    "konnte zugriff nicht serialisieren",
+    "serializationfailure",
+    "deadlock detected",
+    "verklemmung",  # German "deadlock" (Verklemmung erkannt)
+    "deadlockdetected",
+    "transactionrollbackerror",
+    "concurrent update",
+)
+
+# ---------------------------------------------------------------------------
 # CSV parsing
 # ---------------------------------------------------------------------------
 DELIMITER_DETECTION_SAMPLE_SIZE = 4096  # bytes to read for delimiter detection
@@ -175,6 +202,7 @@ NOTICE_SAFE_RETRY_TIMED_OUT = "safe_retry_timed_out"
 NOTICE_IMPORT_CONFIG = "import_config"  # concurrency / batch size / timeouts at start
 NOTICE_RPC_RETRY = "rpc_retry"  # a single RPC call is being retried
 NOTICE_RPC_TIMEOUT = "rpc_timeout"  # a single RPC call timed out (then retried)
+NOTICE_SERIALIZATION_RETRY = "serialization_retry"  # DB serialization/deadlock retry
 
 # Protocol version — bumped when a breaking change is made to the JSON-lines
 # protocol. Electron can use this to refuse incompatible engine versions.
