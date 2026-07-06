@@ -13,6 +13,16 @@ permissions:
   contents: read
 
 jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify addon/app version consistency
+        run: node ametras_fast_import_client/scripts/check-version.mjs
+
   test-python:
     runs-on: ubuntu-latest
     steps:
@@ -72,7 +82,7 @@ jobs:
       - run: cd ametras_fast_import_client && npm run typecheck
 
   build-addon:
-    needs: [test-python, test-vue-app]
+    needs: [check-version, test-python, test-vue-app]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -88,7 +98,7 @@ jobs:
       - run: npm run build
 
   build-client:
-    needs: [test-python, test-vue-app, test-client]
+    needs: [check-version, test-python, test-vue-app, test-client]
     strategy:
       matrix:
         include:

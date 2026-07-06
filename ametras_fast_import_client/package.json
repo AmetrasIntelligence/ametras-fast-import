@@ -1,6 +1,6 @@
 {
   "name": "ametras-fast-import-client",
-  "version": "1.0.3",
+  "version": "2.0.0",
   "description": "Electron client for Ametras Fast Import",
   "main": "dist-electron/main.js",
   "type": "module",
