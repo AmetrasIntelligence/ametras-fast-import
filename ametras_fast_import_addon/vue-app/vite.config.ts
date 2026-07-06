@@ -4,10 +4,12 @@ import VueI18nPlugin from '@intlify/unplugin-vue-i18n/vite'
 import path from 'path'
 import fs from 'fs'
 
-// Extract version from the Odoo addon manifest (single source of truth)
+// Extract version from the Odoo addon manifest (single source of truth).
+// The manifest uses double quotes; match either quote style so this can't
+// silently fall back to "unknown" (which it did before).
 function getManifestVersion(): string {
   const manifest = fs.readFileSync(path.resolve(__dirname, '../__manifest__.py'), 'utf-8')
-  const match = manifest.match(/'version'\s*:\s*'([^']+)'/)
+  const match = manifest.match(/["']version["']\s*:\s*["']([^"']+)["']/)
   return match?.[1] ?? 'unknown'
 }
 
