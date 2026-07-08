@@ -182,7 +182,7 @@
                             </field>
                         </page>
                         <page string="Reihenfolge" name="sequence">
-                            <field name="file_ids">
+                            <field name="sequence_file_ids">
                                 <tree editable="bottom">
                                     <field name="sequence" widget="handle" />
                                     <field name="filename" />
@@ -192,8 +192,8 @@
                         </page>
                         <page string="Modelzuordnungen" name="mappings">
                             <field name="file_ids">
-                                <tree editable="bottom">
-                                    <field name="filename" />
+                                <tree editable="bottom" create="false" delete="false">
+                                    <field name="filename" readonly="1" />
                                     <field name="model_name" />
                                 </tree>
                             </field>
