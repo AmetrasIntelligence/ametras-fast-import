@@ -314,8 +314,6 @@
     "filename": "Filename",
     "model": "Model",
     "overridden": "Overridden",
-    "requires": "Requires",
-    "requiresHint": "Comma-separated file names that must be imported first",
     "sequenceOverridden": "Sequence has been overridden",
     "file": "File",
     "csvHeader": "CSV Header",
@@ -323,8 +321,6 @@
     "transform": "Transform",
     "addFile": "Add File",
     "filenamePlaceholder": "File name (e.g. products.csv)",
-    "moveUp": "Move up",
-    "moveDown": "Move down",
     "dragToReorder": "Drag to reorder"
   },
   "modelSelect": {
