@@ -9,6 +9,7 @@ import { serializeTransform } from '@/types/fieldMapping'
 import { fetchModelFields, fetchModels, type OdooField, type OdooModel } from '@/api/odooClient'
 import { baseFieldName, deriveFieldMetadata } from '@/utils/fieldMetadata'
 import { suggestModel } from '@/utils/smartModelMapping'
+import { scoreFieldMatch } from '@/utils/smartFieldMapping'
 import { seedDraftFiles, buildFilesSaveData, type DraftFile } from '@/utils/profileFiles'
 import ProfileEditorSettings from './ProfileEditorSettings.vue'
 import FieldSelect from './FieldSelect.vue'
@@ -202,6 +203,25 @@ function onTransformChange(row: FieldMapping, transform: FieldTransform) {
 function onCsvHeaderChange(row: FieldMapping, value: string) {
   row.csvHeader = value
   dirty.value = true
+  maybeSuggestField(row)
+}
+
+/** Suggest the best-matching Odoo field for a row's CSV header, but only while
+ *  the field is still empty — never override a user's own choice. */
+function maybeSuggestField(row: FieldMapping) {
+  if (row.odooField || !row.csvHeader.trim()) return
+  const fields = fieldsForFile(row.filename)
+  let best: OdooField | undefined
+  let bestScore = 0
+  for (const f of fields) {
+    if (f.readonly && !f.store) continue
+    const score = scoreFieldMatch(row.csvHeader, f)
+    if (score > bestScore) {
+      bestScore = score
+      best = f
+    }
+  }
+  if (best && bestScore >= 50) onFieldChange(row, best.name)
 }
 
 function addFieldRow() {
