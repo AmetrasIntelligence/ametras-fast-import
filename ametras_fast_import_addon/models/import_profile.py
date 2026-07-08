@@ -21,6 +21,13 @@ class CsvImportProfile(models.Model):
     file_ids = fields.One2many(
         "csv.import.profile.file", "profile_id", string="Files & Models"
     )
+    # A second alias over the SAME child records. Odoo renders only one inline
+    # tree per field name, so the Reihenfolge and Modelzuordnungen notebook
+    # pages need distinct field names to show different columns (sequence handle
+    # vs. target model) of the same rows.
+    sequence_file_ids = fields.One2many(
+        "csv.import.profile.file", "profile_id", string="Reihenfolge"
+    )
     field_mapping_ids = fields.One2many(
         "csv.import.profile.field.mapping", "profile_id", string="Field Mappings"
     )
