@@ -320,7 +320,9 @@
     "odooField": "Odoo-Feld",
     "transform": "Transformation",
     "addFile": "Datei hinzufügen",
+    "addFieldMapping": "Feldzuordnung hinzufügen",
     "filenamePlaceholder": "Dateiname (z. B. products.csv)",
+    "csvHeaderPlaceholder": "CSV-Spaltenkopf",
     "dragToReorder": "Zum Sortieren ziehen"
   },
   "modelSelect": {
