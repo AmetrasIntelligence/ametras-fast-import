@@ -6,8 +6,9 @@ import type { RunConfig } from '@/types/runConfig'
 import type { RunSettings } from '@/stores/config'
 import type { FieldMapping, FieldTransform } from '@/types/fieldMapping'
 import { serializeTransform } from '@/types/fieldMapping'
-import { fetchModelFields, type OdooField } from '@/api/odooClient'
+import { fetchModelFields, fetchModels, type OdooField, type OdooModel } from '@/api/odooClient'
 import { baseFieldName, deriveFieldMetadata } from '@/utils/fieldMetadata'
+import { suggestModel } from '@/utils/smartModelMapping'
 import { seedDraftFiles, buildFilesSaveData, type DraftFile } from '@/utils/profileFiles'
 import ProfileEditorSettings from './ProfileEditorSettings.vue'
 import FieldSelect from './FieldSelect.vue'
@@ -72,18 +73,28 @@ const fieldMappings = computed(() => props.profile.richFieldMappings || [])
 
 // ── Editable draft state (only used when props.editable) ────────────
 // A single ordered file list is the source of truth for both the
-// Reihenfolge (order + requires) and Modelzuordnungen (filename → model)
-// tabs — exactly like the addon's csv.import.profile.file child records.
-const draftFiles = ref<DraftFile[]>([])
-const draftFields = ref<FieldMapping[]>([])
+// Reihenfolge (order) and Modelzuordnungen (filename → model) tabs — exactly
+// like the addon's csv.import.profile.file child records. Each row carries a
+// stable _uid so filenames / CSV headers stay editable without the bound
+// <input> losing focus on every keystroke.
+type DraftFileRow = DraftFile & { _uid: number }
+type DraftFieldRow = FieldMapping & { _uid: number }
+let uidCounter = 0
+
+const draftFiles = ref<DraftFileRow[]>([])
+const draftFields = ref<DraftFieldRow[]>([])
 const draftSettings = reactive<Partial<RunSettings>>({})
 const fieldsByModel = ref<Map<string, OdooField[]>>(new Map())
+const allModels = ref<OdooModel[]>([])
 const loadingFields = ref(false)
 const dirty = ref(false)
 const newFilename = ref('')
+const newFieldFile = ref('')
 
 function seedDraft() {
-  draftFiles.value = seedDraftFiles(props.profile.mappings, props.profile.sequence)
+  draftFiles.value = seedDraftFiles(props.profile.mappings, props.profile.sequence).map(
+    (f) => ({ ...f, _uid: uidCounter++ })
+  )
 
   draftFields.value = (props.profile.richFieldMappings || []).map((fm) => ({
     filename: fm.filename,
@@ -91,7 +102,8 @@ function seedDraft() {
     odooField: fm.odooField,
     required: fm.required,
     transform: { ...fm.transform } as FieldTransform,
-    ...(fm.notes ? { notes: fm.notes } : {})
+    ...(fm.notes ? { notes: fm.notes } : {}),
+    _uid: uidCounter++
   }))
 
   for (const key of Object.keys(draftSettings)) {
@@ -99,6 +111,7 @@ function seedDraft() {
   }
   Object.assign(draftSettings, props.profile.runSettings)
   newFilename.value = ''
+  newFieldFile.value = ''
   dirty.value = false
 }
 
@@ -123,12 +136,22 @@ async function loadDraftFields() {
   }
 }
 
+/** Lazily load the model list, used to suggest a target model for new files. */
+async function ensureModels() {
+  if (allModels.value.length > 0) return
+  try {
+    allModels.value = await fetchModels()
+  } catch {
+    // Offline / not connected — suggestions are simply skipped.
+  }
+}
+
 watch(
   () => [props.editable, props.profile.id] as const,
   async () => {
     if (props.editable) {
       seedDraft()
-      await loadDraftFields()
+      await Promise.all([loadDraftFields(), ensureModels()])
     }
   },
   { immediate: true }
@@ -176,17 +199,52 @@ function onTransformChange(row: FieldMapping, transform: FieldTransform) {
   dirty.value = true
 }
 
+function onCsvHeaderChange(row: FieldMapping, value: string) {
+  row.csvHeader = value
+  dirty.value = true
+}
+
+function addFieldRow() {
+  const filename = newFieldFile.value || draftFiles.value[0]?.filename
+  if (!filename) return
+  draftFields.value.push({
+    filename,
+    csvHeader: '',
+    odooField: '',
+    required: false,
+    transform: { type: 'passthrough' },
+    _uid: uidCounter++
+  })
+  dirty.value = true
+}
+
 function removeFieldRow(idx: number) {
   draftFields.value.splice(idx, 1)
   dirty.value = true
 }
 
-// ── File add / remove / reorder ─────────────────────────────────────
-function addFile() {
+// ── File add / remove / rename / reorder ────────────────────────────
+async function addFile() {
   const name = newFilename.value.trim()
   if (!name || draftFiles.value.some((f) => f.filename === name)) return
-  draftFiles.value.push({ filename: name, model: '', requires: [], extra: {} })
+  const file: DraftFileRow = { filename: name, model: '', requires: [], extra: {}, _uid: uidCounter++ }
+  draftFiles.value.push(file)
   newFilename.value = ''
+  dirty.value = true
+  // Auto-create the (empty) model mapping with a suggested target model.
+  await ensureModels()
+  const match = allModels.value.length ? suggestModel(name, allModels.value) : null
+  if (match) await onModelChange(file, match.model.model)
+}
+
+/** Rename a file in place, keeping its field mappings in sync. */
+function onFilenameChange(file: DraftFileRow, newName: string) {
+  const old = file.filename
+  if (newName === old) return
+  file.filename = newName
+  for (const row of draftFields.value) {
+    if (row.filename === old) row.filename = newName
+  }
   dirty.value = true
 }
 
@@ -234,12 +292,22 @@ const settingsForDisplay = computed<RunSettings>(() =>
 
 function onSave() {
   const { mappings, sequence } = buildFilesSaveData(draftFiles.value)
+  // Drop blank rows and the internal _uid before serializing.
+  const fieldRows: FieldMapping[] = draftFields.value
+    .filter((r) => r.csvHeader.trim() || r.odooField.trim())
+    .map((r) => ({
+      filename: r.filename,
+      csvHeader: r.csvHeader,
+      odooField: r.odooField,
+      required: r.required,
+      transform: r.transform,
+      ...(r.notes ? { notes: r.notes } : {})
+    }))
   emit('save', {
     mappings,
     sequence,
     runSettings: { ...draftSettings },
-    fieldMappings:
-      draftFields.value.length > 0 ? draftFields.value.map((r) => ({ ...r })) : undefined
+    fieldMappings: fieldRows.length > 0 ? fieldRows : undefined
   })
 }
 
@@ -280,12 +348,9 @@ function onCancel() {
 
     <!-- Sequence Tab (Reihenfolge) -->
     <div v-show="activeTab === 'sequence'" class="csv-profile-editor__content">
-      <!-- Editable variant: drag the handle to reorder, remove -->
+      <!-- Editable variant: drag the handle to reorder, rename, add, remove -->
       <template v-if="editable">
-        <div v-if="draftFiles.length === 0" class="text-center py-3 text-body-secondary small">
-          {{ $t('profileEditor.noSequence') }}
-        </div>
-        <table v-else class="table table-sm small mb-0 align-middle">
+        <table v-if="draftFiles.length > 0" class="table table-sm small mb-2 align-middle">
           <thead>
             <tr>
               <th style="width: 2rem;"></th>
@@ -297,20 +362,28 @@ function onCancel() {
           <tbody>
             <tr
               v-for="(file, idx) in draftFiles"
-              :key="file.filename"
+              :key="file._uid"
               :class="{ 'csv-profile-editor__row--dragging': dragIndex === idx }"
-              draggable="true"
-              @dragstart="onDragStart(idx)"
               @dragover.prevent
               @drop="onDrop(idx)"
-              @dragend="onDragEnd"
             >
               <td
                 class="text-center csv-profile-editor__drag-handle"
+                draggable="true"
                 :title="$t('profileEditor.dragToReorder')"
+                @dragstart="onDragStart(idx)"
+                @dragend="onDragEnd"
               >⠿</td>
               <td class="text-body-secondary">{{ idx + 1 }}</td>
-              <td class="font-monospace" style="font-size: 0.75rem;">{{ file.filename }}</td>
+              <td>
+                <input
+                  :value="file.filename"
+                  type="text"
+                  class="form-control form-control-sm font-monospace"
+                  style="font-size: 0.75rem;"
+                  @input="onFilenameChange(file, ($event.target as HTMLInputElement).value)"
+                />
+              </td>
               <td class="text-center">
                 <button
                   type="button"
@@ -322,6 +395,27 @@ function onCancel() {
             </tr>
           </tbody>
         </table>
+        <div v-else class="text-center py-3 text-body-secondary small">
+          {{ $t('profileEditor.noSequence') }}
+        </div>
+        <!-- Add-file control: a new file also gets an (empty, suggested) mapping -->
+        <div class="d-flex gap-2 px-1">
+          <input
+            v-model="newFilename"
+            type="text"
+            class="form-control form-control-sm"
+            :placeholder="$t('profileEditor.filenamePlaceholder')"
+            @keyup.enter="addFile"
+          />
+          <button
+            type="button"
+            class="btn btn-sm btn-outline-primary text-nowrap"
+            :disabled="!newFilename.trim()"
+            @click="addFile"
+          >
+            {{ $t('profileEditor.addFile') }}
+          </button>
+        </div>
       </template>
 
       <!-- Read-only variant -->
@@ -351,18 +445,18 @@ function onCancel() {
 
     <!-- Mappings Tab (Modelzuordnungen) -->
     <div v-show="activeTab === 'mappings'" class="csv-profile-editor__content">
-      <!-- Editable variant: pick model, add / remove files -->
+      <!-- Editable variant: assign a target model per file. Files are added or
+           removed on the Reihenfolge tab. -->
       <template v-if="editable">
-        <table v-if="draftFiles.length > 0" class="table table-sm small mb-2 align-middle">
+        <table v-if="draftFiles.length > 0" class="table table-sm small mb-0 align-middle">
           <thead>
             <tr>
               <th class="text-start fw-medium">{{ $t('profileEditor.filename') }}</th>
               <th class="text-start fw-medium">{{ $t('profileEditor.model') }}</th>
-              <th class="text-center" style="width: 2rem;"></th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(file, idx) in draftFiles" :key="file.filename">
+            <tr v-for="file in draftFiles" :key="file._uid">
               <td class="font-monospace" style="font-size: 0.75rem;">{{ file.filename }}</td>
               <td style="min-width: 12rem;">
                 <ModelSelect
@@ -370,37 +464,11 @@ function onCancel() {
                   @update:model-value="onModelChange(file, $event)"
                 />
               </td>
-              <td class="text-center">
-                <button
-                  type="button"
-                  class="btn btn-sm btn-link text-danger p-0"
-                  :title="$t('common.remove')"
-                  @click="removeFile(idx)"
-                >&times;</button>
-              </td>
             </tr>
           </tbody>
         </table>
         <div v-else class="text-center py-3 text-body-secondary small">
           {{ $t('profileEditor.noMappings') }}
-        </div>
-        <!-- Add-file control -->
-        <div class="d-flex gap-2 px-1">
-          <input
-            v-model="newFilename"
-            type="text"
-            class="form-control form-control-sm"
-            :placeholder="$t('profileEditor.filenamePlaceholder')"
-            @keyup.enter="addFile"
-          />
-          <button
-            type="button"
-            class="btn btn-sm btn-outline-primary text-nowrap"
-            :disabled="!newFilename.trim()"
-            @click="addFile"
-          >
-            {{ $t('profileEditor.addFile') }}
-          </button>
         </div>
       </template>
 
@@ -441,56 +509,88 @@ function onCancel() {
         <div v-if="loadingFields" class="text-center py-3 text-body-secondary small">
           {{ $t('common.loading') }}
         </div>
-        <div v-else-if="draftFields.length === 0" class="text-center py-3 text-body-secondary small">
-          {{ $t('profileEditor.noFieldMappings') }}
-        </div>
-        <table v-else class="table table-sm small mb-0 align-middle">
-          <thead>
-            <tr>
-              <th class="text-start fw-medium">{{ $t('profileEditor.file') }}</th>
-              <th class="text-start fw-medium">{{ $t('profileEditor.csvHeader') }}</th>
-              <th class="text-start fw-medium">{{ $t('profileEditor.odooField') }}</th>
-              <th class="text-center fw-medium" style="width: 3rem;">{{ $t('config.req') }}</th>
-              <th class="text-start fw-medium">{{ $t('profileEditor.transform') }}</th>
-              <th class="text-center" style="width: 2rem;"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(row, idx) in draftFields" :key="`${row.filename}-${row.csvHeader}-${idx}`">
-              <td class="font-monospace" style="font-size: 0.75rem;">{{ row.filename }}</td>
-              <td style="font-size: 0.75rem;">{{ row.csvHeader }}</td>
-              <td style="min-width: 14rem;">
-                <div class="d-flex">
-                  <FieldSelect
-                    :model-value="row.odooField"
-                    :fields="fieldsForFile(row.filename)"
-                    @update:model-value="onFieldChange(row, $event)"
+        <template v-else>
+          <table v-if="draftFields.length > 0" class="table table-sm small mb-2 align-middle">
+            <thead>
+              <tr>
+                <th class="text-start fw-medium">{{ $t('profileEditor.file') }}</th>
+                <th class="text-start fw-medium">{{ $t('profileEditor.csvHeader') }}</th>
+                <th class="text-start fw-medium">{{ $t('profileEditor.odooField') }}</th>
+                <th class="text-center fw-medium" style="width: 3rem;">{{ $t('config.req') }}</th>
+                <th class="text-start fw-medium">{{ $t('profileEditor.transform') }}</th>
+                <th class="text-center" style="width: 2rem;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(row, idx) in draftFields" :key="row._uid">
+                <td class="font-monospace" style="font-size: 0.75rem;">{{ row.filename }}</td>
+                <td style="min-width: 8rem;">
+                  <input
+                    :value="row.csvHeader"
+                    type="text"
+                    class="form-control form-control-sm"
+                    style="font-size: 0.75rem;"
+                    :placeholder="$t('profileEditor.csvHeaderPlaceholder')"
+                    @input="onCsvHeaderChange(row, ($event.target as HTMLInputElement).value)"
                   />
-                </div>
-              </td>
-              <td class="text-center">
-                <span v-if="row.required" class="text-warning">{{ $t('common.yes') }}</span>
-                <span v-else class="text-body-secondary">-</span>
-              </td>
-              <td>
-                <TransformSelect
-                  :model-value="row.transform"
-                  :relation-model="baseField(row)?.relation"
-                  :field-type="baseField(row)?.type"
-                  @update:model-value="onTransformChange(row, $event)"
-                />
-              </td>
-              <td class="text-center">
-                <button
-                  type="button"
-                  class="btn btn-sm btn-link text-danger p-0"
-                  :title="$t('common.remove')"
-                  @click="removeFieldRow(idx)"
-                >&times;</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+                </td>
+                <td style="min-width: 14rem;">
+                  <div class="d-flex">
+                    <FieldSelect
+                      :model-value="row.odooField"
+                      :fields="fieldsForFile(row.filename)"
+                      @update:model-value="onFieldChange(row, $event)"
+                    />
+                  </div>
+                </td>
+                <td class="text-center">
+                  <span v-if="row.required" class="text-warning">{{ $t('common.yes') }}</span>
+                  <span v-else class="text-body-secondary">-</span>
+                </td>
+                <td>
+                  <TransformSelect
+                    :model-value="row.transform"
+                    :relation-model="baseField(row)?.relation"
+                    :field-type="baseField(row)?.type"
+                    @update:model-value="onTransformChange(row, $event)"
+                  />
+                </td>
+                <td class="text-center">
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-link text-danger p-0"
+                    :title="$t('common.remove')"
+                    @click="removeFieldRow(idx)"
+                  >&times;</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-else class="text-center py-3 text-body-secondary small">
+            {{ $t('profileEditor.noFieldMappings') }}
+          </div>
+          <!-- Add-field-mapping control -->
+          <div class="d-flex gap-2 px-1">
+            <select
+              v-model="newFieldFile"
+              class="form-select form-select-sm"
+              style="max-width: 16rem;"
+              :disabled="draftFiles.length === 0"
+            >
+              <option v-for="file in draftFiles" :key="file._uid" :value="file.filename">
+                {{ file.filename }}
+              </option>
+            </select>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline-primary text-nowrap"
+              :disabled="draftFiles.length === 0"
+              @click="addFieldRow"
+            >
+              {{ $t('profileEditor.addFieldMapping') }}
+            </button>
+          </div>
+        </template>
       </template>
 
       <!-- Read-only variant -->
