@@ -302,7 +302,7 @@
   "profileEditor": {
     "tabs": {
       "settings": "Einstellungen",
-      "mappings": "Zuordnungen",
+      "mappings": "Modelzuordnungen",
       "sequence": "Reihenfolge",
       "fieldMappings": "Feldzuordnungen"
     },
@@ -315,11 +315,17 @@
     "model": "Modell",
     "overridden": "Überschrieben",
     "requires": "Benötigt",
+    "requiresHint": "Kommagetrennte Dateinamen, die zuerst importiert werden müssen",
     "sequenceOverridden": "Reihenfolge wurde überschrieben",
     "file": "Datei",
     "csvHeader": "CSV-Kopfzeile",
     "odooField": "Odoo-Feld",
-    "transform": "Transformation"
+    "transform": "Transformation",
+    "addFile": "Datei hinzufügen",
+    "filenamePlaceholder": "Dateiname (z. B. products.csv)",
+    "moveUp": "Nach oben",
+    "moveDown": "Nach unten",
+    "dragToReorder": "Zum Sortieren ziehen"
   },
   "modelSelect": {
     "placeholder": "Modell auswählen...",
