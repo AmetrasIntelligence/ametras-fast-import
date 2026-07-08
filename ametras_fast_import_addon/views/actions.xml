@@ -170,24 +170,35 @@
                             <field name="version" />
                             <field name="odoo_min_version" />
                         </group>
-                        <group>
-                            <field name="derived_from" readonly="1" />
-                            <field name="exported_at" readonly="1" />
-                        </group>
                     </group>
                     <field name="description" placeholder="Description..." />
                     <notebook>
-                        <page string="Files &amp; Models" name="files">
+                        <page string="Einstellungen" name="settings">
+                            <field name="setting_ids">
+                                <tree editable="bottom">
+                                    <field name="key" />
+                                    <field name="value" />
+                                </tree>
+                            </field>
+                        </page>
+                        <page string="Reihenfolge" name="sequence">
                             <field name="file_ids">
                                 <tree editable="bottom">
                                     <field name="sequence" widget="handle" />
                                     <field name="filename" />
-                                    <field name="model_name" />
                                     <field name="requires" />
                                 </tree>
                             </field>
                         </page>
-                        <page string="Field Mappings" name="field_mappings">
+                        <page string="Modelzuordnungen" name="mappings">
+                            <field name="file_ids">
+                                <tree editable="bottom">
+                                    <field name="filename" />
+                                    <field name="model_name" />
+                                </tree>
+                            </field>
+                        </page>
+                        <page string="Feldzuordnungen" name="field_mappings">
                             <field name="field_mapping_ids">
                                 <tree editable="bottom">
                                     <field name="filename" />
@@ -196,14 +207,6 @@
                                     <field name="required" />
                                     <field name="transform" />
                                     <field name="notes" />
-                                </tree>
-                            </field>
-                        </page>
-                        <page string="Run Settings" name="run_settings">
-                            <field name="setting_ids">
-                                <tree editable="bottom">
-                                    <field name="key" />
-                                    <field name="value" />
                                 </tree>
                             </field>
                         </page>
