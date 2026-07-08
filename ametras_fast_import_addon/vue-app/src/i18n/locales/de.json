@@ -314,8 +314,6 @@
     "filename": "Dateiname",
     "model": "Modell",
     "overridden": "Überschrieben",
-    "requires": "Benötigt",
-    "requiresHint": "Kommagetrennte Dateinamen, die zuerst importiert werden müssen",
     "sequenceOverridden": "Reihenfolge wurde überschrieben",
     "file": "Datei",
     "csvHeader": "CSV-Kopfzeile",
@@ -323,8 +321,6 @@
     "transform": "Transformation",
     "addFile": "Datei hinzufügen",
     "filenamePlaceholder": "Dateiname (z. B. products.csv)",
-    "moveUp": "Nach oben",
-    "moveDown": "Nach unten",
     "dragToReorder": "Zum Sortieren ziehen"
   },
   "modelSelect": {

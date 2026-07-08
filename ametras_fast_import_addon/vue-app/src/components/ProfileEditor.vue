@@ -198,20 +198,6 @@ function removeFile(idx: number) {
   dirty.value = true
 }
 
-function moveFile(idx: number, delta: number) {
-  const target = idx + delta
-  if (target < 0 || target >= draftFiles.value.length) return
-  const arr = draftFiles.value
-  const [moved] = arr.splice(idx, 1)
-  arr.splice(target, 0, moved)
-  dirty.value = true
-}
-
-function setRequires(file: DraftFile, text: string) {
-  file.requires = text.split(',').map((s) => s.trim()).filter(Boolean)
-  dirty.value = true
-}
-
 // Native HTML5 drag-and-drop reordering for the Reihenfolge tab.
 const dragIndex = ref<number | null>(null)
 
@@ -294,7 +280,7 @@ function onCancel() {
 
     <!-- Sequence Tab (Reihenfolge) -->
     <div v-show="activeTab === 'sequence'" class="csv-profile-editor__content">
-      <!-- Editable variant: drag / arrows to reorder, edit requires, remove -->
+      <!-- Editable variant: drag the handle to reorder, remove -->
       <template v-if="editable">
         <div v-if="draftFiles.length === 0" class="text-center py-3 text-body-secondary small">
           {{ $t('profileEditor.noSequence') }}
@@ -305,8 +291,7 @@ function onCancel() {
               <th style="width: 2rem;"></th>
               <th class="text-start fw-medium" style="width: 3rem;">#</th>
               <th class="text-start fw-medium">{{ $t('profileEditor.filename') }}</th>
-              <th class="text-start fw-medium">{{ $t('profileEditor.requires') }}</th>
-              <th class="text-center" style="width: 5rem;"></th>
+              <th class="text-center" style="width: 2rem;"></th>
             </tr>
           </thead>
           <tbody>
@@ -326,31 +311,7 @@ function onCancel() {
               >⠿</td>
               <td class="text-body-secondary">{{ idx + 1 }}</td>
               <td class="font-monospace" style="font-size: 0.75rem;">{{ file.filename }}</td>
-              <td>
-                <input
-                  :value="file.requires.join(', ')"
-                  type="text"
-                  class="form-control form-control-sm"
-                  style="font-size: 0.75rem;"
-                  :placeholder="$t('profileEditor.requiresHint')"
-                  @input="setRequires(file, ($event.target as HTMLInputElement).value)"
-                />
-              </td>
-              <td class="text-nowrap text-center">
-                <button
-                  type="button"
-                  class="btn btn-sm btn-link p-0 me-1"
-                  :disabled="idx === 0"
-                  :title="$t('profileEditor.moveUp')"
-                  @click="moveFile(idx, -1)"
-                >&uarr;</button>
-                <button
-                  type="button"
-                  class="btn btn-sm btn-link p-0 me-1"
-                  :disabled="idx === draftFiles.length - 1"
-                  :title="$t('profileEditor.moveDown')"
-                  @click="moveFile(idx, 1)"
-                >&darr;</button>
+              <td class="text-center">
                 <button
                   type="button"
                   class="btn btn-sm btn-link text-danger p-0"
@@ -373,16 +334,12 @@ function onCancel() {
             <tr>
               <th class="text-start fw-medium" style="width: 4rem;">#</th>
               <th class="text-start fw-medium">{{ $t('profileEditor.filename') }}</th>
-              <th class="text-start fw-medium">{{ $t('profileEditor.requires') }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="item in effectiveSequence" :key="item.filename">
               <td class="text-body-secondary">{{ item.order }}</td>
               <td class="font-monospace" style="font-size: 0.75rem;">{{ item.filename }}</td>
-              <td class="text-body-secondary" style="font-size: 0.75rem;">
-                {{ item.requires?.join(', ') || '-' }}
-              </td>
             </tr>
           </tbody>
         </table>
