@@ -11,6 +11,7 @@ import { usePlatformStore } from '@/stores/platform'
 import { ImportState } from '@/types/importState'
 import { formatNumber } from '@/utils/formatters'
 import { logger } from '@/utils/logger'
+import { partitionImportFiles, isSuspiciousZeroImport, finalizeImportOutcome } from '@/utils/runOutcome'
 import { Button, Progress, Card, Table } from '@/ui'
 
 const { t } = useI18n()
@@ -616,17 +617,36 @@ async function runPythonImport() {
   warnedUnknownTypes.clear()
   const runId = ++currentRunId
   let totalFailed = 0
+  let processedCount = 0
   const allErrors: Array<{ filename: string; rowNumber: number; error: string }> = []
+  const zeroRowFiles: string[] = []
+
+  // Partition up-front so skipped files (missing on disk / no mapping) are
+  // surfaced to the user and marked in the UI, instead of being silently
+  // `continue`d — an all-skipped run must not look like "completed, 0 rows".
+  const { runnable, skipped } = partitionImportFiles(
+    config.importSequence,
+    filesStore.files,
+    config.fileMappings,
+  )
+  for (const s of skipped) {
+    run.startFile(s.filename)
+    run.skipFile(s.filename)
+    logger.import.warn(
+      `Skipping "${s.filename}": ${s.reason === 'no-mapping'
+        ? 'no field mapping configured'
+        : 'file not found among the selected files'}.`,
+    )
+  }
 
   try {
-    for (const filename of config.importSequence) {
+    for (const { filename, fileId } of runnable) {
       if (pythonCancelled) break
 
-      const file = filesStore.files.find(f => f.name === filename)
-      if (!file) continue
       const mapping = config.fileMappings[filename]
       if (!mapping) continue
 
+      processedCount++
       pythonSkipRequested = false
       currentPythonFile.value = filename
       run.startFile(filename)
@@ -636,7 +656,7 @@ async function runPythonImport() {
         url: session.baseUrl,
         db: session.currentServer?.db,
         model: mapping.model,
-        file_path: file.id,
+        file_path: fileId,
         field_mappings: mapping.fieldMappings || {},
         search_keys: mapping.searchKeys || null,
         use_external_id: mapping.fieldMappings && Object.values(mapping.fieldMappings).includes('id'),
@@ -685,6 +705,18 @@ async function runPythonImport() {
           failedCount: failed,
         })
         run.completeFile(filename)
+
+        // Nothing imported despite analysis expecting rows → almost always a
+        // per-file delimiter/encoding/mapping mismatch that collapses every
+        // row to blank (the engine skips blanks). Surface it instead of
+        // reporting a clean success.
+        const expectedRows = run.progress.files[filename]?.totalRows ?? 0
+        if (isSuspiciousZeroImport(success, failed, expectedRows)) {
+          zeroRowFiles.push(filename)
+          logger.import.warn(
+            `${filename}: 0 of ${expectedRows} rows imported — check this file's delimiter/encoding and field mappings.`,
+          )
+        }
 
         if (failed > 0) {
           logger.import.warn(`${filename}: import done with errors`, { filename, success, failed, total: success + failed })
@@ -746,11 +778,27 @@ async function runPythonImport() {
     // Final poll to drain any remaining progress messages
     await pollProgress()
 
+    const outcome = finalizeImportOutcome({
+      processedCount,
+      skippedCount: skipped.length,
+      totalFailed,
+      errorCount: allErrors.length,
+      cancelled: pythonCancelled,
+    })
+
+    // Tell the user WHY nothing ran instead of a silent "completed, 0/0".
+    if (outcome.nothingRan && !pythonCancelled) {
+      initError.value = t('run.nothingImported', { count: skipped.length })
+    } else if (!pythonCancelled && (skipped.length > 0 || zeroRowFiles.length > 0)) {
+      const names = [...skipped.map(s => s.filename), ...zeroRowFiles]
+      logger.import.warn(
+        `Import finished with ${skipped.length} skipped and ${zeroRowFiles.length} zero-row file(s)`,
+        { files: names },
+      )
+    }
+
     if (runId === currentRunId && run.state !== ImportState.FAILED) {
-      const finalState = totalFailed > 0 || allErrors.length > 0 || pythonCancelled
-        ? ImportState.FAILED
-        : ImportState.COMPLETED
-      run.setState(finalState)
+      run.setState(outcome.state)
     }
   } finally {
     stopPolling()
