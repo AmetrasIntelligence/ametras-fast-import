@@ -10,6 +10,7 @@ import { fetchModels, validateSampleRow, type OdooModel } from '@/api/odooClient
 import { suggestModel } from '@/utils/smartModelMapping'
 import { autoMapFields } from '@/utils/smartFieldMapping'
 import { showConfirm } from '@/utils/dialog'
+import { logger } from '@/utils/logger'
 import type { useFieldMetadata } from '@/composables/useFieldMetadata'
 
 export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>) {
@@ -115,7 +116,15 @@ export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>
   }
 
   async function addFilesAndAnalyze(selected: Array<{ id: string; name: string; size: number }>) {
-    filesStore.addFiles(selected)
+    const duplicates = filesStore.addFiles(selected)
+    if (duplicates.length > 0) {
+      // Files are matched to mappings/sequence by name; a same-named file would
+      // otherwise be dropped without a trace.
+      logger.import.warn(
+        `Ignored ${duplicates.length} file(s) already in the list (matched by name): ` +
+        `${duplicates.map(f => f.name).join(', ')}. Rename to import both.`,
+      )
+    }
 
     isAnalyzing.value = true
     try {
@@ -194,6 +203,16 @@ export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>
           }
         }
         filesStore.setAnalysis(file.id, analysis)
+
+        if (analysis.headers.length === 0) {
+          // Every analysis path failed — the file is empty, unreadable, or the
+          // encoding/delimiter is wrong. Warn now; the run would otherwise look
+          // like it "worked" but import nothing.
+          logger.import.warn(
+            `Could not analyze "${file.name}" (no columns detected). ` +
+            `Check the file's encoding and delimiter before importing.`,
+          )
+        }
 
         initMapping(file.name)
         generateSuggestion(file.name, file.id)

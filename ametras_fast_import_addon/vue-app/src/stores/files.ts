@@ -22,12 +22,22 @@ export const useFilesStore = defineStore('files', () => {
 
   const fileCount = computed(() => files.value.length)
 
-  function addFiles(newFiles: FileHandle[]) {
+  /**
+   * Add files, de-duplicating by name (files are matched to mappings/sequence
+   * by name everywhere). Returns the files that were dropped as duplicates so
+   * the caller can warn — otherwise a second file with the same basename would
+   * vanish silently.
+   */
+  function addFiles(newFiles: FileHandle[]): FileHandle[] {
+    const duplicates: FileHandle[] = []
     for (const file of newFiles) {
       if (!files.value.find(f => f.name === file.name)) {
         files.value.push(file)
+      } else {
+        duplicates.push(file)
       }
     }
+    return duplicates
   }
 
   function removeFile(id: string) {

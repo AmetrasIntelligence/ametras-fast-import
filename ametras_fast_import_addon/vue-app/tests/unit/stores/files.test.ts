@@ -54,6 +54,30 @@ describe('FilesStore', () => {
       store.addFiles([])
       expect(store.files).toHaveLength(0)
     })
+
+    it('returns the dropped duplicates so the caller can warn', () => {
+      const store = useFilesStore()
+      store.addFiles([{ id: '1', name: 'a.csv', size: 100 }])
+
+      // Same-named file from a different path is dropped and reported.
+      const dups = store.addFiles([
+        { id: '2', name: 'a.csv', size: 999 },
+        { id: '3', name: 'b.csv', size: 200 }
+      ])
+      expect(store.files.map(f => f.name)).toEqual(['a.csv', 'b.csv'])
+      expect(store.files.find(f => f.name === 'a.csv')?.id).toBe('1')
+      expect(dups.map(f => f.id)).toEqual(['2'])
+
+      // Duplicates within a single call are reported too.
+      const dups2 = store.addFiles([
+        { id: '4', name: 'x.csv', size: 1 },
+        { id: '5', name: 'x.csv', size: 1 }
+      ])
+      expect(dups2.map(f => f.id)).toEqual(['5'])
+
+      // No duplicates → empty array.
+      expect(store.addFiles([{ id: '6', name: 'z.csv', size: 1 }])).toEqual([])
+    })
   })
 
   describe('removeFile', () => {

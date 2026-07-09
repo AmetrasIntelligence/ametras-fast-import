@@ -215,6 +215,7 @@
     "tryAgain": "Try Again",
     "startupTimeout": "Import startup timed out (90s). The server may be slow or a network call hung. Please try again.",
     "retryNoMappings": "Cannot retry: no field mappings found for the failed files. Re-configure the import and try again.",
+    "nothingImported": "Nothing was imported — {count} file(s) were skipped because they had no field mapping or could not be found. Re-check the configuration and try again.",
     "activityLog": "Activity Log",
     "timeoutMitigation": {
       "title": "Experiencing server timeouts",

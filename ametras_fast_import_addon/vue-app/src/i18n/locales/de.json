@@ -215,6 +215,7 @@
     "tryAgain": "Erneut versuchen",
     "startupTimeout": "Import-Start hat das Zeitlimit überschritten (90s). Der Server ist möglicherweise langsam oder ein Netzwerkaufruf hängt. Bitte erneut versuchen.",
     "retryNoMappings": "Wiederholung nicht möglich: Keine Feldzuordnungen für die fehlgeschlagenen Dateien gefunden. Bitte konfigurieren Sie den Import erneut.",
+    "nothingImported": "Es wurde nichts importiert — {count} Datei(en) wurden übersprungen, weil keine Feldzuordnung vorhanden war oder die Datei nicht gefunden wurde. Bitte Konfiguration prüfen und erneut versuchen.",
     "activityLog": "Aktivitätsprotokoll",
     "timeoutMitigation": {
       "title": "Server-Zeitüberschreitungen festgestellt",
