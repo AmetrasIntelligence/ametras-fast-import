@@ -20,6 +20,18 @@ interface IngestProgress {
   onError?: (name: string, error: string) => void
 }
 
+/** Cap on a single file analysis so a hung backend can't stick the UI forever. */
+const ANALYZE_TIMEOUT_MS = 60_000
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms),
+    ),
+  ])
+}
+
 export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>) {
   const { t } = useI18n()
   const filesStore = useFilesStore()
@@ -122,17 +134,21 @@ export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>
    * (Electron) → Odoo endpoint. Never throws — returns an empty analysis if
    * every path fails, which the caller treats as an error state.
    */
-  async function runAnalysis(fileId: string): Promise<FileAnalysis> {
+  async function runAnalysis(fileId: string, filename = fileId): Promise<FileAnalysis> {
     let analysis: FileAnalysis = {
       headers: [], rowCount: 0, sampleRows: [], delimiter: ',', hasIdColumn: false, hasDotIdColumn: false,
     }
 
     if (window.api?.python?.analyze) {
       try {
-        const pyResp = await window.api.python.analyze({
-          fileId,
-          encoding: config.settings.encoding || 'utf-8',
-        }) as { ok: boolean; result?: Record<string, unknown>; error?: string }
+        const pyResp = await withTimeout(
+          window.api.python.analyze({
+            fileId,
+            encoding: config.settings.encoding || 'utf-8',
+          }),
+          ANALYZE_TIMEOUT_MS,
+          `Python analysis of "${filename}"`,
+        ) as { ok: boolean; result?: Record<string, unknown>; error?: string }
         if (pyResp.ok && pyResp.result) {
           const r = pyResp.result as Record<string, unknown>
           if (r.type === 'analysis' && Array.isArray(r.headers) && (r.headers as string[]).length > 0) {
@@ -146,8 +162,10 @@ export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>
             }
           }
         }
-      } catch {
-        // Fall through to next fallback
+      } catch (e) {
+        logger.import.warn(
+          `Python analysis failed for "${filename}": ${(e as Error).message}. Falling back.`,
+        )
       }
     }
 
@@ -195,15 +213,26 @@ export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>
   /** Analyze one uploaded file, driving its status analyzing → ready | error. */
   async function analyzeHandle(handle: FileHandle) {
     filesStore.setStatus(handle.id, 'analyzing')
-    const analysis = await runAnalysis(handle.id)
+    logger.import.info(`Analyzing "${handle.name}"…`)
+    let analysis: FileAnalysis
+    try {
+      analysis = await runAnalysis(handle.id, handle.name)
+    } catch (e) {
+      // Never let one file's failure hang the whole batch.
+      filesStore.setStatus(handle.id, 'error', (e as Error).message)
+      logger.import.error(`Analysis of "${handle.name}" failed: ${(e as Error).message}`)
+      return
+    }
     filesStore.setAnalysis(handle.id, analysis)
     if (analysis.headers.length === 0) {
       // Every analysis path failed — empty/unreadable file or wrong encoding.
-      const message = t('files.analyzeFailed')
-      filesStore.setStatus(handle.id, 'error', message)
+      filesStore.setStatus(handle.id, 'error', t('files.analyzeFailed'))
       logger.import.warn(`Could not analyze "${handle.name}" (no columns detected).`)
     } else {
       filesStore.setStatus(handle.id, 'ready')
+      logger.import.info(
+        `Analyzed "${handle.name}": ${analysis.headers.length} columns, ${analysis.rowCount} rows.`,
+      )
     }
     initMapping(handle.name)
     generateSuggestion(handle.name, handle.id)
@@ -218,7 +247,7 @@ export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>
    */
   async function ingest(pick: (progress: IngestProgress) => Promise<FileHandle[]>) {
     isAnalyzing.value = true
-    const analyses: Promise<void>[] = []
+    const toAnalyze: FileHandle[] = []
     let usedProgress = false
     try {
       const handles = await pick({
@@ -242,7 +271,7 @@ export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>
           }
           filesStore.replaceFile(stagingId, handle)
           config.setSequence(filesStore.files.map(f => f.name))
-          analyses.push(analyzeHandle(handle))
+          toAnalyze.push(handle)
         },
         onError: (name, error) => {
           usedProgress = true
@@ -262,14 +291,17 @@ export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>
         }
         const dupIds = new Set(duplicates.map(f => f.id))
         for (const handle of handles) {
-          if (dupIds.has(handle.id)) continue
-          filesStore.setStatus(handle.id, 'analyzing')
-          analyses.push(analyzeHandle(handle))
+          if (!dupIds.has(handle.id)) toAnalyze.push(handle)
         }
         config.setSequence(filesStore.files.map(f => f.name))
       }
 
-      await Promise.all(analyses)
+      // Analyze one file at a time. The standalone Python engine is a single
+      // persistent subprocess with ONE in-flight command slot — firing
+      // concurrent analyze calls deadlocks it (it hangs after the first file).
+      for (const handle of toAnalyze) {
+        await analyzeHandle(handle)
+      }
     } finally {
       isAnalyzing.value = false
     }
@@ -364,6 +396,7 @@ export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>
     fieldSuggestionsApplied.value = new Set()
     validationResults.value = new Map()
     validationTrigger.value++
+    isAnalyzing.value = false
   }
 
   function handleReorder(filenames: string[]) {
