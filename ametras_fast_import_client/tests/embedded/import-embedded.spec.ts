@@ -10,6 +10,9 @@ const LOGIN = process.env.ODOO_LOGIN || 'admin'
 const PASSWORD = process.env.ODOO_PASSWORD || 'admin'
 
 async function login(page: Page) {
+  // Render the embedded Vue app in English (it defaults to German and otherwise
+  // syncs from the Odoo user's locale). The CI DB also sets admin to en_US.
+  await page.addInitScript(() => localStorage.setItem('csv-import-locale', 'en'))
   await page.goto('/web/login')
   await page.locator('input[name="login"]').fill(LOGIN)
   await page.locator('input[name="password"]').fill(PASSWORD)
