@@ -54,8 +54,14 @@ test.describe('Embedded app (live Odoo)', () => {
     // Expand and pick a real Odoo model.
     await page.getByText('contacts.csv').click()
     await page.locator('.csv-model-select__trigger').first().click()
-    await page.getByPlaceholder(/search by name/i).fill('partner')
-    await page.locator('.csv-dropdown__option', { hasText: 'res.partner' }).click()
+    await page.getByPlaceholder(/search by name/i).fill('res.partner')
+    // "res.partner" is a substring of several models (res.partner.bank, …), so
+    // match the option whose technical-name node is exactly res.partner.
+    await page
+      .locator('.csv-dropdown__option')
+      .filter({ has: page.getByText('res.partner', { exact: true }) })
+      .first()
+      .click()
 
     // Start — the import runs inline (QUEUE_JOB__NO_DELAY) and routes to results.
     const startBtn = page.getByRole('button', { name: /start import/i })
