@@ -249,11 +249,13 @@ jobs:
             --init=ametras_fast_import_addon --stop-after-init --no-http
       - name: Force English locale for admin
         # The embedded app renders in the Odoo user's language (defaults to
-        # German). Pin admin to en_US so the UI text is deterministic.
+        # German). Pin admin to en_US so the UI text is deterministic. Note:
+        # res.users.lang delegates to res.partner (_inherits), so the column
+        # lives on res_partner, not res_users.
         run: |
           python -c "import psycopg2; \
           c=psycopg2.connect(host='localhost', port=5432, user='odoo', password='odoo', dbname='test_embedded'); \
-          cur=c.cursor(); cur.execute(\"UPDATE res_users SET lang='en_US' WHERE login='admin'\"); \
+          cur=c.cursor(); cur.execute(\"UPDATE res_partner SET lang='en_US' WHERE id IN (SELECT partner_id FROM res_users WHERE login='admin')\"); \
           c.commit(); print('rows updated:', cur.rowcount)"
       - name: Start Odoo (jobs run inline via QUEUE_JOB__NO_DELAY)
         run: |
