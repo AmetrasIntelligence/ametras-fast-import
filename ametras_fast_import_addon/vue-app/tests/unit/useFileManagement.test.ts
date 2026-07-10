@@ -146,4 +146,25 @@ describe('useFileManagement — upload & analysis orchestration', () => {
     expect(maxActive).toBe(1) // never more than one analysis in flight
     expect(files.files.every((f) => files.getStatus(f.id)?.status === 'ready')).toBe(true)
   })
+
+  it('preserves an existing (e.g. profile) sequence order when adding a file', async () => {
+    mockApi.files.readHead.mockResolvedValue('h\n1\n')
+    mockApi.files.countLines.mockResolvedValue(2)
+    mockApi.files.select.mockResolvedValueOnce([
+      { id: 'a', name: 'a.csv', size: 1 },
+      { id: 'b', name: 'b.csv', size: 1 },
+    ])
+    const config = useConfigStore()
+    const fm = makeFm()
+    await fm.selectFiles()
+
+    // A profile (or a manual drag) sets a custom import order.
+    config.setSequence(['b.csv', 'a.csv'])
+
+    // Adding another file must APPEND — not reset the order to file-store order.
+    mockApi.files.select.mockResolvedValueOnce([{ id: 'c', name: 'c.csv', size: 1 }])
+    await fm.selectFiles()
+
+    expect(config.importSequence).toEqual(['b.csv', 'a.csv', 'c.csv'])
+  })
 })

@@ -32,6 +32,19 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   ])
 }
 
+/**
+ * Reconcile the import sequence with the current file set WITHOUT losing the
+ * existing order: keep current entries in place (e.g. a profile's dependency
+ * ordering), drop any no longer present, and append newly-added files at the
+ * end. Replacing the sequence outright would reset a profile's order whenever a
+ * file is added.
+ */
+function reconcileSequence(current: string[], allNames: string[]): string[] {
+  const kept = current.filter((n) => allNames.includes(n))
+  const added = allNames.filter((n) => !kept.includes(n))
+  return [...kept, ...added]
+}
+
 export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>) {
   const { t } = useI18n()
   const filesStore = useFilesStore()
@@ -259,7 +272,7 @@ export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>
             filesStore.addFiles([{ id, name: s.name, size: s.size }])
             filesStore.setStatus(id, 'uploading')
           }
-          config.setSequence(filesStore.files.map(f => f.name))
+          config.setSequence(reconcileSequence(config.importSequence, filesStore.files.map(f => f.name)))
         },
         onUploaded: (handle) => {
           usedProgress = true
@@ -270,7 +283,7 @@ export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>
             return
           }
           filesStore.replaceFile(stagingId, handle)
-          config.setSequence(filesStore.files.map(f => f.name))
+          config.setSequence(reconcileSequence(config.importSequence, filesStore.files.map(f => f.name)))
           toAnalyze.push(handle)
         },
         onError: (name, error) => {
@@ -293,7 +306,7 @@ export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>
         for (const handle of handles) {
           if (!dupIds.has(handle.id)) toAnalyze.push(handle)
         }
-        config.setSequence(filesStore.files.map(f => f.name))
+        config.setSequence(reconcileSequence(config.importSequence, filesStore.files.map(f => f.name)))
       }
 
       // Analyze one file at a time. The standalone Python engine is a single
