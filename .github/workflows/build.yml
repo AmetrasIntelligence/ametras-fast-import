@@ -119,8 +119,8 @@ jobs:
 
   test-odoo:
     # Real ir.attachment upload + full import/logging tests (via the real
-    # queue.job) against a live Odoo + DB. Release-gated (validated on PR #14).
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
+    # queue.job) against a live Odoo + DB. TEMPORARILY ungated to validate the
+    # tightened DB assertions + multi-language test; re-gate to release once green.
     runs-on: ubuntu-latest
     services:
       postgres:
