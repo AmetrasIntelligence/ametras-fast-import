@@ -21,6 +21,13 @@ export interface MockApiOptions {
   emulateUpload?: boolean
   /** Result object returned by python.import(). Default: a clean "done". */
   importResult?: Record<string, unknown>
+  /** Models returned by ir.model search_read (drives ModelSelect). */
+  models?: { id: number; model: string; name: string }[]
+  /** fields_get result per model (drives field auto-mapping). */
+  modelFields?: Record<
+    string,
+    Record<string, { string: string; type: string; required?: boolean; store?: boolean; relation?: string }>
+  >
 }
 
 /**
@@ -46,6 +53,17 @@ export async function mockWindowApi(page: Page, options: MockApiOptions = {}) {
     const fileContents = opts.fileContents ?? {}
     const importResult = opts.importResult ?? {
       type: 'done', success: 0, failed: 0, errors: [],
+    }
+    const models = opts.models ?? [
+      { id: 1, model: 'res.partner', name: 'Contact' },
+      { id: 2, model: 'product.template', name: 'Product' },
+    ]
+    const modelFields = opts.modelFields ?? {
+      'res.partner': {
+        name: { string: 'Name', type: 'char', required: true, store: true },
+        email: { string: 'Email', type: 'char', store: true },
+        phone: { string: 'Phone', type: 'char', store: true },
+      },
     }
     const browserStore: Record<string, unknown> = {}
 
@@ -83,6 +101,15 @@ export async function mockWindowApi(page: Page, options: MockApiOptions = {}) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         call: async (payload?: any) => {
           const endpoint: string = payload?.endpoint ?? ''
+          const params = payload?.params ?? {}
+          if (endpoint.includes('/web/dataset/call_kw')) {
+            if (params.model === 'ir.model' && params.method === 'search_read') {
+              return { ok: true, result: models }
+            }
+            if (params.method === 'fields_get') {
+              return { ok: true, result: modelFields[params.model] ?? {} }
+            }
+          }
           if (endpoint.includes('/file/analyze')) {
             // Last-resort analyze fallback: return a well-formed (empty) analysis
             // so a file with no parseable content lands in the error state.
