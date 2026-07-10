@@ -113,8 +113,8 @@ jobs:
 
   test-odoo:
     # Real ir.attachment upload + full HTTP import/logging tests against a live
-    # Odoo + DB. TEMPORARILY ungated to validate the new HttpCase on this PR;
-    # re-gate to release once green.
+    # Odoo + DB. Release-gated (validated on PR #14).
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -180,7 +180,8 @@ jobs:
 
   test-embedded-e2e:
     # Playwright against a LIVE embedded Odoo (real web client + controllers).
-    # TEMPORARILY ungated to validate on this PR; re-gate to release once green.
+    # Release-gated (validated on PR #14).
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -288,7 +289,7 @@ jobs:
 
   build-addon:
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
-    needs: [check-version, test-python, test-vue-app, test-odoo]
+    needs: [check-version, test-python, test-vue-app, test-odoo, test-embedded-e2e]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -305,7 +306,7 @@ jobs:
 
   build-client:
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
-    needs: [check-version, test-python, test-vue-app, test-client, test-e2e, test-odoo]
+    needs: [check-version, test-python, test-vue-app, test-client, test-e2e, test-odoo, test-embedded-e2e]
     strategy:
       matrix:
         include:
