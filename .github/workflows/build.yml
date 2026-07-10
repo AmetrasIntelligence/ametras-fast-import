@@ -111,8 +111,9 @@ jobs:
   # the fast checks above. (Validated on PR #13 before gating.)
 
   test-odoo:
-    # Real ir.attachment upload test (TransactionCase) against a live Odoo + DB.
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
+    # Real ir.attachment upload + full HTTP import/logging tests against a live
+    # Odoo + DB. TEMPORARILY ungated to validate the new HttpCase on this PR;
+    # re-gate to release once green.
     runs-on: ubuntu-latest
     services:
       postgres:
