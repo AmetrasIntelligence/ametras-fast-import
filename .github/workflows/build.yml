@@ -322,7 +322,8 @@ jobs:
     # Playwright _electron: launches the REAL standalone app and analyzes several
     # CSVs via the REAL bundled Python engine (multi-file regression). Analysis
     # is local, so no Odoo is needed — just system python3 + xvfb.
-    # TEMPORARILY ungated to validate; re-gate to release once green.
+    # Release-gated (validated on PR #16).
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -362,7 +363,7 @@ jobs:
 
   build-addon:
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
-    needs: [check-version, test-python, test-vue-app, test-odoo, test-embedded-e2e]
+    needs: [check-version, test-python, test-vue-app, test-odoo, test-embedded-e2e, test-standalone-electron-e2e]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -379,7 +380,7 @@ jobs:
 
   build-client:
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
-    needs: [check-version, test-python, test-vue-app, test-client, test-e2e, test-odoo, test-embedded-e2e]
+    needs: [check-version, test-python, test-vue-app, test-client, test-e2e, test-odoo, test-embedded-e2e, test-standalone-electron-e2e]
     strategy:
       matrix:
         include:
