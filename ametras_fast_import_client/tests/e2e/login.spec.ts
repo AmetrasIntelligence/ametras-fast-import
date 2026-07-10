@@ -27,13 +27,16 @@ test.describe('Login Flow', () => {
   })
 
   test('can fill login form', async ({ page }) => {
-    await page.getByPlaceholder(/mycompany\.odoo\.com/i).fill('test.odoo.com')
-    await page.getByPlaceholder(/database name/i).fill('testdb')
-    await page.getByPlaceholder(/admin/i).fill('admin')
-    await page.getByLabel(/password/i).fill('password123')
+    // Use stable ids — visible labels/placeholders drift and /password/i can
+    // match more than one control (strict-mode violation).
+    await page.locator('#csv-host').fill('test.odoo.com')
+    await page.locator('#csv-database').fill('testdb')
+    await page.locator('#csv-username').fill('admin')
+    await page.locator('#csv-password').fill('password123')
 
-    await expect(page.getByPlaceholder(/mycompany\.odoo\.com/i)).toHaveValue('test.odoo.com')
-    await expect(page.getByPlaceholder(/database name/i)).toHaveValue('testdb')
+    await expect(page.locator('#csv-host')).toHaveValue('test.odoo.com')
+    await expect(page.locator('#csv-database')).toHaveValue('testdb')
+    await expect(page.locator('#csv-password')).toHaveValue('password123')
   })
 
   test('shows error on failed login', async ({ page }) => {

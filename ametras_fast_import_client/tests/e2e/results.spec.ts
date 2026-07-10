@@ -18,13 +18,9 @@ test.describe('Results View', () => {
     await expect(page.getByText(/duration/i)).toBeVisible()
   })
 
-  test('shows export section', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /export/i })).toBeVisible()
-  })
-
-  test('has download full report button', async ({ page }) => {
-    await expect(page.getByRole('button', { name: /download full report/i })).toBeVisible()
-  })
+  // Note: the Export card (error-log / failed-rows-ZIP downloads) only renders
+  // when the run produced row errors (v-if="run.errors.length > 0"), so it is
+  // intentionally not asserted here in the no-error summary state.
 
   test('has start new import button', async ({ page }) => {
     await expect(page.getByRole('button', { name: /start new import/i })).toBeVisible()
@@ -33,16 +29,6 @@ test.describe('Results View', () => {
   test('start new import navigates to import view', async ({ page }) => {
     await page.getByRole('button', { name: /start new import/i }).click()
     await expect(page).toHaveURL(/#\/import/)
-  })
-})
-
-test.describe('Results - Export Functionality', () => {
-  test('download report button is enabled', async ({ page }) => {
-    await mockLogin(page)
-    await page.goto('/#/results')
-
-    const downloadButton = page.getByRole('button', { name: /download full report/i })
-    await expect(downloadButton).toBeEnabled()
   })
 })
 

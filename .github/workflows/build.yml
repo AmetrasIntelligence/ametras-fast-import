@@ -33,20 +33,18 @@ jobs:
       - name: Run Python unit tests
         run: |
           cd ametras_fast_import_addon
-          for f in tests/test_batch_size_adapter.py \
-                   tests/test_backend_import_context.py \
-                   tests/test_backend_serialization_retry.py \
-                   tests/test_idempotency.py \
-                   tests/test_importer_timeout_pipeline.py \
-                   tests/test_importer_comprehensive.py \
-                   tests/test_parser_edge_cases.py \
-                   tests/test_resolver_integration.py \
-                   tests/test_transformer.py \
-                   tests/test_import_job_control.py \
-                   tests/test_import_job_flow.py; do
+          # Auto-discover standalone unittest files so new tests are picked up
+          # without editing CI. test_upload_storage.py is an Odoo TransactionCase
+          # (needs a live Odoo DB via odoo-bin --test-enable) and is skipped here.
+          status=0
+          for f in tests/test_*.py; do
+            case "$f" in
+              *test_upload_storage.py) echo "skip (needs Odoo runtime): $f"; continue ;;
+            esac
             echo "--- $f ---"
-            python3 "$f" -v
+            python3 "$f" -v || status=1
           done
+          exit $status
 
   test-vue-app:
     runs-on: ubuntu-latest
@@ -80,6 +78,32 @@ jobs:
       - run: cd ametras_fast_import_client && npm ci
       - run: cd ametras_fast_import_client && npm run lint
       - run: cd ametras_fast_import_client && npm run typecheck
+
+  test-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            ametras_fast_import_addon/vue-app/package-lock.json
+            ametras_fast_import_client/package-lock.json
+      - run: cd ametras_fast_import_addon/vue-app && npm ci
+      - run: cd ametras_fast_import_client && npm ci
+      - name: Install Playwright Chromium
+        run: cd ametras_fast_import_client && npx playwright install --with-deps chromium
+      - name: Run Playwright e2e tests
+        run: cd ametras_fast_import_client && npm run test:e2e
+        env:
+          CI: 'true'
+      - uses: actions/upload-artifact@v4
+        if: ${{ failure() }}
+        with:
+          name: playwright-report
+          path: ametras_fast_import_client/playwright-report
+          retention-days: 7
 
   build-addon:
     needs: [check-version, test-python, test-vue-app]
