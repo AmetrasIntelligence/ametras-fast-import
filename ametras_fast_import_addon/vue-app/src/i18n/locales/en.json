@@ -64,6 +64,12 @@
     "title": "Select CSV Files",
     "addFiles": "Add Files",
     "analyzing": "Analysing files…",
+    "status": {
+      "uploading": "Uploading…",
+      "analyzing": "Analysing…",
+      "error": "Failed"
+    },
+    "analyzeFailed": "Could not read this file (no columns detected). Check its encoding and delimiter.",
     "noPreview": "No preview available",
     "configureMappings": "Configure Mappings",
     "dropZone": {

@@ -95,21 +95,36 @@ function openFilePicker(accept?: string, multiple = true): Promise<File[]> {
 export function installOdooEmbeddedApi(): void {
   window.api = {
     files: {
-      select: async () => {
+      select: async (onProgress) => {
         const files = await openFilePicker('.csv,.txt,.tsv')
+        onProgress?.onStaged?.(files.map(f => ({ name: f.name, size: f.size })))
         const handles = []
         for (const file of files) {
-          handles.push(await uploadFile(file))
+          try {
+            const handle = await uploadFile(file)
+            onProgress?.onUploaded?.(handle)
+            handles.push(handle)
+          } catch (e) {
+            onProgress?.onError?.(file.name, e instanceof Error ? e.message : 'Upload failed')
+          }
         }
         return handles
       },
 
-      register: async (paths) => {
+      register: async (paths, onProgress) => {
+        const pending = paths
+          .map(path => ({ path, file: _fileMap.get(path) }))
+          .filter((p): p is { path: string; file: File } => !!p.file)
+        onProgress?.onStaged?.(pending.map(p => ({ name: p.file.name, size: p.file.size })))
         const handles = []
-        for (const path of paths) {
-          const file = _fileMap.get(path)
-          if (file) {
-            handles.push(await uploadFile(file))
+        for (const { path, file } of pending) {
+          try {
+            const handle = await uploadFile(file)
+            onProgress?.onUploaded?.(handle)
+            handles.push(handle)
+          } catch (e) {
+            onProgress?.onError?.(file.name, e instanceof Error ? e.message : 'Upload failed')
+          } finally {
             _fileMap.delete(path)
           }
         }

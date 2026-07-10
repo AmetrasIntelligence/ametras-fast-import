@@ -64,6 +64,12 @@
     "title": "CSV-Dateien auswählen",
     "addFiles": "Dateien hinzufügen",
     "analyzing": "Dateien werden analysiert…",
+    "status": {
+      "uploading": "Wird hochgeladen…",
+      "analyzing": "Wird analysiert…",
+      "error": "Fehlgeschlagen"
+    },
+    "analyzeFailed": "Datei konnte nicht gelesen werden (keine Spalten erkannt). Bitte Kodierung und Trennzeichen prüfen.",
     "noPreview": "Keine Vorschau verfügbar",
     "configureMappings": "Zuordnungen konfigurieren",
     "dropZone": {

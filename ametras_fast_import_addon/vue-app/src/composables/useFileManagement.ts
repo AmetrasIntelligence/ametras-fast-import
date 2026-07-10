@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Papa from 'papaparse'
-import { useFilesStore } from '@/stores/files'
+import { useFilesStore, type FileAnalysis, type FileHandle } from '@/stores/files'
 import { useConfigStore } from '@/stores/config'
 import { useSessionStore } from '@/stores/session'
 import { usePlatformStore } from '@/stores/platform'
@@ -12,6 +12,13 @@ import { autoMapFields } from '@/utils/smartFieldMapping'
 import { showConfirm } from '@/utils/dialog'
 import { logger } from '@/utils/logger'
 import type { useFieldMetadata } from '@/composables/useFieldMetadata'
+
+/** Per-file upload progress callbacks (matches window.api.files FileUploadProgress). */
+interface IngestProgress {
+  onStaged?: (files: { name: string; size: number }[]) => void
+  onUploaded?: (handle: FileHandle) => void
+  onError?: (name: string, error: string) => void
+}
 
 export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>) {
   const { t } = useI18n()
@@ -110,118 +117,171 @@ export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>
     }
   }
 
-  async function selectFiles() {
-    const selected = await window.api.files.select()
-    await addFilesAndAnalyze(selected)
-  }
-
-  async function addFilesAndAnalyze(selected: Array<{ id: string; name: string; size: number }>) {
-    const duplicates = filesStore.addFiles(selected)
-    if (duplicates.length > 0) {
-      // Files are matched to mappings/sequence by name; a same-named file would
-      // otherwise be dropped without a trace.
-      logger.import.warn(
-        `Ignored ${duplicates.length} file(s) already in the list (matched by name): ` +
-        `${duplicates.map(f => f.name).join(', ')}. Rename to import both.`,
-      )
+  /**
+   * Run the analysis chain for one uploaded file: Python engine → PapaParse
+   * (Electron) → Odoo endpoint. Never throws — returns an empty analysis if
+   * every path fails, which the caller treats as an error state.
+   */
+  async function runAnalysis(fileId: string): Promise<FileAnalysis> {
+    let analysis: FileAnalysis = {
+      headers: [], rowCount: 0, sampleRows: [], delimiter: ',', hasIdColumn: false, hasDotIdColumn: false,
     }
 
+    if (window.api?.python?.analyze) {
+      try {
+        const pyResp = await window.api.python.analyze({
+          fileId,
+          encoding: config.settings.encoding || 'utf-8',
+        }) as { ok: boolean; result?: Record<string, unknown>; error?: string }
+        if (pyResp.ok && pyResp.result) {
+          const r = pyResp.result as Record<string, unknown>
+          if (r.type === 'analysis' && Array.isArray(r.headers) && (r.headers as string[]).length > 0) {
+            analysis = {
+              headers: r.headers as string[],
+              rowCount: (r.rowCount as number) || 0,
+              sampleRows: (r.sampleRows as Record<string, string>[]) || [],
+              delimiter: (r.delimiter as string) || ',',
+              hasIdColumn: !!(r.hasIdColumn),
+              hasDotIdColumn: !!(r.hasDotIdColumn),
+            }
+          }
+        }
+      } catch {
+        // Fall through to next fallback
+      }
+    }
+
+    // JS fallback for Electron: use files IPC + PapaParse when Python is unavailable
+    if (analysis.headers.length === 0 && window.api?.files?.readHead && window.api?.files?.countLines) {
+      try {
+        const encoding = config.settings.encoding || 'utf-8'
+        const sample = await window.api.files.readHead(fileId, 65536, encoding)
+        const parsed = Papa.parse<Record<string, string>>(sample, {
+          header: true,
+          skipEmptyLines: true,
+          preview: 6,
+        })
+        const headers = parsed.meta.fields || []
+        if (headers.length > 0) {
+          const lineCount = await window.api.files.countLines(fileId)
+          analysis = {
+            headers,
+            rowCount: Math.max(0, lineCount - 1),
+            sampleRows: parsed.data.slice(0, 5),
+            delimiter: parsed.meta.delimiter || ',',
+            hasIdColumn: headers.includes('id'),
+            hasDotIdColumn: headers.some(h => h.endsWith('.id')),
+          }
+        }
+      } catch {
+        // Fall through to Odoo endpoint
+      }
+    }
+
+    if (analysis.headers.length === 0) {
+      const analyzeResp = await window.api.odoo.call<FileAnalysis>({
+        baseUrl: '',
+        endpoint: '/ametras_fast_import/file/analyze',
+        params: { file_id: fileId, encoding: config.settings.encoding || 'utf-8' }
+      })
+      if (analyzeResp.ok && analyzeResp.result) {
+        analysis = analyzeResp.result
+      }
+    }
+
+    return analysis
+  }
+
+  /** Analyze one uploaded file, driving its status analyzing → ready | error. */
+  async function analyzeHandle(handle: FileHandle) {
+    filesStore.setStatus(handle.id, 'analyzing')
+    const analysis = await runAnalysis(handle.id)
+    filesStore.setAnalysis(handle.id, analysis)
+    if (analysis.headers.length === 0) {
+      // Every analysis path failed — empty/unreadable file or wrong encoding.
+      const message = t('files.analyzeFailed')
+      filesStore.setStatus(handle.id, 'error', message)
+      logger.import.warn(`Could not analyze "${handle.name}" (no columns detected).`)
+    } else {
+      filesStore.setStatus(handle.id, 'ready')
+    }
+    initMapping(handle.name)
+    generateSuggestion(handle.name, handle.id)
+  }
+
+  /**
+   * Ingest picked files with per-file progress. When the API reports progress
+   * (Odoo-embedded: files upload one-by-one), each file shows uploading →
+   * analyzing → ready and upload errors are surfaced per file. Otherwise
+   * (Electron: local files) it falls back to adding the returned handles and
+   * analyzing them directly.
+   */
+  async function ingest(pick: (progress: IngestProgress) => Promise<FileHandle[]>) {
     isAnalyzing.value = true
+    const analyses: Promise<void>[] = []
+    let usedProgress = false
     try {
-      for (const file of selected) {
-        let analysis: {
-          headers: string[]; rowCount: number; sampleRows: Record<string, string>[];
-          delimiter: string; hasIdColumn: boolean; hasDotIdColumn: boolean;
-        } = { headers: [], rowCount: 0, sampleRows: [], delimiter: ',', hasIdColumn: false, hasDotIdColumn: false }
-
-        if (window.api?.python?.analyze) {
-          try {
-            const pyResp = await window.api.python.analyze({
-              fileId: file.id,
-              encoding: config.settings.encoding || 'utf-8',
-            }) as { ok: boolean; result?: Record<string, unknown>; error?: string }
-            if (pyResp.ok && pyResp.result) {
-              const r = pyResp.result as Record<string, unknown>
-              // Only accept genuine analysis results — Python errors emit {type:'error'}
-              if (r.type === 'analysis' && Array.isArray(r.headers) && (r.headers as string[]).length > 0) {
-                analysis = {
-                  headers: r.headers as string[],
-                  rowCount: (r.rowCount as number) || 0,
-                  sampleRows: (r.sampleRows as Record<string, string>[]) || [],
-                  delimiter: (r.delimiter as string) || ',',
-                  hasIdColumn: !!(r.hasIdColumn),
-                  hasDotIdColumn: !!(r.hasDotIdColumn),
-                }
-              }
-            }
-          } catch {
-            // Fall through to next fallback
+      const handles = await pick({
+        onStaged: (staged) => {
+          usedProgress = true
+          for (const s of staged) {
+            if (filesStore.files.find(f => f.name === s.name)) continue
+            const id = `staging:${s.name}`
+            filesStore.addFiles([{ id, name: s.name, size: s.size }])
+            filesStore.setStatus(id, 'uploading')
           }
-        }
-
-        // JS fallback for Electron: use files IPC + PapaParse when Python is unavailable
-        if (analysis.headers.length === 0 && window.api?.files?.readHead && window.api?.files?.countLines) {
-          try {
-            const encoding = config.settings.encoding || 'utf-8'
-            const sample = await window.api.files.readHead(file.id, 65536, encoding)
-            const parsed = Papa.parse<Record<string, string>>(sample, {
-              header: true,
-              skipEmptyLines: true,
-              preview: 6,
-            })
-            const headers = parsed.meta.fields || []
-            if (headers.length > 0) {
-              const lineCount = await window.api.files.countLines(file.id)
-              const sampleRows = parsed.data.slice(0, 5)
-              const hasIdColumn = headers.includes('id')
-              const hasDotIdColumn = headers.some(h => h.endsWith('.id'))
-              analysis = {
-                headers,
-                rowCount: Math.max(0, lineCount - 1),
-                sampleRows,
-                delimiter: parsed.meta.delimiter || ',',
-                hasIdColumn,
-                hasDotIdColumn,
-              }
-            }
-          } catch {
-            // Fall through to Odoo endpoint
+          config.setSequence(filesStore.files.map(f => f.name))
+        },
+        onUploaded: (handle) => {
+          usedProgress = true
+          const stagingId = `staging:${handle.name}`
+          const hadPlaceholder = filesStore.files.some(f => f.id === stagingId)
+          if (!hadPlaceholder && filesStore.files.some(f => f.name === handle.name)) {
+            logger.import.warn(`Ignored duplicate file "${handle.name}" (matched by name).`)
+            return
           }
-        }
+          filesStore.replaceFile(stagingId, handle)
+          config.setSequence(filesStore.files.map(f => f.name))
+          analyses.push(analyzeHandle(handle))
+        },
+        onError: (name, error) => {
+          usedProgress = true
+          filesStore.setStatus(`staging:${name}`, 'error', error)
+          logger.import.error(`Upload failed for "${name}": ${error}`)
+        },
+      })
 
-        if (analysis.headers.length === 0) {
-          const analyzeResp = await window.api.odoo.call<{
-            headers: string[]; rowCount: number; sampleRows: Record<string, string>[];
-            delimiter: string; hasIdColumn: boolean; hasDotIdColumn: boolean;
-          }>({
-            baseUrl: '',
-            endpoint: '/ametras_fast_import/file/analyze',
-            params: { file_id: file.id, encoding: config.settings.encoding || 'utf-8' }
-          })
-          if (analyzeResp.ok && analyzeResp.result) {
-            analysis = analyzeResp.result
-          }
-        }
-        filesStore.setAnalysis(file.id, analysis)
-
-        if (analysis.headers.length === 0) {
-          // Every analysis path failed — the file is empty, unreadable, or the
-          // encoding/delimiter is wrong. Warn now; the run would otherwise look
-          // like it "worked" but import nothing.
+      if (!usedProgress) {
+        // No per-file progress (Electron/standalone): add + analyze directly.
+        const duplicates = filesStore.addFiles(handles)
+        if (duplicates.length > 0) {
           logger.import.warn(
-            `Could not analyze "${file.name}" (no columns detected). ` +
-            `Check the file's encoding and delimiter before importing.`,
+            `Ignored ${duplicates.length} file(s) already in the list (matched by name): ` +
+            `${duplicates.map(f => f.name).join(', ')}. Rename to import both.`,
           )
         }
-
-        initMapping(file.name)
-        generateSuggestion(file.name, file.id)
+        const dupIds = new Set(duplicates.map(f => f.id))
+        for (const handle of handles) {
+          if (dupIds.has(handle.id)) continue
+          filesStore.setStatus(handle.id, 'analyzing')
+          analyses.push(analyzeHandle(handle))
+        }
+        config.setSequence(filesStore.files.map(f => f.name))
       }
 
-      config.setSequence(filesStore.files.map(f => f.name))
+      await Promise.all(analyses)
     } finally {
       isAnalyzing.value = false
     }
+  }
+
+  async function selectFiles() {
+    await ingest(progress => window.api.files.select(progress))
+  }
+
+  /** Back-compat wrapper: analyze an already-uploaded set of handles. */
+  async function addFilesAndAnalyze(selected: FileHandle[]) {
+    await ingest(async () => selected)
   }
 
   async function handleDrop(files: File[]) {
@@ -240,8 +300,7 @@ export function useFileManagement(fieldMeta: ReturnType<typeof useFieldMetadata>
       return
     }
 
-    const selected = await window.api.files.register(paths)
-    await addFilesAndAnalyze(selected)
+    await ingest(progress => window.api.files.register(paths, progress))
   }
 
   async function selectModelForFile(filename: string, model: string) {

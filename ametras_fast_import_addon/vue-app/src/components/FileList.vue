@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { useConfigStore } from '@/stores/config'
 import { useRunStore } from '@/stores/run'
 import { ImportState } from '@/types/importState'
+import type { FileStatus } from '@/stores/files'
 import MappingStatus from './MappingStatus.vue'
 
 export interface FileListItem {
@@ -12,6 +13,9 @@ export interface FileListItem {
   rowCount?: number
   headers?: string[]
   sampleRows?: Record<string, string>[]
+  /** Upload/analysis lifecycle state. Undefined is treated as ready. */
+  status?: FileStatus
+  error?: string
 }
 
 const props = defineProps<{
@@ -40,7 +44,14 @@ const dragOverIndex = ref<number | null>(null)
 // Track expanded state per file
 const expandedFiles = ref<Set<string>>(new Set())
 
+/** A file is configurable only once it has been uploaded and analyzed. */
+function isReady(file: FileListItem): boolean {
+  return !file.status || file.status === 'ready'
+}
+
 function toggleExpanded(fileId: string) {
+  const file = props.files.find(f => f.id === fileId)
+  if (file && !isReady(file)) return // not configurable until analyzed
   if (expandedFiles.value.has(fileId)) {
     expandedFiles.value.delete(fileId)
   } else {
@@ -149,11 +160,17 @@ function onDragEnd() {
           {{ index + 1 }}
         </span>
 
-        <!-- Status Indicator -->
-        <MappingStatus :status="getMappingStatus(file.name)" compact />
+        <!-- Mapping status — only once the file is analyzed and ready -->
+        <MappingStatus v-if="isReady(file)" :status="getMappingStatus(file.name)" compact />
 
-        <!-- Expand Icon -->
-        <span class="csv-file-list__chevron" :class="{ 'csv-file-list__chevron--open': isExpanded(file.id) }">
+        <!-- Expand Icon (hidden until ready) -->
+        <span
+          class="csv-file-list__chevron"
+          :class="{
+            'csv-file-list__chevron--open': isExpanded(file.id),
+            'csv-file-list__chevron--hidden': !isReady(file),
+          }"
+        >
           &#9654;
         </span>
 
@@ -162,18 +179,36 @@ function onDragEnd() {
           {{ file.name }}
         </span>
 
-        <!-- Model (if mapped) -->
+        <!-- Upload / analysis state (while not ready) -->
+        <span v-if="file.status === 'uploading'" class="csv-file-list__state">
+          <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+          {{ $t('files.status.uploading') }}
+        </span>
+        <span v-else-if="file.status === 'analyzing'" class="csv-file-list__state">
+          <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+          {{ $t('files.status.analyzing') }}
+        </span>
         <span
-          v-if="config.getFileMapping(file.name)?.model"
-          class="csv-file-list__model"
+          v-else-if="file.status === 'error'"
+          class="csv-file-list__state csv-file-list__state--error"
+          :title="file.error"
         >
-          {{ config.getFileMapping(file.name)?.model }}
+          &#9888; {{ $t('files.status.error') }}
         </span>
+        <template v-else>
+          <!-- Model (if mapped) -->
+          <span
+            v-if="config.getFileMapping(file.name)?.model"
+            class="csv-file-list__model"
+          >
+            {{ config.getFileMapping(file.name)?.model }}
+          </span>
 
-        <!-- Row Count -->
-        <span class="csv-file-list__rows">
-          {{ file.rowCount?.toLocaleString() || '?' }} {{ $t('common.rows', 2) }}
-        </span>
+          <!-- Row Count -->
+          <span class="csv-file-list__rows">
+            {{ file.rowCount?.toLocaleString() || '?' }} {{ $t('common.rows', 2) }}
+          </span>
+        </template>
 
         <!-- Remove Button -->
         <button
@@ -184,6 +219,11 @@ function onDragEnd() {
         >
           &times;
         </button>
+      </div>
+
+      <!-- Upload / analysis error detail -->
+      <div v-if="file.status === 'error' && file.error" class="csv-file-list__error">
+        {{ file.error }}
       </div>
 
       <!-- Expanded Content -->
@@ -271,6 +311,30 @@ function onDragEnd() {
 }
 .csv-file-list__chevron--open {
   transform: rotate(90deg);
+}
+.csv-file-list__chevron--hidden {
+  visibility: hidden;
+}
+.csv-file-list__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  color: var(--bs-secondary-color);
+}
+.csv-file-list__state .spinner-border {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-width: 0.15em;
+}
+.csv-file-list__state--error {
+  color: var(--bs-danger);
+  font-weight: 500;
+}
+.csv-file-list__error {
+  padding: 0.25rem 0.75rem 0.5rem 2rem;
+  font-size: 0.75rem;
+  color: var(--bs-danger);
 }
 .csv-file-list__filename {
   flex: 1;
