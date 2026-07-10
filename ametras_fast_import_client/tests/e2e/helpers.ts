@@ -1,8 +1,30 @@
 import { Page, expect } from '@playwright/test'
 
 /**
- * Set the app locale to English via localStorage.
- * Must be called BEFORE navigating to any page.
+ * Serializable options that shape the mocked window.api. Passed into an
+ * addInitScript, so it must contain only plain data (no functions).
+ */
+export interface MockApiOptions {
+  /** odoo.authenticate result. Default: succeeds. */
+  authOk?: boolean
+  /** python.detect availability. Default: true. */
+  pythonAvailable?: boolean
+  /** Handles returned by files.select(). */
+  selectFiles?: { id: string; name: string; size: number }[]
+  /** CSV text per file id — drives the JS (PapaParse) analysis fallback. */
+  fileContents?: Record<string, string>
+  /**
+   * When true, files.select() emulates the Odoo-embedded upload flow by
+   * invoking the progress callbacks (onStaged → onUploaded) so the UI shows
+   * uploading → analyzing → ready.
+   */
+  emulateUpload?: boolean
+  /** Result object returned by python.import(). Default: a clean "done". */
+  importResult?: Record<string, unknown>
+}
+
+/**
+ * Set the app locale to English via localStorage. Call BEFORE navigating.
  */
 export async function setEnglishLocale(page: Page) {
   await page.addInitScript(() => {
@@ -11,81 +33,122 @@ export async function setEnglishLocale(page: Page) {
 }
 
 /**
- * Install a mock window.api BEFORE main.ts runs.
- * The Electron preload script normally provides window.api via IPC.
- * In e2e tests, we set up a mock so API calls don't make real requests.
- * Must be called BEFORE navigating to any page.
+ * Install a complete mock window.api BEFORE main.ts runs. Mirrors the real
+ * ElectronAPI surface the app touches at startup and during a run, so the app
+ * doesn't crash on missing methods (the previous mock omitted python.* and
+ * odoo.getEncryptionInfo, which LoginView calls on mount). Call BEFORE navigating.
  */
-export async function mockWindowApi(page: Page) {
-  await page.addInitScript(() => {
+export async function mockWindowApi(page: Page, options: MockApiOptions = {}) {
+  await page.addInitScript((opts: MockApiOptions) => {
+    const authOk = opts.authOk ?? true
+    const pythonAvailable = opts.pythonAvailable ?? true
+    const selectFiles = opts.selectFiles ?? []
+    const fileContents = opts.fileContents ?? {}
+    const importResult = opts.importResult ?? {
+      type: 'done', success: 0, failed: 0, errors: [],
+    }
     const browserStore: Record<string, unknown> = {}
+
+    function contentFor(id: string): string {
+      return fileContents[id] ?? ''
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(window as any).api = {
       files: {
-        select: async () => [],
-        register: async () => [],
-        read: async () => '',
-        readHead: async () => '',
-        countLines: async () => 0,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        select: async (progress?: any) => {
+          if (opts.emulateUpload && progress) {
+            progress.onStaged?.(selectFiles.map(f => ({ name: f.name, size: f.size })))
+            for (const f of selectFiles) progress.onUploaded?.(f)
+          }
+          return selectFiles
+        },
+        register: async () => selectFiles,
+        read: async (id: string) => contentFor(id),
+        readHead: async (id: string) => contentFor(id),
+        countLines: async (id: string) => {
+          const c = contentFor(id)
+          if (!c) return 0
+          return c.split('\n').filter(l => l.length > 0).length
+        },
         streamChunks: async () => {},
         streamStart: async () => '',
         streamNext: async () => ({ data: '', done: true }),
         streamClose: async () => {},
-        getPathForFile: () => ''
+        cleanupStreams: async () => {},
+        getPathForFile: () => '',
       },
       odoo: {
-        call: async () => ({ ok: true, result: [] }),
-        authenticate: async () => ({
-          ok: true,
-          uid: 1,
-          session_id: 'test-session',
-          server_version: '16.0'
-        }),
-        listDatabases: async () => ({ ok: true, databases: ['testdb'] })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        call: async (payload?: any) => {
+          const endpoint: string = payload?.endpoint ?? ''
+          if (endpoint.includes('/file/analyze')) {
+            // Last-resort analyze fallback: return a well-formed (empty) analysis
+            // so a file with no parseable content lands in the error state.
+            return {
+              ok: true,
+              result: { headers: [], rowCount: 0, sampleRows: [], delimiter: ',', hasIdColumn: false, hasDotIdColumn: false },
+            }
+          }
+          return { ok: true, result: [] }
+        },
+        authenticate: async () =>
+          authOk
+            ? { ok: true, uid: 1, session_id: 'test-session', server_version: '16.0' }
+            : { ok: false, error: 'Invalid credentials' },
+        listDatabases: async () => ({ ok: true, databases: ['testdb'] }),
+        getEncryptionInfo: async () => ({ available: false, platform: 'test' }),
+        pinSession: async () => ({ ok: true }),
+        ping: async () => ({ ok: true }),
       },
       store: {
         get: async (key: string) => browserStore[key] ?? null,
-        set: async (key: string, value: unknown) => { browserStore[key] = value }
+        set: async (key: string, value: unknown) => { browserStore[key] = value },
       },
       profile: {
         selectZip: async () => null,
         upload: async () => ({ ok: false, error: 'Not available' }),
-        export: async () => false
+        export: async () => false,
       },
       standalone: {
-        detectAddon: async () => ({
-          available: true,
-          version: '1.0.0',
-          odooVersion: '16.0'
-        }),
+        detectAddon: async () => ({ available: true, version: '1.0.0', odooVersion: '16.0' }),
         load: async () => ({ ok: true, ids: [], messages: [] }),
-        getOdooVersion: async () => ({ version: null })
-      }
+        getOdooVersion: async () => ({ version: null }),
+      },
+      python: {
+        detect: async () => ({ available: pythonAvailable }),
+        start: async () => ({ ok: true }),
+        stop: async () => ({ ok: true }),
+        cancel: async () => ({ ok: true }),
+        authenticate: async () => ({ type: 'authenticated', uid: 1 }),
+        import: async () => importResult,
+        // Force the deterministic JS/PapaParse analysis path (via readHead).
+        analyze: async () => ({ ok: false, error: 'use-js-fallback' }),
+        models: async () => ({ type: 'models', models: [] }),
+        fields: async () => ({ type: 'fields', fields: [] }),
+        progress: async () => [],
+      },
     }
-  })
+  }, options)
 }
 
 /**
- * Perform a mock login via the login page.
- * Sets up window.api mock, fills the form, and waits for redirect to /import.
+ * Mock-login via the login page: installs the API mock, fills the form, and
+ * waits for the redirect to /import.
  */
-export async function mockLogin(page: Page) {
+export async function mockLogin(page: Page, options: MockApiOptions = {}) {
   await setEnglishLocale(page)
-  await mockWindowApi(page)
+  await mockWindowApi(page, options)
 
-  // Navigate to login page
   await page.goto('/')
   await expect(page.locator('#csv-import-app')).toBeVisible({ timeout: 15000 })
 
-  // Fill login form
   await page.getByPlaceholder(/mycompany\.odoo\.com/i).fill('localhost')
   await page.getByPlaceholder(/database name/i).fill('testdb')
   await page.getByPlaceholder(/admin/i).fill('admin')
   await page.getByLabel(/password/i).fill('admin')
 
-  // Submit
   await page.getByRole('button', { name: /connect/i }).click()
-
-  // Wait for redirect to import page
   await page.waitForURL(/#\/import/, { timeout: 15000 })
 }
