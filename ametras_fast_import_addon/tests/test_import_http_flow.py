@@ -100,7 +100,26 @@ class TestImportHttpFlow(HttpCase):
             },
         )
         log_id = start["logId"]
-        self.env["csv.import.log"].browse(log_id)._execute_import()
+
+        # The controller enqueued a REAL queue.job. Assert the dispatch happened
+        # and run it through the actual queue_job runner (Job.perform is exactly
+        # what the worker's /queue_job/runjob calls) — not a direct method call.
+        from odoo.addons.queue_job.job import Job
+
+        job_rec = self.env["queue.job"].search(
+            [
+                ("model_name", "=", "csv.import.log"),
+                ("method_name", "=", "_execute_import"),
+            ],
+            order="id desc",
+            limit=1,
+        )
+        self.assertTrue(job_rec, "/import/start did not enqueue a queue.job")
+        self.assertEqual(job_rec.records.id, log_id)
+        job = Job.load(self.env, job_rec.uuid)
+        job.perform()
+        job.set_done()
+        job.store()
 
         # 5) Logging: the log reflects a completed, fully-successful 2-row import.
         got = self._json("/ametras_fast_import/log/get", {"log_id": log_id})

@@ -113,8 +113,8 @@ jobs:
 
   test-odoo:
     # Real ir.attachment upload + full HTTP import/logging tests against a live
-    # Odoo + DB. Release-gated (validated on PR #14).
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
+    # Odoo + DB. TEMPORARILY ungated to validate the real queue.job path; re-gate
+    # to release once green.
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -179,9 +179,9 @@ jobs:
           retention-days: 7
 
   test-embedded-e2e:
-    # Playwright against a LIVE embedded Odoo (real web client + controllers).
-    # Release-gated (validated on PR #14).
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
+    # Playwright against a LIVE embedded Odoo (real web client + controllers +
+    # queue_job runner, so imports complete asynchronously for real).
+    # TEMPORARILY ungated to validate the runner path; re-gate to release once green.
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -258,10 +258,15 @@ jobs:
           c=psycopg2.connect(host='localhost', port=5432, user='odoo', password='odoo', dbname='test_embedded'); \
           cur=c.cursor(); cur.execute(\"UPDATE res_partner SET lang='en_US' WHERE id IN (SELECT partner_id FROM res_users WHERE login='admin')\"); \
           c.commit(); print('rows updated:', cur.rowcount)"
-      - name: Start Odoo HTTP server
+      - name: Start Odoo HTTP server (with queue_job runner)
+        env:
+          # Enable the queue_job runner so enqueued imports actually execute
+          # asynchronously — the real production path (not inline).
+          ODOO_QUEUE_JOB_CHANNELS: root:1
         run: |
           nohup python odoo/odoo-bin \
             --addons-path=odoo/addons,oca-queue,addon \
+            --load=base,web,queue_job \
             --db_host=localhost --db_port=5432 --db_user=odoo --db_password=odoo \
             --database=test_embedded --db-filter='^test_embedded$' \
             --http-port=8069 --workers=0 --log-level=warn \
