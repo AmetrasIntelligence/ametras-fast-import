@@ -318,6 +318,48 @@ jobs:
             addon/ametras_fast_import_client/playwright-report
           retention-days: 7
 
+  test-standalone-electron-e2e:
+    # Playwright _electron: launches the REAL standalone app and analyzes several
+    # CSVs via the REAL bundled Python engine (multi-file regression). Analysis
+    # is local, so no Odoo is needed — just system python3 + xvfb.
+    # TEMPORARILY ungated to validate; re-gate to release once green.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            ametras_fast_import_addon/vue-app/package-lock.json
+            ametras_fast_import_client/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+      - run: cd ametras_fast_import_addon/vue-app && npm ci
+      - run: cd ametras_fast_import_client && npm ci
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('**/ametras_fast_import_client/package-lock.json') }}
+          restore-keys: playwright-${{ runner.os }}-
+      - run: cd ametras_fast_import_client && npx playwright install --with-deps chromium
+      - name: Build client (renderer + Electron main)
+        run: cd ametras_fast_import_client && npm run build
+      - name: Run standalone Electron e2e under xvfb
+        run: cd ametras_fast_import_client && xvfb-run -a npm run test:e2e:electron
+        env:
+          CI: 'true'
+      - uses: actions/upload-artifact@v4
+        if: ${{ failure() }}
+        with:
+          name: electron-e2e-report
+          path: ametras_fast_import_client/playwright-report
+          retention-days: 7
+
   build-addon:
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
     needs: [check-version, test-python, test-vue-app, test-odoo, test-embedded-e2e]
