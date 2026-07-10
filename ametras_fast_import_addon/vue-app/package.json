@@ -1,6 +1,6 @@
 {
   "name": "ametras-fast-import-vue-app",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "description": "Vue app for Ametras Fast Import (Odoo addon)",
   "type": "module",
   "scripts": {
