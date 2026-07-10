@@ -2,8 +2,11 @@ import { test, expect, type Page } from '@playwright/test'
 
 /**
  * Layer 2: end-to-end against a LIVE embedded Odoo (real web client + real
- * controllers + real DB). The CI job boots Odoo with QUEUE_JOB__NO_DELAY=1 so
- * /import/start completes inline. Point at it with ODOO_URL.
+ * controllers + real DB). It drives the real UI through starting an import
+ * (real upload → analyze → model → /import/start → csv.import.log + live run
+ * view). Import completion and log correctness are covered deterministically by
+ * the Odoo HttpCase (test_import_http_flow.py) — a browser test can't run the
+ * queue-job worker. Point at the server with ODOO_URL.
  */
 
 const LOGIN = process.env.ODOO_LOGIN || 'admin'
@@ -33,7 +36,7 @@ test.describe('Embedded app (live Odoo)', () => {
     await expect(page.getByText(/browse/i)).toBeVisible()
   })
 
-  test('full workflow: upload → analyze → model → run → results', async ({ page }) => {
+  test('workflow: upload → analyze → model → start import (live run view)', async ({ page }) => {
     await login(page)
     await openImportApp(page)
 
@@ -63,13 +66,15 @@ test.describe('Embedded app (live Odoo)', () => {
       .first()
       .click()
 
-    // Start — the import runs inline (QUEUE_JOB__NO_DELAY) and routes to results.
+    // Start — drives the real backend: /import/start creates the csv.import.log
+    // and opens the live run view polling real progress for the uploaded file.
     const startBtn = page.getByRole('button', { name: /start import/i })
     await expect(startBtn).toBeEnabled()
     await startBtn.click()
 
-    await expect(page.getByRole('heading', { name: /import complete/i })).toBeVisible({
-      timeout: 60_000,
-    })
+    // The run view opens and tracks the file we just uploaded (real log created).
+    await expect(page.getByRole('progressbar')).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByRole('heading', { name: /^files$/i })).toBeVisible()
+    await expect(page.getByText('contacts.csv')).toBeVisible()
   })
 })

@@ -257,9 +257,9 @@ jobs:
           c=psycopg2.connect(host='localhost', port=5432, user='odoo', password='odoo', dbname='test_embedded'); \
           cur=c.cursor(); cur.execute(\"UPDATE res_partner SET lang='en_US' WHERE id IN (SELECT partner_id FROM res_users WHERE login='admin')\"); \
           c.commit(); print('rows updated:', cur.rowcount)"
-      - name: Start Odoo (jobs run inline via QUEUE_JOB__NO_DELAY)
+      - name: Start Odoo HTTP server
         run: |
-          QUEUE_JOB__NO_DELAY=1 nohup python odoo/odoo-bin \
+          nohup python odoo/odoo-bin \
             --addons-path=odoo/addons,oca-queue,addon \
             --db_host=localhost --db_port=5432 --db_user=odoo --db_password=odoo \
             --database=test_embedded --db-filter='^test_embedded$' \
