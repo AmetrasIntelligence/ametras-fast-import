@@ -163,4 +163,67 @@ describe('FilesStore', () => {
       expect(store.fileCount).toBe(1)
     })
   })
+
+  describe('file status', () => {
+    it('sets, reads, and overwrites status with optional error', () => {
+      const store = useFilesStore()
+      store.addFiles([{ id: '1', name: 'a.csv', size: 100 }])
+
+      expect(store.getStatus('1')).toBeUndefined()
+      store.setStatus('1', 'uploading')
+      expect(store.getStatus('1')).toEqual({ status: 'uploading', error: undefined })
+      store.setStatus('1', 'analyzing')
+      expect(store.getStatus('1')?.status).toBe('analyzing')
+      store.setStatus('1', 'error', 'boom')
+      expect(store.getStatus('1')).toEqual({ status: 'error', error: 'boom' })
+    })
+
+    it('removeFile clears the status', () => {
+      const store = useFilesStore()
+      store.addFiles([{ id: '1', name: 'a.csv', size: 100 }])
+      store.setStatus('1', 'ready')
+      store.removeFile('1')
+      expect(store.getStatus('1')).toBeUndefined()
+    })
+
+    it('clearAll clears all statuses', () => {
+      const store = useFilesStore()
+      store.addFiles([{ id: '1', name: 'a.csv', size: 100 }])
+      store.setStatus('1', 'ready')
+      store.clearAll()
+      expect(store.getStatus('1')).toBeUndefined()
+      expect(Object.keys(store.statuses).length).toBe(0)
+    })
+  })
+
+  describe('replaceFile', () => {
+    it('swaps a staging placeholder for the real handle, carrying status over', () => {
+      const store = useFilesStore()
+      store.addFiles([{ id: 'staging:a.csv', name: 'a.csv', size: 100 }])
+      store.setStatus('staging:a.csv', 'uploading')
+
+      store.replaceFile('staging:a.csv', { id: '42', name: 'a.csv', size: 100 })
+
+      expect(store.files.map(f => f.id)).toEqual(['42'])
+      // status carried over to the new id, old id cleaned up
+      expect(store.getStatus('42')?.status).toBe('uploading')
+      expect(store.getStatus('staging:a.csv')).toBeUndefined()
+    })
+
+    it('moves an existing analysis to the new id', () => {
+      const store = useFilesStore()
+      store.addFiles([{ id: 'old', name: 'a.csv', size: 100 }])
+      store.setAnalysis('old', makeAnalysis({ rowCount: 7 }))
+      store.replaceFile('old', { id: 'new', name: 'a.csv', size: 100 })
+      expect(store.getAnalysis('new')?.rowCount).toBe(7)
+      expect(store.getAnalysis('old')).toBeUndefined()
+    })
+
+    it('appends the handle when no placeholder exists', () => {
+      const store = useFilesStore()
+      store.replaceFile('missing', { id: '9', name: 'z.csv', size: 1 })
+      expect(store.files.map(f => f.id)).toEqual(['9'])
+      expect(store.getStatus('9')?.status).toBe('ready')
+    })
+  })
 })

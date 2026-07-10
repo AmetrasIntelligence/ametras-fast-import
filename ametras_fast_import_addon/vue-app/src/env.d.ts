@@ -12,6 +12,21 @@ interface FileHandle {
   size: number
 }
 
+/**
+ * Optional per-file progress callbacks for select()/register(). Honored by the
+ * Odoo-embedded API (where files are uploaded to the server one-by-one) so the
+ * UI can show uploading → analyzing → ready per file. The Electron/standalone
+ * implementations ignore it (local files need no upload).
+ */
+interface FileUploadProgress {
+  /** All picked files, before any upload — lets the UI render placeholders. */
+  onStaged?: (files: { name: string; size: number }[]) => void
+  /** A single file finished uploading and now has a real handle. */
+  onUploaded?: (handle: FileHandle) => void
+  /** A single file failed to upload. */
+  onError?: (name: string, error: string) => void
+}
+
 interface ChunkData {
   data: string
   done: boolean
@@ -101,8 +116,8 @@ interface PythonImportResult {
 
 interface ElectronAPI {
   files: {
-    select: () => Promise<FileHandle[]>
-    register: (paths: string[]) => Promise<FileHandle[]>
+    select: (onProgress?: FileUploadProgress) => Promise<FileHandle[]>
+    register: (paths: string[], onProgress?: FileUploadProgress) => Promise<FileHandle[]>
     read: (id: string, encoding?: string) => Promise<string>
     readHead: (id: string, bytes: number, encoding?: string) => Promise<string>
     countLines: (id: string) => Promise<number>

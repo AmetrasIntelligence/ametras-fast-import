@@ -48,11 +48,14 @@ const fileListItems = computed<FileListItem[]>(() => {
     })
     .map(f => {
       const analysis = filesStore.getAnalysis(f.id)
+      const state = filesStore.getStatus(f.id)
       return {
         ...f,
         rowCount: analysis?.rowCount,
         headers: analysis?.headers,
-        sampleRows: analysis?.sampleRows
+        sampleRows: analysis?.sampleRows,
+        status: state?.status,
+        error: state?.error
       }
     })
 })
