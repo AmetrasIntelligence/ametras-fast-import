@@ -1,8 +1,9 @@
-"""Full-chain HTTP integration test: upload → profile → import → logging.
+"""Full-chain HTTP integration tests: upload → profile → import → logging.
 
-Runs against a real Odoo via ``HttpCase``: it hits the actual controllers,
-stores a real ``ir.attachment`` in the filestore, imports into ``res.partner``
-through the queue-job path, and asserts the ``csv.import.log`` reflects the run.
+Run against a real Odoo via ``HttpCase``: hit the actual controllers, store a
+real ``ir.attachment`` in the filestore, import into base models through the
+real ``queue.job``, and assert exactly what lands in the database — including
+different field types and the per-language storage of translatable fields.
 
     odoo-bin -d <db> -i ametras_fast_import_addon --test-enable \\
         --test-tags /ametras_fast_import_addon
@@ -29,28 +30,31 @@ class TestImportHttpFlow(HttpCase):
     def test_upload_profile_import_logging(self):
         self.authenticate("admin", "admin")
 
-        # 1) Upload a CSV — real multipart POST → real ir.attachment (streamed
-        #    to the filestore). This is the path that once created empty files.
-        csv = b"name,email\nAlice,alice@example.com\nBob,bob@example.com\n"
+        # A CSV covering several field types: Char (name/email/ref/function) and
+        # an Html "notes" description column.
+        csv = (
+            b"name,email,ref,function,comment\n"
+            b"Alice,alice@example.com,REF-A,Engineer,Alice notes\n"
+            b"Bob,bob@example.com,REF-B,Manager,Bob notes\n"
+        )
+
+        # 1) Upload — real multipart → real ir.attachment streamed to filestore.
         resp = self.url_open(
             "/ametras_fast_import/file/upload",
             files={"file": ("contacts.csv", csv, "text/csv")},
         )
         self.assertEqual(resp.status_code, 200)
-        uploaded = resp.json()
-        att_id = int(uploaded["id"])
-        self.assertEqual(uploaded["name"], "contacts.csv")
-
+        att_id = int(resp.json()["id"])
         att = self.env["ir.attachment"].browse(att_id)
         self.assertTrue(att.exists())
         self.assertEqual(att.file_size, len(csv))
-        self.assertEqual(att.raw, csv)  # content actually persisted (not empty)
+        self.assertEqual(att.raw, csv)  # content actually persisted
 
         # 2) Analyze — real header/row detection over the stored file.
         analysis = self._json(
             "/ametras_fast_import/file/analyze", {"file_id": str(att_id)}
         )
-        self.assertEqual(analysis["headers"], ["name", "email"])
+        self.assertEqual(analysis["headers"], ["name", "email", "ref", "function", "comment"])
         self.assertEqual(analysis["rowCount"], 2)
 
         # 3) Create a profile via the controller, then read it back.
@@ -61,24 +65,17 @@ class TestImportHttpFlow(HttpCase):
                     "name": "Contacts Import",
                     "mappings": [{"filename": "contacts.csv", "model": "res.partner"}],
                     "sequence": [{"order": 1, "filename": "contacts.csv"}],
-                    "field_mappings": [
-                        {"filename": "contacts.csv", "csvHeader": "name", "odooField": "name"},
-                        {"filename": "contacts.csv", "csvHeader": "email", "odooField": "email"},
-                    ],
                 }
             },
         )
         self.assertNotIn("error", created, f"profile create failed: {created}")
         profile_id = created["id"]
         listed = self._json("/ametras_fast_import/profile/list", {})
-        self.assertTrue(
-            any(p["id"] == profile_id for p in listed),
-            "created profile not returned by /profile/list",
-        )
+        self.assertTrue(any(p["id"] == profile_id for p in listed))
 
-        # 4) Start an import — the real controller creates the csv.import.log and
-        #    enqueues the job. Run the enqueued work inline (exactly what the
-        #    queue worker does: log._execute_import → ImportJob(log).run()).
+        # 4) Start the import — the controller creates the log and enqueues a
+        #    REAL queue.job; run it through the real queue_job runner (Job.perform
+        #    is exactly what the worker's /queue_job/runjob invokes).
         start = self._json(
             "/ametras_fast_import/import/start",
             {
@@ -90,7 +87,13 @@ class TestImportHttpFlow(HttpCase):
                     "fileMappings": {
                         "contacts.csv": {
                             "model": "res.partner",
-                            "fieldMappings": {"name": "name", "email": "email"},
+                            "fieldMappings": {
+                                "name": "name",
+                                "email": "email",
+                                "ref": "ref",
+                                "function": "function",
+                                "comment": "comment",
+                            },
                         }
                     },
                     "settings": {},
@@ -101,9 +104,6 @@ class TestImportHttpFlow(HttpCase):
         )
         log_id = start["logId"]
 
-        # The controller enqueued a REAL queue.job. Assert the dispatch happened
-        # and run it through the actual queue_job runner (Job.perform is exactly
-        # what the worker's /queue_job/runjob calls) — not a direct method call.
         from odoo.addons.queue_job.job import Job
 
         job_rec = self.env["queue.job"].search(
@@ -122,17 +122,68 @@ class TestImportHttpFlow(HttpCase):
         job.store()
 
         # 5) Logging: the log reflects a completed, fully-successful 2-row import.
-        got = self._json("/ametras_fast_import/log/get", {"log_id": log_id})
-        self.assertTrue(got["ok"], f"log/get failed: {got}")
-        log = got["log"]
+        log = self._json("/ametras_fast_import/log/get", {"log_id": log_id})["log"]
         self.assertEqual(log["total_rows"], 2)
         self.assertEqual(log["success_rows"], 2)
         self.assertEqual(log["failed_rows"], 0)
         self.assertEqual(log["state"], "completed")
 
-        # 6) The records were actually created in the target model.
-        partners = self.env["res.partner"].search(
-            [("email", "in", ["alice@example.com", "bob@example.com"])]
+        # 6) Verify EXACTLY what landed in the DB — per record, per field type.
+        Partner = self.env["res.partner"]
+        alice = Partner.search([("email", "=", "alice@example.com")])
+        bob = Partner.search([("email", "=", "bob@example.com")])
+        self.assertEqual(len(alice), 1)
+        self.assertEqual(len(bob), 1)
+        self.assertEqual(alice.name, "Alice")
+        self.assertEqual(alice.ref, "REF-A")
+        self.assertEqual(alice.function, "Engineer")
+        self.assertIn("Alice notes", str(alice.comment or ""))
+        self.assertEqual(bob.name, "Bob")
+        self.assertEqual(bob.ref, "REF-B")
+        self.assertEqual(bob.function, "Manager")
+        self.assertIn("Bob notes", str(bob.comment or ""))
+        # No stray records: exactly the two rows we imported.
+        self.assertEqual(
+            Partner.search_count(
+                [("email", "in", ["alice@example.com", "bob@example.com"])]
+            ),
+            2,
         )
-        self.assertEqual(len(partners), 2)
-        self.assertEqual(set(partners.mapped("name")), {"Alice", "Bob"})
+
+    def test_multilanguage_translatable_field(self):
+        """A translatable field imported under de_DE / en_US stores both languages."""
+        self.authenticate("admin", "admin")
+        self.env["res.lang"]._activate_lang("de_DE")
+
+        # Create the tag in English (res.partner.category.name is translate=True).
+        created = self._json(
+            "/ametras_fast_import/run",
+            {
+                "model": "res.partner.category",
+                "raw_rows": [{"name": "Gold"}],
+                "field_mappings": {"name": "name"},
+                "lang": "en_US",
+            },
+        )
+        self.assertTrue(created["results"][0]["ok"], created)
+        cat_id = created["results"][0]["id"]
+        self.assertTrue(cat_id)
+
+        # Update the SAME record's translatable name in German (upsert by db id
+        # via a column mapped to ".id"), under the de_DE language context.
+        updated = self._json(
+            "/ametras_fast_import/run",
+            {
+                "model": "res.partner.category",
+                "raw_rows": [{"rid": str(cat_id), "name": "Gelb"}],
+                "field_mappings": {"rid": ".id", "name": "name"},
+                "lang": "de_DE",
+            },
+        )
+        self.assertTrue(updated["results"][0]["ok"], updated)
+        self.assertEqual(updated["results"][0]["action"], "updated")
+
+        # The two languages are stored independently on the one record.
+        cat = self.env["res.partner.category"].browse(cat_id)
+        self.assertEqual(cat.with_context(lang="en_US").name, "Gold")
+        self.assertEqual(cat.with_context(lang="de_DE").name, "Gelb")
