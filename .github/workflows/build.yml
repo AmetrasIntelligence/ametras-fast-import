@@ -105,8 +105,82 @@ jobs:
           path: ametras_fast_import_client/playwright-report
           retention-days: 7
 
+  # ── Heavy pipeline ───────────────────────────────────────────────────
+  # Platform builds + release run only on a version tag (not every PR/merge).
+  # test-odoo (real Postgres + Odoo integration) is TEMPORARILY ungated so this
+  # PR proves the Odoo checkout + Postgres service work on CI runners; it will
+  # be gated to release (tag push) once validated.
+
+  test-odoo:
+    # Real ir.attachment upload test (TransactionCase) against a live Odoo + DB.
+    # TODO: after validation, gate to release with:
+    #   if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: odoo
+          POSTGRES_PASSWORD: odoo
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U odoo"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout addon
+        uses: actions/checkout@v4
+        with:
+          path: addon
+      - name: Checkout Odoo 16.0
+        uses: actions/checkout@v4
+        with:
+          repository: odoo/odoo
+          ref: '16.0'
+          fetch-depth: 1
+          path: odoo
+      - name: Checkout OCA/queue (queue_job dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: OCA/queue
+          ref: '16.0'
+          fetch-depth: 1
+          path: oca-queue
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential libldap2-dev libsasl2-dev libxml2-dev \
+            libxslt1-dev libpq-dev libjpeg-dev zlib1g-dev libssl-dev
+      - name: Install Odoo Python requirements
+        run: |
+          python -m pip install --upgrade pip wheel
+          pip install -r odoo/requirements.txt
+      - name: Run addon Odoo integration tests
+        run: |
+          python odoo/odoo-bin \
+            --addons-path=odoo/addons,oca-queue,addon \
+            --db_host=localhost --db_port=5432 --db_user=odoo --db_password=odoo \
+            --database=test_addon --without-demo=all \
+            --init=ametras_fast_import_addon \
+            --test-enable --test-tags=/ametras_fast_import_addon \
+            --stop-after-init --no-http --log-level=test 2>&1 | tee odoo-test.log
+      - uses: actions/upload-artifact@v4
+        if: ${{ failure() }}
+        with:
+          name: odoo-test-log
+          path: odoo-test.log
+          retention-days: 7
+
   build-addon:
-    needs: [check-version, test-python, test-vue-app]
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
+    needs: [check-version, test-python, test-vue-app, test-odoo]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -122,7 +196,8 @@ jobs:
       - run: npm run build
 
   build-client:
-    needs: [check-version, test-python, test-vue-app, test-client]
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
+    needs: [check-version, test-python, test-vue-app, test-client, test-e2e, test-odoo]
     strategy:
       matrix:
         include:
