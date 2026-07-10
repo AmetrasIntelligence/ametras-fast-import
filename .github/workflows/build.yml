@@ -34,13 +34,14 @@ jobs:
         run: |
           cd ametras_fast_import_addon
           # Auto-discover standalone unittest files so new tests are picked up
-          # without editing CI. test_upload_storage.py is an Odoo TransactionCase
-          # (needs a live Odoo DB via odoo-bin --test-enable) and is skipped here.
+          # without editing CI. Tests that import Odoo (TransactionCase/HttpCase)
+          # need a live Odoo DB — they run in the test-odoo job, so skip them here.
           status=0
           for f in tests/test_*.py; do
-            case "$f" in
-              *test_upload_storage.py) echo "skip (needs Odoo runtime): $f"; continue ;;
-            esac
+            if grep -q "from odoo" "$f"; then
+              echo "skip (Odoo integration, runs in test-odoo): $f"
+              continue
+            fi
             echo "--- $f ---"
             python3 "$f" -v || status=1
           done
@@ -175,6 +176,104 @@ jobs:
         with:
           name: odoo-test-log
           path: odoo-test.log
+          retention-days: 7
+
+  test-embedded-e2e:
+    # Playwright against a LIVE embedded Odoo (real web client + controllers).
+    # TEMPORARILY ungated to validate on this PR; re-gate to release once green.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: odoo
+          POSTGRES_PASSWORD: odoo
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U odoo"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout addon
+        uses: actions/checkout@v4
+        with:
+          path: addon
+      - name: Checkout Odoo 16.0
+        uses: actions/checkout@v4
+        with:
+          repository: odoo/odoo
+          ref: '16.0'
+          fetch-depth: 1
+          path: odoo
+      - name: Checkout OCA/queue (queue_job dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: OCA/queue
+          ref: '16.0'
+          fetch-depth: 1
+          path: oca-queue
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            addon/ametras_fast_import_addon/vue-app/package-lock.json
+            addon/ametras_fast_import_client/package-lock.json
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential libldap2-dev libsasl2-dev libxml2-dev \
+            libxslt1-dev libpq-dev libjpeg-dev zlib1g-dev libssl-dev
+      - name: Install Odoo Python requirements
+        run: |
+          python -m pip install --upgrade pip wheel
+          pip install -r odoo/requirements.txt
+      - name: Install client deps + Playwright Chromium
+        run: |
+          cd addon/ametras_fast_import_client
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Initialise DB (install addon)
+        run: |
+          python odoo/odoo-bin \
+            --addons-path=odoo/addons,oca-queue,addon \
+            --db_host=localhost --db_port=5432 --db_user=odoo --db_password=odoo \
+            --database=test_embedded --without-demo=all \
+            --init=ametras_fast_import_addon --stop-after-init --no-http
+      - name: Start Odoo (jobs run inline via QUEUE_JOB__NO_DELAY)
+        run: |
+          QUEUE_JOB__NO_DELAY=1 nohup python odoo/odoo-bin \
+            --addons-path=odoo/addons,oca-queue,addon \
+            --db_host=localhost --db_port=5432 --db_user=odoo --db_password=odoo \
+            --database=test_embedded --db-filter='^test_embedded$' \
+            --http-port=8069 --workers=0 --log-level=warn \
+            > odoo-server.log 2>&1 &
+          echo "Waiting for Odoo..."
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8069/web/login >/dev/null; then
+              echo "Odoo is up"; break
+            fi
+            sleep 2
+          done
+      - name: Run embedded Playwright tests
+        run: cd addon/ametras_fast_import_client && npm run test:e2e:embedded
+        env:
+          CI: 'true'
+          ODOO_URL: http://localhost:8069
+      - uses: actions/upload-artifact@v4
+        if: ${{ failure() }}
+        with:
+          name: embedded-e2e-artifacts
+          path: |
+            odoo-server.log
+            addon/ametras_fast_import_client/playwright-report
           retention-days: 7
 
   build-addon:
