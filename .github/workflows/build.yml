@@ -105,16 +105,14 @@ jobs:
           path: ametras_fast_import_client/playwright-report
           retention-days: 7
 
-  # ── Heavy pipeline ───────────────────────────────────────────────────
-  # Platform builds + release run only on a version tag (not every PR/merge).
-  # test-odoo (real Postgres + Odoo integration) is TEMPORARILY ungated so this
-  # PR proves the Odoo checkout + Postgres service work on CI runners; it will
-  # be gated to release (tag push) once validated.
+  # ── Heavy pipeline (release/tag only) ────────────────────────────────
+  # The real Postgres + Odoo integration test and the platform builds/release
+  # run only when a version tag is pushed, not on every PR/merge. PRs/merges get
+  # the fast checks above. (Validated on PR #13 before gating.)
 
   test-odoo:
     # Real ir.attachment upload test (TransactionCase) against a live Odoo + DB.
-    # TODO: after validation, gate to release with:
-    #   if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     services:
       postgres:
