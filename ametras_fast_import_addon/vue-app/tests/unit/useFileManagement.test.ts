@@ -22,6 +22,7 @@ function makeFm() {
  */
 describe('useFileManagement — upload & analysis orchestration', () => {
   beforeEach(() => {
+    delete (mockApi as unknown as { python?: unknown }).python
     mockApi.files.select.mockReset().mockResolvedValue([])
     mockApi.files.readHead.mockReset().mockResolvedValue('')
     mockApi.files.countLines.mockReset().mockResolvedValue(0)
@@ -114,5 +115,35 @@ describe('useFileManagement — upload & analysis orchestration', () => {
     const config = useConfigStore()
     makeFm().handleReorder(['b.csv', 'a.csv'])
     expect(config.importSequence).toEqual(['b.csv', 'a.csv'])
+  })
+
+  it('analyzes files sequentially (standalone Python has a single command slot)', async () => {
+    // Regression: concurrent analyze calls deadlock the persistent Python
+    // subprocess — it must be one at a time.
+    let active = 0
+    let maxActive = 0
+    const analyze = vi.fn().mockImplementation(async () => {
+      active += 1
+      maxActive = Math.max(maxActive, active)
+      await new Promise((r) => setTimeout(r, 5))
+      active -= 1
+      return {
+        ok: true,
+        result: { type: 'analysis', headers: ['a'], rowCount: 1, sampleRows: [], delimiter: ',' },
+      }
+    })
+    ;(mockApi as unknown as { python: { analyze: typeof analyze } }).python = { analyze }
+    mockApi.files.select.mockResolvedValue([
+      { id: '1', name: 'a.csv', size: 1 },
+      { id: '2', name: 'b.csv', size: 1 },
+      { id: '3', name: 'c.csv', size: 1 },
+    ])
+
+    const files = useFilesStore()
+    await makeFm().selectFiles()
+
+    expect(analyze).toHaveBeenCalledTimes(3)
+    expect(maxActive).toBe(1) // never more than one analysis in flight
+    expect(files.files.every((f) => files.getStatus(f.id)?.status === 'ready')).toBe(true)
   })
 })
