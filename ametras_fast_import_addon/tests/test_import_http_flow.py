@@ -187,3 +187,37 @@ class TestImportHttpFlow(HttpCase):
         cat = self.env["res.partner.category"].browse(cat_id)
         self.assertEqual(cat.with_context(lang="en_US").name, "Gold")
         self.assertEqual(cat.with_context(lang="de_DE").name, "Gelb")
+
+    def test_retry_failed_creates_resume_log(self):
+        """Retrying failed rows must not choke on the required ``started_at``.
+
+        ``_create_resume_log`` copies a completed log into a fresh record that
+        targets only the failed rows.  ``started_at`` is ``required=True``;
+        ``action_start_import`` sets it, but the ``create`` itself has to
+        satisfy the constraint first — otherwise retry raised "a mandatory
+        field is not set: Started".
+        """
+        from odoo import fields
+
+        old_log = self.env["csv.import.log"].create(
+            {
+                "profile_name": "Retry me",
+                "started_at": fields.Datetime.now(),
+                "state": "completed",
+                "total_rows": 2,
+                "success_rows": 1,
+                "failed_rows": 1,
+                "filenames": json.dumps(["contacts.csv"]),
+                "error_log": json.dumps(
+                    [{"filename": "contacts.csv", "rowNumber": 2, "error": "boom"}]
+                ),
+            }
+        )
+
+        new_log = old_log._create_resume_log()
+
+        self.assertTrue(new_log.exists())
+        self.assertTrue(new_log.started_at, "resume log must have started_at set")
+        self.assertNotEqual(new_log.id, old_log.id)
+        self.assertEqual(new_log.total_rows, 1)  # only the one failed row
+        self.assertEqual(json.loads(new_log.filenames), ["contacts.csv"])
