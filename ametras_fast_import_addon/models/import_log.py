@@ -218,6 +218,10 @@ class CsvImportLog(models.Model):
                 "profile_name": self.profile_name,
                 "profile_id": self.profile_id.id if self.profile_id else False,
                 "is_dry_run": self.is_dry_run,
+                # started_at is required; action_start_import() overwrites it when
+                # the job is actually enqueued, but the create must satisfy the
+                # constraint first (otherwise retry fails immediately).
+                "started_at": fields.Datetime.now(),
                 "attachment_ids": [(6, 0, self.attachment_ids.ids)],
                 "filenames": json.dumps(failed_filenames),
                 "total_rows": total_failed,
