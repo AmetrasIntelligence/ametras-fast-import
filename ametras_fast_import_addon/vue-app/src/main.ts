@@ -15,6 +15,8 @@ import { i18n, setLocale, type SupportedLocale } from './i18n'
 import { useSessionStore } from './stores/session'
 import { usePlatformStore } from './stores/platform'
 import { useRunStore } from './stores/run'
+import { useFilesStore } from './stores/files'
+import { useConfigStore } from './stores/config'
 import { installOdooEmbeddedApi } from './api/odooEmbeddedApi'
 import './assets/bootstrap-compat.css'
 import './assets/main.css'
@@ -136,6 +138,15 @@ export function mountApp(el: HTMLElement, options: OdooMountOptions): () => void
     // Explicit request for import view — reset stale run state so we don't
     // get stuck on /results from a previous completed import
     runStore.reset()
+    // A truly fresh "start new import" (no resume/retry context) must also
+    // clear the files and mapping/config left over from the previous import —
+    // otherwise the last import's files reappear, and re-picking one of them
+    // is silently dropped as a duplicate (upload only "works" on the second
+    // try after the stale entry is gone). Resume/retry keeps its state.
+    if (!options.resumeLogId) {
+      useFilesStore(persistentPinia).clearAll()
+      useConfigStore(persistentPinia).reset()
+    }
     targetRoute = '/import'
   } else if (runStore.isActive) {
     // Import is still running — go straight to the run view
