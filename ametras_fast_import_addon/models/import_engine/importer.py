@@ -168,13 +168,22 @@ class Importer:
         """
         field_info = self._get_field_info()
 
-        # 1. Transform rows using field mappings
+        # 1. Transform rows using field mappings. A transform error (e.g. a
+        #    non-numeric .id) must fail only its own row, not abort the batch,
+        #    so each row is transformed defensively.
         transformed: list[tuple[int, dict]] = []
+        transform_errors: list[RowResult] = []
         for row in rows:
-            if self.config.field_mappings:
-                mapped = transform_row_data(row.data, self.config.field_mappings)
-            else:
-                mapped = dict(row.data)
+            try:
+                if self.config.field_mappings:
+                    mapped = transform_row_data(row.data, self.config.field_mappings)
+                else:
+                    mapped = dict(row.data)
+            except Exception as e:  # isolate a bad row; never abort the batch
+                err = RowResult(ok=False, row_index=row.index, error=str(e))
+                transform_errors.append(err)
+                self.reporter.row_completed(row.index, False, err.error or "")
+                continue
             transformed.append((row.index, mapped))
 
         # 2. Prefetch all external ID references in batch
@@ -184,7 +193,7 @@ class Importer:
                 self.backend, self.config.model, field_info, raw_rows
             )
         except ValueError as e:
-            return [
+            return transform_errors + [
                 RowResult(ok=False, row_index=t[0], error=str(e)) for t in transformed
             ]
 
@@ -197,7 +206,9 @@ class Importer:
             results.append(result)
             self.reporter.row_completed(row_index, result.ok, result.error or "")
 
-        return results
+        # Transform-failed rows are part of this batch's results so callers
+        # count them as failures (never silently dropped).
+        return transform_errors + results
 
     def import_pre_transformed_rows(self, rows: list[dict]) -> list[RowResult]:
         """Import rows already in Odoo field format (legacy API compatibility)."""

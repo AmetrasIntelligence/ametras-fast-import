@@ -260,6 +260,142 @@ class TestPartialBatchFailure(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
+class TestBooleanCoercion(unittest.TestCase):
+    """Boolean CSV strings must reach create/write correctly typed.
+
+    Asserts on what the backend actually *stored*, closing the loop from a raw
+    CSV row through transform -> resolve -> create/write. Before the fix, a "0"
+    was written verbatim and Odoo's bool("0") stored True.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.backend = MockBackend()
+        self.backend.field_info_map["product.supplierinfo"] = {
+            "name": FieldInfo("name", "char"),
+            "update_price_via_interface": FieldInfo(
+                "update_price_via_interface", "boolean"
+            ),
+        }
+
+    def _import(self, data):
+        config = ImportConfig(
+            model="product.supplierinfo",
+            field_mappings={
+                "Vendor": "name",
+                "UpdatePrice": "update_price_via_interface",
+            },
+        )
+        importer = Importer(self.backend, config)
+        results = importer.import_rows([ParsedRow(index=1, data=data)])
+        self.assertTrue(results[0].ok, results[0].error)
+        return self.backend.records["product.supplierinfo"][1]
+
+    def test_string_zero_stored_as_false(self):
+        rec = self._import({"Vendor": "Schaeffler", "UpdatePrice": "0"})
+        self.assertIs(rec["update_price_via_interface"], False)
+
+    def test_string_one_stored_as_true(self):
+        rec = self._import({"Vendor": "Schaeffler", "UpdatePrice": "1"})
+        self.assertIs(rec["update_price_via_interface"], True)
+
+    def test_empty_cell_stored_as_false(self):
+        rec = self._import({"Vendor": "Schaeffler", "UpdatePrice": ""})
+        self.assertIs(rec["update_price_via_interface"], False)
+
+    def test_update_clears_flag_to_false(self):
+        """On update, a "0" flag must overwrite an existing True back to False.
+
+        This is the remediation path: re-importing with the corrected engine
+        resets already-corrupted hybrid rows.
+        """
+        # Existing corrupted record with the flag wrongly True.
+        self.backend.create(
+            "product.supplierinfo",
+            {"name": "Schaeffler", "update_price_via_interface": True},
+        )
+        config = ImportConfig(
+            model="product.supplierinfo",
+            field_mappings={
+                "Vendor": "name",
+                "UpdatePrice": "update_price_via_interface",
+            },
+            search_keys=["name"],
+        )
+        importer = Importer(self.backend, config)
+        results = importer.import_rows(
+            [ParsedRow(index=1, data={"Vendor": "Schaeffler", "UpdatePrice": "0"})]
+        )
+        self.assertTrue(results[0].ok, results[0].error)
+        self.assertEqual(results[0].action, "updated")
+        self.assertIs(
+            self.backend.records["product.supplierinfo"][1][
+                "update_price_via_interface"
+            ],
+            False,
+        )
+
+    def test_garbage_value_fails_row(self):
+        """An unrecognised boolean token fails just that row (no silent guess)."""
+        config = ImportConfig(
+            model="product.supplierinfo",
+            field_mappings={
+                "Vendor": "name",
+                "UpdatePrice": "update_price_via_interface",
+            },
+        )
+        importer = Importer(self.backend, config)
+        results = importer.import_rows(
+            [ParsedRow(index=1, data={"Vendor": "X", "UpdatePrice": "maybe"})]
+        )
+        self.assertFalse(results[0].ok)
+        self.assertIn("boolean", (results[0].error or "").lower())
+
+
+class TestTransformErrorIsolation(unittest.TestCase):
+    """A bad database id fails only its row, never the batch.
+
+    Previously a non-numeric .id was silently dropped in transform, turning an
+    intended UPDATE into a duplicate CREATE. Now it raises during transform;
+    Importer.import_rows must isolate that to the offending row.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.backend = MockBackend()
+        self.backend.field_info_map["res.partner"] = {
+            "name": FieldInfo("name", "char"),
+        }
+        # Existing record #1 that a valid .id row should UPDATE (not duplicate).
+        self.backend.create("res.partner", {"name": "old"})
+
+    def test_bad_db_id_fails_only_its_row(self):
+        config = ImportConfig(
+            model="res.partner",
+            field_mappings={"Ref": ".id", "Name": "name"},
+        )
+        importer = Importer(self.backend, config)
+
+        rows = [
+            ParsedRow(index=1, data={"Ref": "1", "Name": "updated"}),  # valid update
+            ParsedRow(index=2, data={"Ref": "abc", "Name": "broken"}),  # bad .id
+            ParsedRow(index=3, data={"Ref": "1", "Name": "updated2"}),  # valid update
+        ]
+        results = importer.import_rows(rows)
+
+        by_row = {r.row_index: r for r in results}
+        self.assertEqual(len(results), 3)
+        # The good rows imported...
+        self.assertTrue(by_row[1].ok)
+        self.assertTrue(by_row[3].ok)
+        # ...the bad row failed with a clear message...
+        self.assertFalse(by_row[2].ok)
+        self.assertIn("database id", (by_row[2].error or "").lower())
+        # ...and NO duplicate was created (only the pre-existing record #1).
+        self.assertEqual(len(self.backend.records["res.partner"]), 1)
+        self.assertEqual(self.backend.records["res.partner"][1]["name"], "updated2")
+
+
 class TestMany2ManyResolution(unittest.TestCase):
     def setUp(self):
         self.backend = MockBackend()

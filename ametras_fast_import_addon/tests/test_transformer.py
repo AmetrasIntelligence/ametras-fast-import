@@ -23,10 +23,11 @@ class TestTransformRowDataDatabaseId(unittest.TestCase):
         result = transform_row_data({"col": "42"}, {"col": ".id"})
         self.assertEqual(result, {"id": 42})
 
-    def test_skips_id_when_non_numeric(self):
-        result = transform_row_data({"col": "abc"}, {"col": ".id"})
-        self.assertEqual(result, {})
-        self.assertNotIn("id", result)
+    def test_raises_on_non_numeric_id(self):
+        """A present-but-non-numeric .id raises (was silently dropped -> dup)."""
+        with self.assertRaises(ValueError) as ctx:
+            transform_row_data({"col": "abc"}, {"col": ".id"})
+        self.assertIn("database id", str(ctx.exception).lower())
 
     def test_skips_id_when_empty(self):
         result = transform_row_data({"col": ""}, {"col": ".id"})
@@ -40,10 +41,11 @@ class TestTransformRowDataRelationalDatabaseId(unittest.TestCase):
         result = transform_row_data({"col": "7"}, {"col": "partner_id/.id"})
         self.assertEqual(result, {"partner_id": 7})
 
-    def test_skips_relational_id_when_non_numeric(self):
-        result = transform_row_data({"col": "not_a_number"}, {"col": "partner_id/.id"})
-        self.assertEqual(result, {})
-        self.assertNotIn("partner_id", result)
+    def test_raises_on_non_numeric_relational_id(self):
+        """A present-but-non-numeric <field>/.id raises rather than dropping."""
+        with self.assertRaises(ValueError) as ctx:
+            transform_row_data({"col": "not_a_number"}, {"col": "partner_id/.id"})
+        self.assertIn("database id", str(ctx.exception).lower())
 
     def test_skips_relational_id_when_empty(self):
         result = transform_row_data({"col": ""}, {"col": "partner_id/.id"})
@@ -69,16 +71,51 @@ class TestTransformRowDataOtherFields(unittest.TestCase):
         result = transform_row_data({"col": "create"}, {"col": "__op__"})
         self.assertEqual(result, {"__op__": "create"})
 
-    def test_skips_empty_values(self):
+    def test_keeps_empty_values_for_regular_fields(self):
+        """Empty regular-field cells are now FORWARDED.
+
+        The transformer can't know a field's type, so it forwards empty cells
+        for regular fields and lets resolve_row decide what an empty cell means
+        (empty boolean -> False; empty of any other type -> dropped there). An
+        absent column is still omitted entirely.
+        """
         result = transform_row_data(
             {"a": "hello", "b": "", "c": "world"},
-            {"a": "name", "b": "email", "c": "phone"},
+            {"a": "name", "b": "flag", "c": "phone"},
         )
-        self.assertEqual(result, {"name": "hello", "phone": "world"})
+        self.assertEqual(result, {"name": "hello", "flag": "", "phone": "world"})
 
     def test_skips_missing_columns(self):
+        """A column absent from the row is omitted (distinct from an empty cell)."""
         result = transform_row_data({"a": "hello"}, {"a": "name", "b": "email"})
         self.assertEqual(result, {"name": "hello"})
+        self.assertNotIn("email", result)
+
+    def test_skips_empty_special_columns(self):
+        """Empty cells in special columns carry no meaning and are skipped.
+
+        (External id / db id / operation / relational refs — an empty cell there
+        must never produce an empty external id, op string, or relation.)
+        """
+        result = transform_row_data(
+            {
+                "ext": "",
+                "op": "",
+                "rel_ext": "",
+                "rel_db": "",
+                "dbid": "",
+                "kept": "value",
+            },
+            {
+                "ext": "id",
+                "op": "__op__",
+                "rel_ext": "partner_id/id",
+                "rel_db": "partner_id/.id",
+                "dbid": ".id",
+                "kept": "name",
+            },
+        )
+        self.assertEqual(result, {"name": "value"})
 
     def test_multiple_fields(self):
         result = transform_row_data(
