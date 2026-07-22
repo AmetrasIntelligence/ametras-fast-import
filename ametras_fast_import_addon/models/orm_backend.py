@@ -27,10 +27,7 @@ class OrmBackend(OdooBackend):
 
     def write(self, model, ids, vals):
         return (
-            self.env[model]
-            .browse(ids)
-            .with_context(**IMPORT_CALL_CONTEXT)
-            .write(vals)
+            self.env[model].browse(ids).with_context(**IMPORT_CALL_CONTEXT).write(vals)
         )
 
     def search_read(self, model, domain, fields, limit=None):
@@ -46,15 +43,26 @@ class OrmBackend(OdooBackend):
         model_fields = self.env[model]._fields
         result = {}
         for name, field in model_fields.items():
+            selection = None
+            if field.type == "selection":
+                try:
+                    selection = field._description_selection(self.env)
+                except Exception:  # dynamic/callable selection we can't resolve
+                    selection = None
             result[name] = FieldInfo(
                 name=name,
                 type=field.type,
                 comodel_name=getattr(field, "comodel_name", "") or "",
                 readonly=getattr(field, "readonly", False),
                 store=getattr(field, "store", True),
+                selection=selection,
             )
         self._field_cache[model] = result
         return result
+
+    def name_search(self, model, value):
+        # operator "=" -> exact-name match (mirrors Odoo import's db_id_for).
+        return self.env[model].name_search(name=value, operator="=", limit=2)
 
     def check_access_rights(self, model, operation):
         self.env[model].check_access_rights(operation)

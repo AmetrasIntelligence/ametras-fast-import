@@ -13,13 +13,14 @@ from .constants import (
     MAX_WORKERS,
     STANDARD_DB_ID_MODELS,
 )
-from .coercion import coerce_boolean
+from .coercion import coerce_boolean, coerce_selection
 from .transformer import transform_row_data
 from .resolver import (
     is_external_id,
     parse_refs,
     normalize_ext_id,
     lookup_ref,
+    resolve_relation_ref,
     prefetch_references,
     resolve_row,
 )

@@ -13,16 +13,17 @@ create/write.
 Pure Python — no odoo imports (must run in the standalone Electron subprocess,
 which talks to a vanilla Odoo over XML-RPC with no server addon in the loop).
 
-Only booleans are handled here. Integer / float / date / datetime / selection
-are intentionally NOT coerced: Odoo's field.convert_to_column already types them
-correctly server-side (on both the ORM and XML-RPC paths) or raises a loud
-per-row error. Boolean is the exception because bool("0") is silently True.
+Handled here: booleans (bool("0") is silently True — the one type Odoo's
+convert_to_column mistypes) and selection labels (Odoo stores the *key*, not the
+translated label, so a CSV carrying a label would be rejected). Integer / float
+/ date / datetime are intentionally NOT coerced: Odoo's convert_to_column types
+them correctly server-side (ORM and XML-RPC) or raises a loud per-row error.
 """
 from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["coerce_boolean"]
+__all__ = ["coerce_boolean", "coerce_selection"]
 
 # Mirrors odoo/addons/base/models/ir_fields.py::_str_to_boolean.
 # Case-insensitive; the empty string maps to False (an unchecked box).
@@ -66,3 +67,30 @@ def coerce_boolean(value: Any) -> bool:
             f"(expected one of 1/0, true/false, yes/no)"
         )
     raise ValueError(f"Cannot coerce {type(value).__name__} value {value!r} to boolean")
+
+
+def coerce_selection(value: Any, selection: Any) -> Any:
+    """
+    Map a selection *label* to its stored *key*.
+
+    Odoo stores the selection key (e.g. ``"invoice"``), but a CSV often carries
+    the human label (e.g. ``"Invoice Address"``). ``convert_to_column`` validates
+    against keys and rejects labels, so we translate label -> key here.
+
+    - value already a valid key -> returned unchanged
+    - value matches a label (case-insensitive, trimmed) -> its key
+    - no match, or no selection metadata -> returned unchanged (Odoo then
+      raises a loud per-row error for a genuinely invalid value)
+
+    ``selection`` is the field's list of ``(key, label)`` pairs (or None).
+    """
+    if not isinstance(value, str) or not selection:
+        return value
+    keys = {opt[0] for opt in selection}
+    if value in keys:
+        return value
+    token = value.strip().lower()
+    for key, label in selection:
+        if isinstance(label, str) and label.strip().lower() == token:
+            return key
+    return value
