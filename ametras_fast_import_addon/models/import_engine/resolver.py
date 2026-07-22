@@ -13,6 +13,7 @@ import logging
 from collections import defaultdict
 from typing import Any
 
+from .coercion import coerce_boolean
 from .constants import (
     DEFAULT_IMPORT_MODULE,
     FIELD_EXTERNAL_ID,
@@ -27,6 +28,7 @@ _logger = logging.getLogger(__name__)
 # Re-export for backward compatibility
 __all__ = [
     "STANDARD_DB_ID_MODELS",
+    "coerce_boolean",
     "is_external_id",
     "parse_refs",
     "normalize_ext_id",
@@ -183,9 +185,19 @@ def resolve_row(
             resolved[field_name] = value
             continue
 
-        # Pass through empty values
-        if not value:
-            resolved[field_name] = value
+        # Type-aware handling of an empty cell ("" or None).
+        #
+        # An empty boolean cell means False — mirroring Odoo's import converter
+        # (ir_fields._str_to_boolean maps "" -> False). For every other type an
+        # empty cell is *dropped* (omitted from the write) so a partial-column
+        # update never clobbers the existing DB value, and a create falls back
+        # to the field's default. This is why the transformer now forwards
+        # empty regular-field values instead of dropping them: only here do we
+        # know the field's type.
+        if value == "" or value is None:
+            info = field_info.get(field_name)
+            if info is not None and info.type == "boolean":
+                resolved[field_name] = False
             continue
 
         # Pass through fields not in model
@@ -244,14 +256,20 @@ def resolve_row(
                             f"Consider migrating to external ID for portability."
                         )
                 elif is_external_id(value):
-                    ids = [
-                        lookup_ref(field.comodel_name, ref, ref_map) for ref in refs
-                    ]
+                    ids = [lookup_ref(field.comodel_name, ref, ref_map) for ref in refs]
                     resolved[field_name] = [(6, 0, ids)]
                 else:
                     resolved[field_name] = value
             else:
                 resolved[field_name] = value
+
+        # Boolean fields must be coerced from their raw CSV string before the
+        # create/write. Odoo's Boolean.convert_to_column does bool(value), so a
+        # raw "0" (a non-empty, therefore truthy, string) would be stored as
+        # True. coerce_boolean mirrors ir_fields._str_to_boolean:
+        # "0"/"false"/"no" -> False, "1"/"true"/"yes" -> True.
+        elif field.type == "boolean":
+            resolved[field_name] = coerce_boolean(value)
 
         # All other fields pass through unchanged
         else:

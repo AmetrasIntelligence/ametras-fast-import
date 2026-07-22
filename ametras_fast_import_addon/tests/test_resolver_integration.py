@@ -24,6 +24,7 @@ from import_engine.resolver import (
     prefetch_references,
     resolve_row,
 )
+from import_engine.transformer import transform_row_data
 
 # ---------------------------------------------------------------------------
 # Pure Helper Unit Tests
@@ -502,8 +503,14 @@ class TestResolveRow(unittest.TestCase):
         self.assertEqual(resolved["__external_id__"], "test")
         self.assertEqual(resolved["__op__"], "create")
 
-    def test_resolve_empty_values_pass_through(self):
-        """Empty/falsy values pass through unchanged."""
+    def test_resolve_empty_non_boolean_values_dropped(self):
+        """Empty non-boolean cells are dropped (not written).
+
+        The transformer now forwards empty regular-field values so resolve_row
+        can decide per type. For everything except booleans an empty cell must
+        be omitted from the write, so a partial-column update never clobbers the
+        existing DB value and a create falls back to the field default.
+        """
         backend = MockBackend()
         field_info = {
             "name": FieldInfo("name", "char"),
@@ -518,8 +525,24 @@ class TestResolveRow(unittest.TestCase):
             {},
         )
 
-        self.assertEqual(resolved["name"], "")
-        self.assertIsNone(resolved["email"])
+        self.assertNotIn("name", resolved)
+        self.assertNotIn("email", resolved)
+
+    def test_resolve_empty_unknown_field_dropped(self):
+        """An empty cell for a field not in the model schema is dropped."""
+        backend = MockBackend()
+        field_info = {"name": FieldInfo("name", "char")}
+
+        resolved, _ = resolve_row(
+            backend,
+            "res.partner",
+            field_info,
+            {"name": "Test", "mystery": ""},
+            {},
+        )
+
+        self.assertEqual(resolved["name"], "Test")
+        self.assertNotIn("mystery", resolved)
 
     def test_resolve_unknown_fields_pass_through(self):
         """Fields not in model schema pass through (Odoo will handle/ignore)."""
@@ -563,9 +586,7 @@ class TestResolveRow(unittest.TestCase):
         """A single numeric string DB id is wrapped as a replace command."""
         backend = MockBackend()
         field_info = {
-            "route_ids": FieldInfo(
-                "route_ids", "many2many", "stock.location.route"
-            ),
+            "route_ids": FieldInfo("route_ids", "many2many", "stock.location.route"),
         }
 
         resolved, warnings = resolve_row(
@@ -584,9 +605,7 @@ class TestResolveRow(unittest.TestCase):
         """A single integer DB id (e.g. from /.id) is wrapped."""
         backend = MockBackend()
         field_info = {
-            "route_ids": FieldInfo(
-                "route_ids", "many2many", "stock.location.route"
-            ),
+            "route_ids": FieldInfo("route_ids", "many2many", "stock.location.route"),
         }
 
         resolved, _ = resolve_row(
@@ -608,9 +627,7 @@ class TestResolveRow(unittest.TestCase):
         """
         backend = MockBackend()
         field_info = {
-            "route_ids": FieldInfo(
-                "route_ids", "many2many", "stock.location.route"
-            ),
+            "route_ids": FieldInfo("route_ids", "many2many", "stock.location.route"),
         }
 
         for raw, expected in (("6|7", [6, 7]), ("6, 8 ,9", [6, 8, 9])):
@@ -622,6 +639,224 @@ class TestResolveRow(unittest.TestCase):
                 {},
             )
             self.assertEqual(resolved["route_ids"], [(6, 0, expected)])
+
+    # -- Regression: boolean CSV coercion -------------------------------------
+    # Hybrid supplier-infos imported via the fast importer got
+    # update_price_via_interface = True even though the CSV carried "0" for
+    # every row, because the raw string was written straight to create/write
+    # and Odoo's Boolean.convert_to_column does bool("0") -> True. resolve_row
+    # must coerce boolean strings the way Odoo's import layer would.
+
+    def test_resolve_boolean_string_zero_is_false(self):
+        """The exact ticket case: CSV string "0" on a boolean field -> False.
+
+        Feeds the *string* "0" (as it arrives from the CSV), NOT a pre-typed
+        Python bool — that distinction is the whole bug.
+        """
+        backend = MockBackend()
+        field_info = {
+            "update_price_via_interface": FieldInfo(
+                "update_price_via_interface", "boolean"
+            ),
+        }
+
+        resolved, _ = resolve_row(
+            backend,
+            "product.supplierinfo",
+            field_info,
+            {"update_price_via_interface": "0"},
+            {},
+        )
+
+        self.assertIs(resolved["update_price_via_interface"], False)
+
+    def test_resolve_boolean_string_one_is_true(self):
+        backend = MockBackend()
+        field_info = {"flag": FieldInfo("flag", "boolean")}
+
+        resolved, _ = resolve_row(backend, "res.partner", field_info, {"flag": "1"}, {})
+        self.assertIs(resolved["flag"], True)
+
+    def test_resolve_boolean_word_variants(self):
+        backend = MockBackend()
+        field_info = {"flag": FieldInfo("flag", "boolean")}
+
+        cases = {
+            "true": True,
+            "True": True,
+            "YES": True,
+            "false": False,
+            "False": False,
+            "no": False,
+            "NO": False,
+        }
+        for raw, expected in cases.items():
+            resolved, _ = resolve_row(
+                backend, "res.partner", field_info, {"flag": raw}, {}
+            )
+            self.assertIs(resolved["flag"], expected, raw)
+
+    def test_resolve_boolean_already_bool_passthrough(self):
+        """A pre-typed Python bool (legacy path) is preserved."""
+        backend = MockBackend()
+        field_info = {"flag": FieldInfo("flag", "boolean")}
+
+        for value in (True, False):
+            resolved, _ = resolve_row(
+                backend, "res.partner", field_info, {"flag": value}, {}
+            )
+            self.assertIs(resolved["flag"], value)
+
+    def test_resolve_boolean_empty_cell_is_false(self):
+        """An empty boolean cell becomes False (mirrors ir_fields "" -> False).
+
+        This is how a hybrid SI's flag can be cleared on update: the transformer
+        now forwards the empty cell, and resolve_row turns it into False for a
+        boolean field (rather than dropping it and leaving the old value).
+        """
+        backend = MockBackend()
+        field_info = {"flag": FieldInfo("flag", "boolean")}
+
+        for empty in ("", None):
+            resolved, _ = resolve_row(
+                backend, "res.partner", field_info, {"flag": empty}, {}
+            )
+            self.assertIn("flag", resolved)
+            self.assertIs(resolved["flag"], False)
+
+    def test_resolve_boolean_garbage_raises(self):
+        """An unrecognised boolean token raises (per-row error, no guessing)."""
+        backend = MockBackend()
+        field_info = {"flag": FieldInfo("flag", "boolean")}
+
+        with self.assertRaises(ValueError):
+            resolve_row(backend, "res.partner", field_info, {"flag": "maybe"}, {})
+
+
+class TestNonBooleanScalarPassthrough(unittest.TestCase):
+    """Non-boolean scalars are passed through resolve_row UNCHANGED.
+
+    Deliberately NOT coerced client-side: Odoo's field.convert_to_column does
+    int()/float()/date-parse/selection-validation server-side on create/write
+    (for BOTH the ORM and XML-RPC backends), producing the correct typed value
+    or a loud per-row error. Re-implementing that here would be redundant and
+    risky (e.g. diverging from Float's rounding, or rejecting a date format Odoo
+    accepts). These tests pin that contract: the resolver must not mangle them.
+
+    Boolean is the sole exception (bool("0") is silently True) and is coerced;
+    see TestResolveRow.test_resolve_boolean_* and TestBooleanImportPipeline.
+    """
+
+    def _resolve_one(self, ftype, value, comodel=""):
+        backend = MockBackend()
+        info = FieldInfo("f", ftype, comodel)
+        resolved, warnings = resolve_row(
+            backend, "some.model", {"f": info}, {"f": value}, {}
+        )
+        return resolved, warnings
+
+    def test_integer_string_unchanged(self):
+        resolved, _ = self._resolve_one("integer", "42")
+        self.assertEqual(resolved["f"], "42")  # Odoo does int("42") on write
+
+    def test_float_iso_unchanged(self):
+        resolved, _ = self._resolve_one("float", "95.70")
+        self.assertEqual(resolved["f"], "95.70")
+
+    def test_float_european_not_mangled(self):
+        # We must NOT guess "95,70" -> 95.70. Odoo rejects it loudly per row;
+        # silently reinterpreting it could corrupt the value.
+        resolved, _ = self._resolve_one("monetary", "95,70")
+        self.assertEqual(resolved["f"], "95,70")
+
+    def test_date_iso_unchanged(self):
+        resolved, _ = self._resolve_one("date", "2026-07-22")
+        self.assertEqual(resolved["f"], "2026-07-22")
+
+    def test_datetime_unchanged(self):
+        resolved, _ = self._resolve_one("datetime", "2026-07-22 08:30:00")
+        self.assertEqual(resolved["f"], "2026-07-22 08:30:00")
+
+    def test_selection_key_unchanged(self):
+        # A selection value passes through; Odoo validates it against the keys
+        # and raises "Wrong value" for an unknown label — a loud per-row error.
+        resolved, _ = self._resolve_one("selection", "draft")
+        self.assertEqual(resolved["f"], "draft")
+
+    def test_char_and_text_unchanged(self):
+        for ftype in ("char", "text", "html"):
+            resolved, _ = self._resolve_one(ftype, "  keep spaces  ")
+            self.assertEqual(resolved["f"], "  keep spaces  ", ftype)
+
+    def test_integer_string_produces_no_warning(self):
+        _, warnings = self._resolve_one("integer", "42")
+        self.assertEqual(warnings, [])
+
+
+class TestBooleanImportPipeline(unittest.TestCase):
+    """End-to-end (transform_row_data -> resolve_row) coverage for booleans.
+
+    Exercises the real fast-import chain a raw CSV row travels through, proving
+    the fix holds across BOTH steps rather than just inside resolve_row.
+    """
+
+    def _run(self, csv_row, field_mappings, field_info):
+        mapped = transform_row_data(csv_row, field_mappings)
+        resolved, warnings = resolve_row(
+            MockBackend(), "product.supplierinfo", field_info, mapped, {}
+        )
+        return resolved
+
+    def test_hybrid_si_flag_zero_stays_false(self):
+        """The reported scenario: CSV 'update_price_via_interface' = 0.
+
+        QlikView exports "0" for all 530,943 rows; the DB must NOT end up with
+        the flag True. Runs the full CSV-column -> Odoo-field -> resolved-value
+        chain the importer uses.
+        """
+        field_info = {
+            "update_price_via_interface": FieldInfo(
+                "update_price_via_interface", "boolean"
+            ),
+            "price": FieldInfo("price", "float"),
+        }
+        resolved = self._run(
+            {"UpdatePrice": "0", "Price": "95.70"},
+            {"UpdatePrice": "update_price_via_interface", "Price": "price"},
+            field_info,
+        )
+        self.assertIs(resolved["update_price_via_interface"], False)
+
+    def test_hybrid_si_flag_empty_cell_stays_false(self):
+        """An empty flag cell also resolves to False (cannot silently become True)."""
+        field_info = {
+            "update_price_via_interface": FieldInfo(
+                "update_price_via_interface", "boolean"
+            ),
+        }
+        resolved = self._run(
+            {"UpdatePrice": ""},
+            {"UpdatePrice": "update_price_via_interface"},
+            field_info,
+        )
+        self.assertIs(resolved["update_price_via_interface"], False)
+
+    def test_flag_one_becomes_true(self):
+        field_info = {"flag": FieldInfo("flag", "boolean")}
+        resolved = self._run({"F": "1"}, {"F": "flag"}, field_info)
+        self.assertIs(resolved["flag"], True)
+
+    def test_empty_char_cell_not_written(self):
+        """An empty non-boolean cell is dropped end-to-end (no clobber on update)."""
+        field_info = {
+            "name": FieldInfo("name", "char"),
+            "flag": FieldInfo("flag", "boolean"),
+        }
+        resolved = self._run(
+            {"N": "", "F": "0"}, {"N": "name", "F": "flag"}, field_info
+        )
+        self.assertNotIn("name", resolved)
+        self.assertIs(resolved["flag"], False)
 
 
 if __name__ == "__main__":

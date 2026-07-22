@@ -13,6 +13,7 @@ from .constants import (
     MAX_WORKERS,
     STANDARD_DB_ID_MODELS,
 )
+from .coercion import coerce_boolean
 from .transformer import transform_row_data
 from .resolver import (
     is_external_id,
