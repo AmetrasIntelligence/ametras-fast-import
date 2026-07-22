@@ -16,7 +16,7 @@ _engine_path = os.path.join(os.path.dirname(__file__), "..", "models")
 if _engine_path not in sys.path:
     sys.path.insert(0, os.path.abspath(_engine_path))
 
-from import_engine.coercion import coerce_boolean
+from import_engine.coercion import coerce_boolean, coerce_selection
 
 
 class TestCoerceBooleanFalseStrings(unittest.TestCase):
@@ -90,6 +90,31 @@ class TestCoerceBooleanUnknown(unittest.TestCase):
             coerce_boolean(["1"])
         with self.assertRaises(ValueError):
             coerce_boolean({"a": 1})
+
+
+class TestCoerceSelection(unittest.TestCase):
+    SEL = [("draft", "Draft"), ("done", "Done"), ("invoice", "Invoice Address")]
+
+    def test_key_passes_through(self):
+        self.assertEqual(coerce_selection("draft", self.SEL), "draft")
+
+    def test_label_maps_to_key(self):
+        self.assertEqual(coerce_selection("Draft", self.SEL), "draft")
+        self.assertEqual(coerce_selection("Invoice Address", self.SEL), "invoice")
+
+    def test_label_case_insensitive_and_trimmed(self):
+        self.assertEqual(coerce_selection("  DONE  ", self.SEL), "done")
+        self.assertEqual(coerce_selection("invoice address", self.SEL), "invoice")
+
+    def test_unknown_passes_through_for_odoo_to_reject(self):
+        # Neither key nor label -> unchanged; Odoo raises the loud per-row error.
+        self.assertEqual(coerce_selection("bogus", self.SEL), "bogus")
+
+    def test_no_selection_metadata_passes_through(self):
+        self.assertEqual(coerce_selection("Draft", None), "Draft")
+
+    def test_non_string_passes_through(self):
+        self.assertEqual(coerce_selection(5, self.SEL), 5)
 
 
 if __name__ == "__main__":

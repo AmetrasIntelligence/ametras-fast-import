@@ -13,7 +13,7 @@ import logging
 from collections import defaultdict
 from typing import Any
 
-from .coercion import coerce_boolean
+from .coercion import coerce_boolean, coerce_selection
 from .constants import (
     DEFAULT_IMPORT_MODULE,
     FIELD_EXTERNAL_ID,
@@ -25,14 +25,21 @@ from .constants import (
 
 _logger = logging.getLogger(__name__)
 
+# Sentinel key under which resolve_relation_ref caches name_search results
+# inside a ref_map. A ref_map lives for one batch, so each distinct display
+# name is looked up at most once per batch.
+_NAME_CACHE = "__name_cache__"
+
 # Re-export for backward compatibility
 __all__ = [
     "STANDARD_DB_ID_MODELS",
     "coerce_boolean",
+    "coerce_selection",
     "is_external_id",
     "parse_refs",
     "normalize_ext_id",
     "lookup_ref",
+    "resolve_relation_ref",
     "prefetch_references",
     "resolve_row",
 ]
@@ -89,6 +96,53 @@ def lookup_ref(model_name: str, value: str, ref_map: dict) -> int:
     if key not in ref_map:
         raise ValueError(f"External ID {value!r} not found for model {model_name}")
     return ref_map[key]
+
+
+def resolve_relation_ref(backend: Any, comodel: str, value: str, ref_map: dict) -> int:
+    """
+    Resolve a relational reference (as a string) to a database id.
+
+    Tries the external id (xml_id) first via the prefetched ``ref_map``; on a
+    miss, falls back to ``name_search`` on the target model — so a CSV can
+    reference a relation by external id OR by display name, matching Odoo's
+    own import (model.load -> db_id_for). name_search results are cached in
+    ``ref_map`` for the life of the batch.
+
+    Raises ValueError if the reference resolves to neither an external id nor a
+    unique record name (ambiguous or missing).
+    """
+    module, name = normalize_ext_id(value)
+    xml_key = (comodel, module, name)
+    if xml_key in ref_map:
+        return ref_map[xml_key]
+
+    cache = ref_map.setdefault(_NAME_CACHE, {})
+    cache_key = (comodel, value)
+    if cache_key in cache:
+        cached = cache[cache_key]
+        if cached is None:
+            raise ValueError(
+                f"{value!r} not found for model {comodel} "
+                f"(no external id and no record of that name)"
+            )
+        return cached
+
+    matches = backend.name_search(comodel, value) or []
+    ids = [m[0] if isinstance(m, (list, tuple)) else m for m in matches]
+    if len(ids) == 1:
+        cache[cache_key] = ids[0]
+        return ids[0]
+
+    cache[cache_key] = None
+    if not ids:
+        raise ValueError(
+            f"{value!r} not found for model {comodel} "
+            f"(no external id and no record of that name)"
+        )
+    raise ValueError(
+        f"{value!r} is ambiguous for model {comodel}: "
+        f"matches multiple records by name"
+    )
 
 
 def prefetch_references(
@@ -210,7 +264,9 @@ def resolve_row(
         # Many2One field resolution
         if field.type == "many2one":
             if isinstance(value, str) and is_external_id(value):
-                resolved[field_name] = lookup_ref(field.comodel_name, value, ref_map)
+                resolved[field_name] = resolve_relation_ref(
+                    backend, field.comodel_name, value, ref_map
+                )
             elif isinstance(value, int):
                 # Integer value = database ID (from /.id mapping).
                 # Accept for all models — the user explicitly opted in
@@ -256,7 +312,10 @@ def resolve_row(
                             f"Consider migrating to external ID for portability."
                         )
                 elif is_external_id(value):
-                    ids = [lookup_ref(field.comodel_name, ref, ref_map) for ref in refs]
+                    ids = [
+                        resolve_relation_ref(backend, field.comodel_name, ref, ref_map)
+                        for ref in refs
+                    ]
                     resolved[field_name] = [(6, 0, ids)]
                 else:
                     resolved[field_name] = value
@@ -270,6 +329,12 @@ def resolve_row(
         # "0"/"false"/"no" -> False, "1"/"true"/"yes" -> True.
         elif field.type == "boolean":
             resolved[field_name] = coerce_boolean(value)
+
+        # Selection fields: translate a human label to its stored key (Odoo
+        # stores the key and would reject the label). A value that is already a
+        # key, or is neither key nor label, is passed through unchanged.
+        elif field.type == "selection":
+            resolved[field_name] = coerce_selection(value, field.selection)
 
         # All other fields pass through unchanged
         else:

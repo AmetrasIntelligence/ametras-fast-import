@@ -55,6 +55,7 @@ class FieldInfo:
     comodel_name: str = ""  # Target model for relational fields
     readonly: bool = False
     store: bool = True
+    selection: list | None = None  # [(key, label)] for selection fields
 
 
 class _NullSavepoint:
@@ -115,6 +116,15 @@ class OdooBackend(ABC):
 
     def flush_all(self) -> None:
         """Flush pending ORM writes. Default: no-op (RPC has no deferred writes)."""
+
+    def name_search(self, model: str, value: str) -> list:
+        """Resolve a display name to matching records via name_search.
+
+        Returns a list of ``(id, display_name)`` pairs (exact-name matches).
+        Default: no matches — concrete backends override. Used as the fallback
+        when a relational reference isn't a known external id.
+        """
+        return []
 
     def browse_exists(self, model: str, record_id: int) -> bool:
         """Check if a record exists by ID."""
@@ -232,7 +242,7 @@ class RpcBackend(OdooBackend):
                 if exhausted or not self._is_serialization_fault(e):
                     raise
                 delay = min(
-                    SERIALIZATION_RETRY_BASE_DELAY * (2 ** attempt),
+                    SERIALIZATION_RETRY_BASE_DELAY * (2**attempt),
                     SERIALIZATION_RETRY_MAX_DELAY,
                 )
                 _logger.warning(
@@ -249,7 +259,10 @@ class RpcBackend(OdooBackend):
                     NOTICE_SERIALIZATION_RETRY,
                     "Database busy (serialization/deadlock) on {}.{} — "
                     "retrying in {:.1f}s (attempt {}/{}).".format(
-                        model, method, delay, attempt + 1,
+                        model,
+                        method,
+                        delay,
+                        attempt + 1,
                         SERIALIZATION_RETRY_MAX_ATTEMPTS,
                     ),
                     model=model,
@@ -452,19 +465,28 @@ class RpcBackend(OdooBackend):
             return self._field_cache[model]
 
         raw = self._call(
-            model, "fields_get", [], {"attributes": ["type", "relation", "readonly", "store"]}
+            model,
+            "fields_get",
+            [],
+            {"attributes": ["type", "relation", "readonly", "store", "selection"]},
         )
         result = {}
         for name, info in raw.items():
+            selection = info.get("selection")
             result[name] = FieldInfo(
                 name=name,
                 type=info.get("type", ""),
                 comodel_name=info.get("relation", ""),
                 readonly=info.get("readonly", False),
                 store=info.get("store", True),
+                selection=selection if isinstance(selection, (list, tuple)) else None,
             )
         self._field_cache[model] = result
         return result
+
+    def name_search(self, model: str, value: str) -> list:
+        # operator "=" -> exact-name match (mirrors Odoo import's db_id_for).
+        return self._call(model, "name_search", [value], {"operator": "=", "limit": 2})
 
     def browse_exists(self, model: str, record_id: int) -> bool:
         ids = self._call(model, "search", [[("id", "=", record_id)]], {"limit": 1})

@@ -184,6 +184,14 @@ class MockBackend(OdooBackend):
         self._ensure_model(model)
         return record_id in self.records[model]
 
+    def name_search(self, model, value):
+        self._ensure_model(model)
+        return [
+            (rid, vals.get("name"))
+            for rid, vals in self.records[model].items()
+            if vals.get("name") == value
+        ]
+
     def _matches(self, vals, domain, rid=None):
         for cond in domain:
             field_name, op, value = cond
@@ -791,6 +799,105 @@ class TestNonBooleanScalarPassthrough(unittest.TestCase):
     def test_integer_string_produces_no_warning(self):
         _, warnings = self._resolve_one("integer", "42")
         self.assertEqual(warnings, [])
+
+
+class TestRelationByName(unittest.TestCase):
+    """Resolve relations by display name when there is no external id.
+
+    Mirrors Odoo's model.load (db_id_for name_search fallback). The xml_id path
+    still wins when present; name lookup only fills the gap.
+    """
+
+    def _country(self, backend, name):
+        rid = backend.create("res.country", {"name": name})
+        return rid
+
+    def test_m2o_resolved_by_name(self):
+        backend = MockBackend()
+        de = self._country(backend, "Germany")
+        field_info = {"country_id": FieldInfo("country_id", "many2one", "res.country")}
+        resolved, _ = resolve_row(
+            backend, "res.partner", field_info, {"country_id": "Germany"}, {}
+        )
+        self.assertEqual(resolved["country_id"], de)
+
+    def test_m2o_external_id_preferred_over_name(self):
+        backend = MockBackend()
+        self._country(backend, "Germany")  # a same-named record exists
+        field_info = {"country_id": FieldInfo("country_id", "many2one", "res.country")}
+        ref_map = {("res.country", "base", "de"): 999}
+        resolved, _ = resolve_row(
+            backend, "res.partner", field_info, {"country_id": "base.de"}, ref_map
+        )
+        self.assertEqual(resolved["country_id"], 999)  # xml_id, not name_search
+
+    def test_m2o_name_not_found_raises(self):
+        backend = MockBackend()
+        field_info = {"country_id": FieldInfo("country_id", "many2one", "res.country")}
+        with self.assertRaises(ValueError) as ctx:
+            resolve_row(
+                backend, "res.partner", field_info, {"country_id": "Atlantis"}, {}
+            )
+        self.assertIn("not found", str(ctx.exception))
+
+    def test_m2o_ambiguous_name_raises(self):
+        backend = MockBackend()
+        self._country(backend, "Dup")
+        self._country(backend, "Dup")
+        field_info = {"country_id": FieldInfo("country_id", "many2one", "res.country")}
+        with self.assertRaises(ValueError) as ctx:
+            resolve_row(backend, "res.partner", field_info, {"country_id": "Dup"}, {})
+        self.assertIn("ambiguous", str(ctx.exception))
+
+    def test_m2m_resolved_by_name(self):
+        backend = MockBackend()
+        a = backend.create("res.partner.category", {"name": "BMW"})
+        b = backend.create("res.partner.category", {"name": "A_Prime"})
+        field_info = {
+            "category_id": FieldInfo("category_id", "many2many", "res.partner.category")
+        }
+        resolved, _ = resolve_row(
+            backend, "res.partner", field_info, {"category_id": "BMW|A_Prime"}, {}
+        )
+        self.assertEqual(resolved["category_id"], [(6, 0, [a, b])])
+
+    def test_name_lookup_cached_within_batch(self):
+        """A ref_map reused across rows caches the name resolution."""
+        backend = MockBackend()
+        de = self._country(backend, "Germany")
+        field_info = {"country_id": FieldInfo("country_id", "many2one", "res.country")}
+        ref_map = {}
+        for _ in range(3):
+            resolved, _w = resolve_row(
+                backend, "res.partner", field_info, {"country_id": "Germany"}, ref_map
+            )
+            self.assertEqual(resolved["country_id"], de)
+        # the cache sentinel now holds the resolved name
+        self.assertTrue(any(k == "__name_cache__" for k in ref_map))
+
+
+class TestSelectionLabelResolution(unittest.TestCase):
+    def test_label_mapped_to_key_in_resolve_row(self):
+        backend = MockBackend()
+        field_info = {
+            "state": FieldInfo(
+                "state", "selection", selection=[("draft", "Draft"), ("done", "Done")]
+            )
+        }
+        resolved, _ = resolve_row(
+            backend, "some.model", field_info, {"state": "Done"}, {}
+        )
+        self.assertEqual(resolved["state"], "done")
+
+    def test_key_unchanged_in_resolve_row(self):
+        backend = MockBackend()
+        field_info = {
+            "state": FieldInfo("state", "selection", selection=[("draft", "Draft")])
+        }
+        resolved, _ = resolve_row(
+            backend, "some.model", field_info, {"state": "draft"}, {}
+        )
+        self.assertEqual(resolved["state"], "draft")
 
 
 class TestBooleanImportPipeline(unittest.TestCase):
