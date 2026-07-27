@@ -192,6 +192,37 @@ class TestImportTypesOrm(TransactionCase):
         self.assertFalse(res[0].ok)
         self.assertIn("not found", (res[0].error or "").lower())
 
+    # -- IHX-9177: many2one referenced by an all-digit *number* --------------
+
+    def test_m2o_numeric_reference_resolves_by_name(self):
+        """A bare m2o value that is all digits ("272") resolves via name_search.
+
+        Regression for IHX-9177: the manufacturer *number* was handed to Odoo
+        as a raw string and silently coerced to NULL. It must now resolve like
+        any other bare relational reference.
+        """
+        title = self.env["res.partner.title"].create({"name": "272"})
+        res = self._run({"N": "name", "Ti": "title"}, [{"N": "FI num ok", "Ti": "272"}])
+        self.assertTrue(res[0].ok, res[0].error)
+        self.assertEqual(self.Partner.browse(res[0].record_id).title, title)
+
+    def test_m2o_numeric_reference_not_found_fails_loud_creates_nothing(self):
+        """The core IHX-9177 pin: an unresolvable numeric m2o fails the row.
+
+        Before the fix, "999999" was silently coerced to NULL and the partner
+        was created *without* the link (a product "ohne Hersteller"). Now the
+        row must fail and — via the savepoint — create nothing.
+        """
+        before = self.Partner.search_count([("name", "=", "FI num bad")])
+        res = self._run(
+            {"N": "name", "Ti": "title"}, [{"N": "FI num bad", "Ti": "999999"}]
+        )
+        self.assertFalse(res[0].ok)
+        self.assertIn("999999", res[0].error or "")
+        self.assertEqual(
+            self.Partner.search_count([("name", "=", "FI num bad")]), before
+        )
+
     def test_m2m_resolved_by_display_name(self):
         res = self._run(
             {"N": "name", "Cats": "category_id"},

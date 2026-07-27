@@ -138,5 +138,45 @@ class TestTransformRowDataOtherFields(unittest.TestCase):
         )
 
 
+class TestTransformNumericNormalization(unittest.TestCase):
+    """Typed values from the JSON raw_rows API are normalised.
+
+    CSV always delivers strings, so these only bite the raw_rows path where a
+    client (or a spreadsheet lib) sends real JSON numbers.
+    """
+
+    def test_integral_float_defloated_to_int_string(self):
+        """272.0 must not reach a Char as "272.0" (silent formatting corruption)."""
+        result = transform_row_data({"c": 272.0}, {"c": "manufacturer_ref"})
+        self.assertEqual(result, {"manufacturer_ref": "272"})
+
+    def test_bare_int_stringified_as_reference(self):
+        """A bare numeric is a reference, not a db id — stringified for resolve_row.
+
+        This is the #3 guard: a manufacturer *number* sent as int 272 must NOT
+        be treated as database id 272 (silent wrong-link). Only `/.id` opts into
+        db-id semantics.
+        """
+        result = transform_row_data({"c": 272}, {"c": "manufacturer_id"})
+        self.assertEqual(result, {"manufacturer_id": "272"})
+        self.assertIsInstance(result["manufacturer_id"], str)
+
+    def test_dotid_still_kept_as_int(self):
+        """The explicit /.id opt-in keeps db-id (int) semantics."""
+        result = transform_row_data({"c": 272}, {"c": "manufacturer_id/.id"})
+        self.assertEqual(result, {"manufacturer_id": 272})
+        self.assertIsInstance(result["manufacturer_id"], int)
+
+    def test_fractional_float_passes_through(self):
+        """A genuine fractional float is left for Odoo to convert."""
+        result = transform_row_data({"c": 95.5}, {"c": "list_price"})
+        self.assertEqual(result, {"list_price": 95.5})
+
+    def test_string_numbers_unchanged(self):
+        """CSV-style string numbers are untouched (no accidental retyping)."""
+        result = transform_row_data({"c": "007"}, {"c": "default_code"})
+        self.assertEqual(result, {"default_code": "007"})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

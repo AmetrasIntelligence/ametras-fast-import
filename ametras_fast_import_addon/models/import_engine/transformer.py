@@ -51,7 +51,7 @@ def _parse_db_id(value: str, column: str) -> int:
 def transform_row_data(
     row_data: dict[str, str],
     field_mappings: dict[str, str],
-) -> dict[str, str | int]:
+) -> dict[str, str | int | float]:
     """
     Transform a CSV row's data using field mappings to produce an Odoo-compatible record.
 
@@ -62,7 +62,7 @@ def transform_row_data(
     Returns:
         dict of Odoo field name -> value (e.g., {"name": "Acme"})
     """
-    result: dict[str, str | int] = {}
+    result: dict[str, str | int | float] = {}
 
     for csv_col, odoo_field in field_mappings.items():
         value = row_data.get(csv_col, _MISSING)
@@ -105,10 +105,26 @@ def transform_row_data(
                 result[target_field] = value
             continue
 
-        # Regular scalar field: forward the value verbatim, INCLUDING an empty
-        # string. resolve_row decides what an empty cell means per field type
-        # (empty boolean -> False; empty of any other type -> dropped so the
-        # existing DB value / create default is preserved).
+        # Regular scalar field: forward the value to resolve_row, which decides
+        # what an empty cell means per field type (empty boolean -> False; empty
+        # of any other type -> dropped so the existing DB value / create default
+        # is preserved). Two normalisations first — both driven by the typed
+        # JSON `raw_rows` API; CSV always delivers strings, so both are no-ops
+        # for file imports:
+        #
+        #   1. A spreadsheet-style integral float (272.0) is de-floated to 272,
+        #      so it never lands in a Char as "272.0" nor is misread downstream.
+        #   2. A bare number is a *reference*, not a raw database id: stringify
+        #      it so resolve_row runs the same xml_id -> name_search path as any
+        #      other reference. Only the explicit `/.id` mapping (handled above,
+        #      kept as an int) opts into db-id semantics. Mirrors Odoo
+        #      model.load (bare value = name; `/.id` = db id) and stops a
+        #      business *number* (e.g. manufacturer 272) from silently linking
+        #      an unrelated record that merely happens to have database id 272.
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        if isinstance(value, int) and not isinstance(value, bool):
+            value = str(value)
         result[odoo_field] = value
 
     return result
