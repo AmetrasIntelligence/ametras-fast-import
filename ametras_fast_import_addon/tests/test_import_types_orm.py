@@ -263,3 +263,61 @@ class TestImportTypesOrm(TransactionCase):
         res = self._run({"Id": ".id", "B": "is_company"}, [{"Id": str(p.id), "B": ""}])
         self.assertTrue(res[0].ok, res[0].error)
         self.assertIs(self.Partner.browse(p.id).is_company, False)
+
+    # -- post-import validation (read records back, compare to intent) --------
+
+    def _validate(self, mappings, rows, search_keys=None, model="res.partner"):
+        """Re-derive + read-back through the real ORM; return a ValidationReport."""
+        config = ImportConfig(
+            model=model,
+            field_mappings=mappings,
+            search_keys=search_keys,
+            use_external_id="id" in mappings.values(),
+        )
+        imp = Importer(OrmBackend(self.env), config)
+        parsed = [ParsedRow(index=i + 1, data=r) for i, r in enumerate(rows)]
+        return imp.validate_rows(parsed)
+
+    def test_validation_clean_import_passes(self):
+        """A faithfully-imported row validates clean (checked, ok, no mismatch)."""
+        rows = [{"Ref": "FIVAL1", "N": "Clean One"}]
+        self._run({"Ref": "ref", "N": "name"}, rows)
+        report = self._validate({"Ref": "ref", "N": "name"}, rows, search_keys=["ref"])
+        self.assertEqual(report.checked, 1)
+        self.assertEqual(report.ok, 1)
+        self.assertFalse(report.failed)
+
+    def test_validation_many2one_readback_passes(self):
+        """A resolved m2o is compared against the real search_read [id, name] pair."""
+        rows = [{"Ref": "FIVALM2O", "N": "M2O One", "C": "Germany"}]
+        maps = {"Ref": "ref", "N": "name", "C": "country_id/id"}
+        res = self._run(maps, rows)
+        self.assertTrue(res[0].ok, res[0].error)
+        report = self._validate(maps, rows, search_keys=["ref"])
+        self.assertEqual(report.checked, 1)
+        self.assertEqual(report.ok, 1)
+        self.assertFalse(report.failed)
+
+    def test_validation_reports_dropped_field(self):
+        """The IHX-9177 shape: a field emptied after import is flagged 'dropped'."""
+        rows = [{"Ref": "FIVAL3", "N": "V3", "Fn": "Manager"}]
+        maps = {"Ref": "ref", "N": "name", "Fn": "function"}
+        self._run(maps, rows)
+        rec = self.Partner.search([("ref", "=", "FIVAL3")], limit=1)
+        self.assertTrue(rec)
+        rec.function = False  # simulate a silent drop / override
+
+        report = self._validate(maps, rows, search_keys=["ref"])
+        self.assertTrue(report.failed)
+        dropped = [m for m in report.mismatches if m.field_name == "function"]
+        self.assertEqual(len(dropped), 1)
+        self.assertEqual(dropped[0].kind, "dropped")
+
+    def test_validation_pure_create_is_unvalidatable(self):
+        """A create with no stable key can't be relocated → reported, not silent."""
+        rows = [{"N": "FIVAL Orphan"}]
+        self._run({"N": "name"}, rows)
+        report = self._validate({"N": "name"}, rows)  # no search key / id
+        self.assertEqual(report.checked, 0)
+        self.assertEqual(len(report.unvalidatable), 1)
+        self.assertEqual(report.unvalidatable[0][0], 1)
