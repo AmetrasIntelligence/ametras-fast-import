@@ -140,6 +140,7 @@
     "delimiter": "Trennzeichen",
     "skipHeader": "Kopfzeile überspringen",
     "dryRun": "Probelauf (nur validieren)",
+    "autoValidate": "Nach dem Import automatisch validieren (eingebetteter Modus)",
     "language": "Sprache",
     "langPlaceholder": "z.B. de_DE",
     "summary": {
@@ -259,7 +260,20 @@
     "close": "Schließen",
     "loadFailed": "Importprotokoll konnte nicht geladen werden. Der Datensatz wurde möglicherweise gelöscht.",
     "loadError": "Importprotokoll konnte nicht geladen werden: {error}",
-    "retryNoFiles": "Dateien sind nicht mehr für Wiederholung verfügbar. Bitte starten Sie einen neuen Import."
+    "retryNoFiles": "Dateien sind nicht mehr für Wiederholung verfügbar. Bitte starten Sie einen neuen Import.",
+    "field": "Feld",
+    "intended": "Erwartet",
+    "stored": "Gespeichert",
+    "validateImport": "Import validieren",
+    "validating": "Wird validiert...",
+    "validationResults": "Validierungsergebnisse",
+    "validationPassed": "Bestanden",
+    "validationFailedBadge": "Abweichungen gefunden",
+    "validationError": "Validierungsfehler",
+    "validationHint": "Liest die importierten Datensätze zurück und prüft, ob jedes Feld dem entspricht, was die Datei vorgab (erkennt still verworfene oder überschriebene Werte).",
+    "validationSummary": "{checked} Datensätze geprüft · {ok} übereinstimmend · {mismatched} mit Abweichungen.",
+    "validationUnvalidatable": "{count} importierte Zeile(n) konnten nicht geprüft werden (ohne stabilen Schlüssel angelegt — keine externe ID, kein Suchschlüssel, keine Datenbank-ID — daher ist der Datensatz nicht auffindbar).",
+    "validationStartFailed": "Validierung konnte nicht gestartet werden. Bitte erneut versuchen."
   },
   "profiles": {
     "title": "Import-Profile",

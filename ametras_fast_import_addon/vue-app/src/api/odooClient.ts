@@ -99,6 +99,8 @@ interface ImportLogRecord {
   file_progress: Record<string, FileProgressData>
   error_log: Array<{ filename: string; rowNumber: number; error: string }>
   attachment_ids: number[]
+  validation_state?: ValidationState
+  validation_result?: ValidationResult
 }
 
 export async function getImportLog(logId: number): Promise<ImportLogRecord | null> {
@@ -116,6 +118,71 @@ export async function getImportLog(logId: number): Promise<ImportLogRecord | nul
     return response.result.log
   }
   return null
+}
+
+// ── Post-import validation (read records back, compare to intent) ────
+
+export interface ValidationMismatch {
+  rowNumber: number
+  recordId: number
+  field: string
+  intended: unknown
+  stored: unknown
+  kind: 'dropped' | 'changed' | 'missing'
+}
+
+export interface ValidationFileReport {
+  model: string
+  checked: number
+  ok: number
+  failedRows: number
+  mismatches: ValidationMismatch[]
+  unvalidatable: Array<{ rowNumber: number; reason: string }>
+}
+
+export interface ValidationResult {
+  checked: number
+  ok: number
+  failedRows: number
+  unvalidatable: number
+  perFile: Record<string, ValidationFileReport>
+}
+
+export type ValidationState = 'not_run' | 'running' | 'passed' | 'failed' | 'error'
+
+/** Start a post-import validation pass (embedded/addon mode only). */
+export async function startImportValidation(logId: number): Promise<boolean> {
+  const session = useSessionStore()
+  if (!session.baseUrl || !session.isEmbedded) return false
+  const response = await window.api.odoo.call<{ ok: boolean; validationState: string }>({
+    baseUrl: session.baseUrl,
+    db: session.currentServer?.db,
+    endpoint: '/ametras_fast_import/import/validate',
+    params: { log_id: logId },
+  })
+  return Boolean(response.ok && response.result?.ok)
+}
+
+/** Poll the validation state + result for a log (embedded/addon mode only). */
+export async function getImportValidation(
+  logId: number,
+): Promise<{ state: ValidationState; result: ValidationResult | null } | null> {
+  const session = useSessionStore()
+  if (!session.baseUrl || !session.isEmbedded) return null
+  const response = await window.api.odoo.call<{
+    validationState: ValidationState
+    validationResult: ValidationResult
+  }>({
+    baseUrl: session.baseUrl,
+    db: session.currentServer?.db,
+    endpoint: '/ametras_fast_import/import/validation',
+    params: { log_id: logId },
+  })
+  if (!response.ok || !response.result) return null
+  return {
+    state: response.result.validationState ?? 'not_run',
+    result: response.result.validationResult ?? null,
+  }
 }
 
 // ── Row validation ──────────────────────────────────────────────────

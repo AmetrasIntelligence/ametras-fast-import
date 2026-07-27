@@ -36,4 +36,10 @@ from .parser import (
     extract_rows_by_index,
 )
 from .importer import Importer, ImportConfig, RowResult
+from .validator import (
+    ValidationMismatch,
+    ValidationReport,
+    is_empty,
+    values_match,
+)
 from .progress import ProgressReporter, NullReporter, JsonLinesReporter

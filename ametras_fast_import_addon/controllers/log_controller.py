@@ -185,6 +185,8 @@ class LogController(http.Controller):
                 "file_progress": json.loads(log.file_progress or "{}"),
                 "error_log": json.loads(log.error_log or "[]"),
                 "attachment_ids": log.attachment_ids.ids,
+                "validation_state": log.validation_state or "not_run",
+                "validation_result": json.loads(log.validation_result or "{}"),
             },
         }
 

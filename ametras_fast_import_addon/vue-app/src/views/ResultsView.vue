@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useRunStore } from '@/stores/run'
@@ -11,6 +11,7 @@ import { showAlert } from '@/utils/dialog'
 import { downloadCSV } from '@/utils/formatters'
 import { downloadBlob } from '@/utils/profileUtils'
 import { buildFailedRowsCsv } from '@/utils/errorExport'
+import { startImportValidation, getImportValidation } from '@/api/odooClient'
 import { logger } from '@/utils/logger'
 import { Button, Card, Table } from '@/ui'
 import Papa from 'papaparse'
@@ -26,6 +27,8 @@ const isRetrying = ref(false)
 const isExporting = ref(false)
 const loading = ref(false)
 const loadError = ref<string | null>(null)
+const isValidating = ref(false)
+let validationPollTimer: ReturnType<typeof setTimeout> | null = null
 
 onMounted(async () => {
   // If we have a logId but no completed state, we navigated here from history
@@ -45,6 +48,15 @@ onMounted(async () => {
       loading.value = false
     }
   }
+  // Auto-validate (per-profile) may still be running server-side — resume polling.
+  if (session.isEmbedded && run.logId && run.validationState === 'running') {
+    isValidating.value = true
+    pollValidation()
+  }
+})
+
+onBeforeUnmount(() => {
+  if (validationPollTimer) clearTimeout(validationPollTimer)
 })
 
 const summary = computed(() => {
@@ -317,6 +329,68 @@ async function retryFailedRows() {
   }
 }
 
+// ── Post-import validation ──────────────────────────────────────────
+
+const canValidate = computed(
+  () => session.isEmbedded && run.isCompleted && !run.isDryRun && !!run.logId,
+)
+
+/** Flattened mismatch rows across all files, each tagged with its filename. */
+const validationMismatches = computed(() => {
+  const result = run.validationResult
+  if (!result?.perFile) return []
+  const out: Array<{ filename: string; rowNumber: number; field: string; intended: unknown; stored: unknown; kind: string }> = []
+  for (const [filename, report] of Object.entries(result.perFile)) {
+    for (const m of report.mismatches || []) {
+      out.push({ filename, rowNumber: m.rowNumber, field: m.field, intended: m.intended, stored: m.stored, kind: m.kind })
+    }
+  }
+  return out
+})
+
+const validationUnvalidatable = computed(() => run.validationResult?.unvalidatable ?? 0)
+
+function fmtValue(v: unknown): string {
+  if (v === null || v === undefined || v === false || v === '') return '∅'
+  return String(v)
+}
+
+async function pollValidation() {
+  if (!run.logId) return
+  const res = await getImportValidation(run.logId)
+  if (!res) {
+    isValidating.value = false
+    return
+  }
+  run.setValidation(res.state, res.result)
+  if (res.state === 'running') {
+    validationPollTimer = setTimeout(pollValidation, 1500)
+  } else {
+    isValidating.value = false
+  }
+}
+
+async function validateImport() {
+  if (isValidating.value || !run.logId) return
+  isValidating.value = true
+  run.setValidation('running', null)
+  try {
+    const started = await startImportValidation(run.logId)
+    if (!started) {
+      run.setValidation('error', null)
+      isValidating.value = false
+      showAlert(t('results.validationStartFailed'))
+      return
+    }
+    pollValidation()
+  } catch (e) {
+    logger.import.error('Validate failed', { error: e instanceof Error ? e.message : String(e) })
+    run.setValidation('error', null)
+    isValidating.value = false
+    showAlert(t('results.validationStartFailed'))
+  }
+}
+
 function closeDialog() {
   run.reset()
   const callback = session.closeDialogCallback
@@ -482,6 +556,66 @@ function startNew() {
         </div>
       </Card>
 
+      <!-- Post-import validation -->
+      <Card v-if="canValidate || run.validationState !== 'not_run'" class="p-3">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <h3 class="fw-semibold mb-0">{{ $t('results.validationResults') }}</h3>
+          <span v-if="run.validationState === 'passed'" class="badge bg-success-subtle text-success-emphasis">
+            {{ $t('results.validationPassed') }}
+          </span>
+          <span v-else-if="run.validationState === 'failed'" class="badge bg-danger-subtle text-danger-emphasis">
+            {{ $t('results.validationFailedBadge') }}
+          </span>
+          <span v-else-if="run.validationState === 'error'" class="badge bg-danger-subtle text-danger-emphasis">
+            {{ $t('results.validationError') }}
+          </span>
+          <span v-else-if="run.validationState === 'running'" class="badge bg-secondary-subtle text-secondary-emphasis">
+            {{ $t('results.validating') }}
+          </span>
+        </div>
+
+        <p v-if="run.validationState === 'not_run'" class="text-secondary small mb-0">
+          {{ $t('results.validationHint') }}
+        </p>
+
+        <template v-if="run.validationResult">
+          <p class="small text-secondary mb-2">
+            {{ $t('results.validationSummary', {
+              checked: run.validationResult.checked,
+              ok: run.validationResult.ok,
+              mismatched: run.validationResult.failedRows,
+            }) }}
+          </p>
+
+          <div v-if="validationMismatches.length" class="overflow-auto" style="max-height: 24rem;">
+            <Table>
+              <thead>
+                <tr>
+                  <th class="text-end" style="width: 5rem;">{{ $t('results.row') }}</th>
+                  <th class="text-start">{{ $t('results.field') }}</th>
+                  <th class="text-start">{{ $t('results.intended') }}</th>
+                  <th class="text-start">{{ $t('results.stored') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(m, idx) in validationMismatches" :key="idx">
+                  <td class="text-end">{{ m.rowNumber }}</td>
+                  <td><code>{{ m.field }}</code></td>
+                  <td>{{ fmtValue(m.intended) }}</td>
+                  <td :class="m.kind === 'dropped' ? 'text-danger fw-semibold' : ''">
+                    {{ fmtValue(m.stored) }}
+                  </td>
+                </tr>
+              </tbody>
+            </Table>
+          </div>
+
+          <p v-if="validationUnvalidatable" class="small text-secondary mt-2 mb-0">
+            {{ $t('results.validationUnvalidatable', { count: validationUnvalidatable }) }}
+          </p>
+        </template>
+      </Card>
+
       <div class="d-flex justify-content-end gap-3">
         <!-- Addon dialog mode -->
         <template v-if="session.inDialog">
@@ -492,6 +626,14 @@ function startNew() {
             @click="retryFailedRows"
           >
             {{ isRetrying ? $t('results.retrying') : $t('results.retryFailed') }}
+          </Button>
+          <Button
+            v-if="canValidate"
+            variant="outline"
+            :disabled="isValidating"
+            @click="validateImport"
+          >
+            {{ isValidating ? $t('results.validating') : $t('results.validateImport') }}
           </Button>
           <Button @click="closeDialog">
             {{ $t('common.ok') }}
@@ -507,6 +649,14 @@ function startNew() {
             @click="retryFailedRows"
           >
             {{ isRetrying ? $t('results.retrying') : $t('results.retryFailed') }}
+          </Button>
+          <Button
+            v-if="canValidate"
+            variant="outline"
+            :disabled="isValidating"
+            @click="validateImport"
+          >
+            {{ isValidating ? $t('results.validating') : $t('results.validateImport') }}
           </Button>
           <Button @click="startNew">
             {{ run.isHistoricalLog ? $t('results.close') : $t('results.startNew') }}

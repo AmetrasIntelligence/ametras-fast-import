@@ -60,6 +60,7 @@ from .parser import (
 from .progress import NullReporter, ProgressReporter
 from .resolver import prefetch_references, resolve_row
 from .transformer import transform_row_data
+from .validator import ValidationMismatch, ValidationReport, is_empty, values_match
 
 _logger = logging.getLogger(__name__)
 
@@ -209,6 +210,120 @@ class Importer:
         # Transform-failed rows are part of this batch's results so callers
         # count them as failures (never silently dropped).
         return transform_errors + results
+
+    def validate_rows(self, rows: list[ParsedRow]) -> ValidationReport:
+        """Re-derive each row and check the DB stored what the import intended.
+
+        Runs the *same* transform -> resolve -> record-lookup as the import, but
+        performs no writes: it locates the record the row maps to (by external
+        id / search key / .id) and compares the intended writable values against
+        what is stored now. Rows with no stable key (pure creates) cannot be
+        located afterwards and are reported as unvalidatable — never silently
+        dropped. Read-only; safe to run any number of times after an import.
+        """
+        field_info = self._get_field_info()
+        report = ValidationReport(model=self.config.model)
+
+        transformed: list[tuple[int, dict]] = []
+        for row in rows:
+            try:
+                if self.config.field_mappings:
+                    mapped = transform_row_data(row.data, self.config.field_mappings)
+                else:
+                    mapped = dict(row.data)
+            except Exception as e:  # noqa: BLE001 — report, never abort
+                report.unvalidatable.append((row.index, f"transform error: {e}"))
+                continue
+            transformed.append((row.index, mapped))
+
+        try:
+            ref_map = prefetch_references(
+                self.backend, self.config.model, field_info, [t[1] for t in transformed]
+            )
+        except ValueError as e:
+            for row_index, _ in transformed:
+                report.unvalidatable.append(
+                    (row_index, f"reference prefetch failed: {e}")
+                )
+            return report
+
+        # (row_index, record_id, intended_writable_vals)
+        targets: list[tuple[int, int, dict]] = []
+        for row_index, row_data in transformed:
+            try:
+                resolved, _warnings = resolve_row(
+                    self.backend, self.config.model, field_info, row_data, ref_map
+                )
+            except Exception as e:  # noqa: BLE001 — a row that would have failed
+                report.unvalidatable.append((row_index, f"resolve error: {e}"))
+                continue
+
+            row = dict(resolved)
+            external_id = row.pop(FIELD_EXTERNAL_ID, None)
+            db_id = row.pop(FIELD_ID, None)
+            operation = row.pop(FIELD_OPERATION, None)
+
+            if operation and operation.lower().strip() == OP_SKIP:
+                continue  # nothing was written for a skipped row
+
+            record_id, _strategy, _missing = self._resolve_record(
+                row, external_id, db_id
+            )
+            if not record_id:
+                report.unvalidatable.append(
+                    (
+                        row_index,
+                        "no stable key (created without external id / search key "
+                        "/ .id) — the imported record cannot be located",
+                    )
+                )
+                continue
+
+            intended = self._filter_writable(row, is_update=True)
+            targets.append((row_index, record_id, intended))
+
+        if not targets:
+            return report
+
+        # One batched read-back per model for all located records.
+        ids = list({rec_id for _, rec_id, _ in targets})
+        fields = sorted({name for _, _, vals in targets for name in vals})
+        stored_records = self.backend.search_read(
+            self.config.model, [("id", "in", ids)], fields
+        )
+        stored_by_id = {rec["id"]: rec for rec in stored_records}
+
+        for row_index, record_id, intended in targets:
+            report.checked += 1
+            stored = stored_by_id.get(record_id)
+            if stored is None:
+                report.mismatches.append(
+                    ValidationMismatch(
+                        row_index, record_id, "id", record_id, None, "missing"
+                    )
+                )
+                continue
+            row_ok = True
+            for name, intended_val in intended.items():
+                info = field_info.get(name)
+                ftype = info.type if info else "char"
+                stored_val = stored.get(name)
+                if not values_match(ftype, intended_val, stored_val):
+                    kind = (
+                        "dropped"
+                        if is_empty(stored_val) and not is_empty(intended_val)
+                        else "changed"
+                    )
+                    report.mismatches.append(
+                        ValidationMismatch(
+                            row_index, record_id, name, intended_val, stored_val, kind
+                        )
+                    )
+                    row_ok = False
+            if row_ok:
+                report.ok += 1
+
+        return report
 
     def import_pre_transformed_rows(self, rows: list[dict]) -> list[RowResult]:
         """Import rows already in Odoo field format (legacy API compatibility)."""
