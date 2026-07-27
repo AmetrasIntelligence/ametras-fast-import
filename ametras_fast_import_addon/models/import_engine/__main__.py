@@ -31,10 +31,12 @@ from .constants import (
     PROGRESS_TYPE_FIELDS,
     PROGRESS_TYPE_MODELS,
     PROGRESS_TYPE_PONG,
+    PROGRESS_TYPE_VALIDATION,
 )
 from .importer import ImportConfig, Importer, ImportFileSummary
-from .parser import ParsedRow, ParseOptions, analyze_csv_file
+from .parser import ParsedRow, ParseOptions, analyze_csv_file, parse_csv_file
 from .progress import JsonLinesReporter, ProgressReporter
+from .validator import ValidationReport
 
 # Route logs to stderr so they don't interfere with the JSON protocol on stdout
 logging.basicConfig(
@@ -197,6 +199,61 @@ def _handle_import(cmd: dict) -> None:
         _current_importer = None
 
 
+def _handle_validate(cmd: dict) -> None:
+    """Read imported records back and verify they match the file (no writes).
+
+    Mirrors _handle_import's input (raw_rows or file_path(s) + model +
+    field_mappings + credentials) but only reads, emitting a single validation
+    report. Used by the standalone client's "Validate Import" button.
+    """
+    try:
+        backend = _get_backend(cmd, lang=cmd.get("lang"))
+        config = ImportConfig(
+            model=cmd["model"],
+            field_mappings=cmd.get("field_mappings", {}),
+            use_external_id=cmd.get("use_external_id", False),
+            search_keys=cmd.get("search_keys"),
+        )
+        options = ParseOptions(
+            delimiter=cmd.get("delimiter", DEFAULT_DELIMITER),
+            encoding=cmd.get("encoding", DEFAULT_ENCODING),
+            has_header=cmd.get("has_header", True),
+        )
+        importer = Importer(backend, config)
+        report = ValidationReport(model=config.model)
+
+        raw_rows = cmd.get("raw_rows")
+        if raw_rows is not None:
+            row_indices = cmd.get("row_indices")
+            if row_indices and len(row_indices) == len(raw_rows):
+                parsed = [
+                    ParsedRow(index=idx, data=row)
+                    for idx, row in zip(row_indices, raw_rows, strict=False)
+                ]
+            else:
+                parsed = [
+                    ParsedRow(index=i + 1, data=row) for i, row in enumerate(raw_rows)
+                ]
+            report.merge(importer.validate_rows(parsed))
+        else:
+            file_paths = cmd.get("file_paths", [])
+            if "file_path" in cmd:
+                file_paths = [cmd["file_path"]]
+            for file_path in file_paths:
+                rows = list(parse_csv_file(file_path, options))
+                report.merge(importer.validate_rows(rows))
+
+        result = report.to_dict()
+        result["mismatches"] = result["mismatches"][:MAX_RESPONSE_ERRORS_FILE_MODE]
+        result["unvalidatable"] = result["unvalidatable"][
+            :MAX_RESPONSE_ERRORS_FILE_MODE
+        ]
+        _emit({"type": PROGRESS_TYPE_VALIDATION, "report": result})
+    except Exception as e:
+        _logger.exception("Validation failed")
+        _emit({"type": PROGRESS_TYPE_ERROR, "message": str(e)})
+
+
 def _handle_models(cmd: dict) -> None:
     """List importable models (for model selection dropdown)."""
     try:
@@ -267,6 +324,7 @@ HANDLERS: dict[str, callable] = {
     "ping": lambda _cmd: _emit({"type": PROGRESS_TYPE_PONG}),
     "authenticate": _handle_authenticate,
     "import": _handle_import,
+    "validate": _handle_validate,
     "analyze": _handle_analyze,
     "cancel": _handle_cancel,
     "models": _handle_models,
