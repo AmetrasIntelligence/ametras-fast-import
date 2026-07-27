@@ -263,14 +263,25 @@ def resolve_row(
 
         # Many2One field resolution
         if field.type == "many2one":
-            if isinstance(value, str) and is_external_id(value):
-                resolved[field_name] = resolve_relation_ref(
-                    backend, field.comodel_name, value, ref_map
+            # An integral float (272.0) is the same db id as the int 272 — the
+            # JSON `raw_rows` API delivers typed numbers, and a spreadsheet cell
+            # often arrives as a float. Normalise it to int so it takes the
+            # db-id path below instead of falling to the raw passthrough, where
+            # Many2one.convert_to_cache would silently NULL it (float is not in
+            # IdType) — the exact IHX-9177 failure mode for a different type.
+            if isinstance(value, float) and value.is_integer():
+                value = int(value)
+
+            # bool is a subclass of int but is never a valid m2o reference.
+            if isinstance(value, bool):
+                raise ValueError(
+                    f"Field {field_name!r} got a boolean {value!r}; "
+                    f"expected a record reference (id, external id, or name)"
                 )
-            elif isinstance(value, int):
-                # Integer value = database ID (from /.id mapping).
-                # Accept for all models — the user explicitly opted in
-                # by using the /.id suffix in the field mapping.
+            if isinstance(value, int):
+                # Integer value = database ID (from a /.id mapping, or a cell
+                # already coerced server-side). Accept for all models — the
+                # user explicitly opted in by using the /.id suffix.
                 if not backend.browse_exists(field.comodel_name, value):
                     raise ValueError(
                         f"Record {value} not found in {field.comodel_name}"
@@ -281,8 +292,43 @@ def resolve_row(
                         f"Field {field_name!r} uses database ID {value}. "
                         f"Consider migrating to external ID for portability."
                     )
+            elif isinstance(value, str):
+                # Any non-empty string is a reference to resolve: external id
+                # first (via the prefetched ref_map), then a name_search
+                # fallback on the comodel. This deliberately includes ALL-DIGIT
+                # strings such as a manufacturer *number* ("272") — mirroring
+                # Odoo's model.load (ir_fields.db_id_for with subfield=None),
+                # which always name_searches a bare relational value and raises
+                # a visible error when it cannot resolve.
+                #
+                # We must NEVER hand an unresolved scalar to a many2one:
+                # Many2one.convert_to_cache silently coerces any non-id value to
+                # NULL (odoo/fields.py; IdType == (int, NewId)) and
+                # convert_to_column is `value or None`, so the reference would
+                # vanish with no error and the row would still import — WITHOUT
+                # the link. That is IHX-9177: products created without a
+                # Hersteller because "272" fell through the old passthrough.
+                # resolve_relation_ref raises instead, so the row fails loudly
+                # and surfaces in the import log / "retry failed".
+                #
+                # A genuine numeric DB id must be supplied via the `/.id`
+                # mapping (arrives as an int, handled above) — NOT as a bare
+                # numeric string, otherwise a coincidental id collision could
+                # link the wrong record silently.
+                resolved[field_name] = resolve_relation_ref(
+                    backend, field.comodel_name, value, ref_map
+                )
             else:
-                resolved[field_name] = value
+                # Any other type (non-integral float, list, etc.) is not a valid
+                # many2one reference. Raise instead of passing it through: Odoo
+                # would silently coerce it to NULL (see the string branch), so a
+                # loud per-row error is the only way the caller learns the link
+                # was not set.
+                raise ValueError(
+                    f"Field {field_name!r} got {type(value).__name__} "
+                    f"{value!r}; expected a record reference "
+                    f"(id, external id, or name)"
+                )
 
         # Many2Many field resolution.
         #

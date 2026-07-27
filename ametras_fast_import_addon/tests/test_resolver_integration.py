@@ -876,6 +876,149 @@ class TestRelationByName(unittest.TestCase):
         self.assertTrue(any(k == "__name_cache__" for k in ref_map))
 
 
+class TestM2oNumericReference(unittest.TestCase):
+    """Regression: IHX-9177 — a many2one referenced by an all-digit *number*.
+
+    A product import carried its manufacturer as "Hersteller Nr." = "272"
+    (a numeric string), mapped to product.template.manufacturer_id
+    (many2one -> res.partner). The old resolver treated any all-digit string
+    as "not an external id" AND not an int, so it fell through to the raw
+    passthrough and handed the bare string "272" to Odoo. Odoo's
+    Many2one.convert_to_cache silently coerces a non-id value to NULL, so the
+    product was created *without* a manufacturer and no error was raised.
+
+    The resolver must instead resolve numeric strings like any other bare
+    relational reference (external id -> name_search) and RAISE when it cannot,
+    exactly as Odoo's model.load (ir_fields.db_id_for, subfield=None) does — so
+    the row fails visibly instead of importing a silently-empty link.
+    """
+
+    def test_numeric_reference_resolved_by_name(self):
+        """An all-digit string now goes through name_search (not passthrough)."""
+        backend = MockBackend()
+        rid = backend.create("res.partner", {"name": "272"})
+        field_info = {
+            "manufacturer_id": FieldInfo("manufacturer_id", "many2one", "res.partner")
+        }
+        resolved, _ = resolve_row(
+            backend,
+            "product.template",
+            field_info,
+            {"manufacturer_id": "272"},
+            {},
+        )
+        self.assertEqual(resolved["manufacturer_id"], rid)
+
+    def test_numeric_reference_not_found_raises_never_silently_null(self):
+        """The core IHX-9177 pin: an unresolvable numeric ref must RAISE.
+
+        It must NOT (a) pass "272" through as a raw string, nor (b) drop the
+        field — either of which lets Odoo store NULL and create the product
+        without the link. A raise makes _import_single_row_safe mark the whole
+        row failed, so it shows up in the log / "retry failed".
+        """
+        backend = MockBackend()  # no partner named "272" exists
+        field_info = {
+            "manufacturer_id": FieldInfo("manufacturer_id", "many2one", "res.partner")
+        }
+        with self.assertRaises(ValueError) as ctx:
+            resolve_row(
+                backend,
+                "product.template",
+                field_info,
+                {"manufacturer_id": "272"},
+                {},
+            )
+        # And prove it never leaked the raw string as the resolved value.
+        self.assertIn("272", str(ctx.exception))
+
+    def test_numeric_external_id_still_wins(self):
+        """An xml_id in the ref_map still takes precedence over name_search."""
+        backend = MockBackend()
+        backend.create("res.partner", {"name": "272"})  # a same-"named" record
+        field_info = {
+            "manufacturer_id": FieldInfo("manufacturer_id", "many2one", "res.partner")
+        }
+        # A prefetched external id resolves without touching name_search.
+        ref_map = {("res.partner", "__import__", "272"): 999}
+        resolved, _ = resolve_row(
+            backend,
+            "product.template",
+            field_info,
+            {"manufacturer_id": "272"},
+            ref_map,
+        )
+        self.assertEqual(resolved["manufacturer_id"], 999)
+
+    def test_explicit_db_id_via_int_still_supported(self):
+        """The /.id path (int value) is unaffected — still a direct db id."""
+        backend = MockBackend()
+        rid = backend.create("res.partner", {"name": "Acme"})
+        field_info = {
+            "manufacturer_id": FieldInfo("manufacturer_id", "many2one", "res.partner")
+        }
+        resolved, _ = resolve_row(
+            backend,
+            "product.template",
+            field_info,
+            {"manufacturer_id": rid},  # int, e.g. from a /.id mapping
+            {},
+        )
+        self.assertEqual(resolved["manufacturer_id"], rid)
+
+    def test_integral_float_db_id_treated_like_int(self):
+        """A whole-number float (272.0) resolves as the db id 272, not NULL.
+
+        The JSON raw_rows API delivers typed numbers, and spreadsheet cells
+        often arrive as floats. A float fell through the old passthrough and
+        Many2one.convert_to_cache silently NULLed it (float not in IdType) —
+        the same silent-loss class as IHX-9177 for a different input type.
+        """
+        backend = MockBackend()
+        rid = backend.create("res.partner", {"name": "Acme"})
+        field_info = {
+            "manufacturer_id": FieldInfo("manufacturer_id", "many2one", "res.partner")
+        }
+        resolved, _ = resolve_row(
+            backend,
+            "product.template",
+            field_info,
+            {"manufacturer_id": float(rid)},  # e.g. 1.0 from a JSON number
+            {},
+        )
+        self.assertEqual(resolved["manufacturer_id"], rid)
+
+    def test_non_integral_float_raises_never_silently_null(self):
+        """A fractional float is nonsense for a m2o and must RAISE, not NULL."""
+        backend = MockBackend()
+        field_info = {
+            "manufacturer_id": FieldInfo("manufacturer_id", "many2one", "res.partner")
+        }
+        with self.assertRaises(ValueError):
+            resolve_row(
+                backend,
+                "product.template",
+                field_info,
+                {"manufacturer_id": 272.5},
+                {},
+            )
+
+    def test_unexpected_type_raises_never_silently_null(self):
+        """Any other non-reference type (e.g. a bool) raises rather than NULLs."""
+        backend = MockBackend()
+        field_info = {
+            "manufacturer_id": FieldInfo("manufacturer_id", "many2one", "res.partner")
+        }
+        with self.assertRaises(ValueError):
+            resolve_row(
+                backend,
+                "product.template",
+                field_info,
+                {"manufacturer_id": True},
+                {},
+            )
+
+
 class TestSelectionLabelResolution(unittest.TestCase):
     def test_label_mapped_to_key_in_resolve_row(self):
         backend = MockBackend()

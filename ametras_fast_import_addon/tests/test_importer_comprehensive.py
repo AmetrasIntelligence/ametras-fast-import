@@ -1376,5 +1376,60 @@ class TestDatabaseIdLookup(unittest.TestCase):
         self.assertIn("not found", results[0].error)
 
 
+class TestNumericM2oReferenceEndToEnd(unittest.TestCase):
+    """IHX-9177 capstone: transform -> resolve -> import for a m2o by number.
+
+    Drives the full pipeline with a *typed* int (as the JSON raw_rows API and
+    spreadsheet libraries deliver) to prove the row fails loudly and creates
+    NOTHING when the number can't be resolved — instead of silently creating a
+    record with an empty link (the original ticket symptom).
+    """
+
+    def _backend(self):
+        backend = MockBackend()
+        backend.field_info_map["product.template"] = {
+            "name": FieldInfo("name", "char"),
+            "manufacturer_id": FieldInfo("manufacturer_id", "many2one", "res.partner"),
+        }
+        return backend
+
+    def _import(self, backend, data):
+        config = ImportConfig(
+            model="product.template",
+            field_mappings={"Name": "name", "HerstellerNr": "manufacturer_id"},
+        )
+        return Importer(backend, config).import_rows([ParsedRow(index=1, data=data)])
+
+    def test_unresolvable_numeric_ref_fails_row_creates_nothing(self):
+        backend = self._backend()
+        results = self._import(backend, {"Name": "RAV 4406", "HerstellerNr": 272})
+        self.assertFalse(results[0].ok)
+        self.assertIn("272", results[0].error or "")
+        # No product.template created with a silently-empty manufacturer.
+        self.assertEqual(backend.records.get("product.template", {}), {})
+
+    def test_bare_number_not_treated_as_db_id_no_wrong_link(self):
+        """A bare number must NOT link the record that happens to have that id.
+
+        Even with a res.partner at database id 272, a bare manufacturer *number*
+        goes through name_search (not db-id). name_search finds no partner named
+        "272", so the row fails — rather than silently linking the unrelated
+        partner 272.
+        """
+        backend = self._backend()
+        backend._ensure_model("res.partner")
+        backend.records["res.partner"][272] = {"name": "Unrelated GmbH"}
+        results = self._import(backend, {"Name": "RAV 4406", "HerstellerNr": 272})
+        self.assertFalse(results[0].ok)
+        self.assertEqual(backend.records.get("product.template", {}), {})
+
+    def test_integral_float_ref_also_fails_loud_not_null(self):
+        """A whole-number float (272.0) behaves like the int, not a silent NULL."""
+        backend = self._backend()
+        results = self._import(backend, {"Name": "RAV 4406", "HerstellerNr": 272.0})
+        self.assertFalse(results[0].ok)
+        self.assertEqual(backend.records.get("product.template", {}), {})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
