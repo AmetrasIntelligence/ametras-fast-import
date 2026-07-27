@@ -271,7 +271,7 @@ function startPythonProcess(pythonPath: string): ChildProcess {
         const type = msg.type as string
         if (type === 'done' || type === 'error' || type === 'auth_ok' ||
             type === 'pong' || type === 'models' || type === 'fields' ||
-            type === 'analysis' || type === 'cancelled') {
+            type === 'analysis' || type === 'cancelled' || type === 'validation') {
           const resolve = pendingResolve
           pendingResolve = null
           resolve(msg)
@@ -573,6 +573,44 @@ ipcMain.handle('python:import', async (_event, payload: {
     return result
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Import failed'
+    return { type: 'error', message }
+  }
+})
+
+ipcMain.handle('python:validate', async (_event, payload: {
+  url: string; db?: string
+  model: string; file_path?: string; file_paths?: string[]
+  field_mappings: Record<string, string>
+  raw_rows?: Record<string, string>[]
+  use_external_id?: boolean; search_keys?: string[]
+  delimiter?: string; encoding?: string; has_header?: boolean
+}) => {
+  try {
+    await ensurePythonStarted()
+
+    const creds = await getCredentials(payload.url, payload.db)
+    if (!creds) {
+      return { type: 'error', message: 'No stored credentials for this session. Please re-login.' }
+    }
+
+    // Resolve file UUID to a real filesystem path (same as python:import).
+    let filePath = payload.file_path
+    if (filePath && !filePath.startsWith('/') && !filePath.match(/^[A-Z]:\\/)) {
+      const resolved = getFilePath(filePath)
+      if (resolved) filePath = resolved
+    }
+
+    const cmd = {
+      action: 'validate',
+      ...payload,
+      file_path: filePath,
+      db: payload.db || getSession(payload.url)?.db,
+      uid: creds.uid,
+      password: creds.password,
+    }
+    return await sendCommand(cmd)
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Validation failed'
     return { type: 'error', message }
   }
 })

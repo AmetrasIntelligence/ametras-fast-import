@@ -11,7 +11,12 @@ import { showAlert } from '@/utils/dialog'
 import { downloadCSV } from '@/utils/formatters'
 import { downloadBlob } from '@/utils/profileUtils'
 import { buildFailedRowsCsv } from '@/utils/errorExport'
-import { startImportValidation, getImportValidation } from '@/api/odooClient'
+import {
+  startImportValidation,
+  getImportValidation,
+  type ValidationResult,
+  type ValidationFileReport,
+} from '@/api/odooClient'
 import { logger } from '@/utils/logger'
 import { Button, Card, Table } from '@/ui'
 import Papa from 'papaparse'
@@ -331,9 +336,12 @@ async function retryFailedRows() {
 
 // ── Post-import validation ──────────────────────────────────────────
 
-const canValidate = computed(
-  () => session.isEmbedded && run.isCompleted && !run.isDryRun && !!run.logId,
-)
+const canValidate = computed(() => {
+  if (!run.isCompleted || run.isDryRun) return false
+  if (session.isEmbedded) return !!run.logId
+  // Standalone: validate via the bundled engine over the file mappings.
+  return filesStore.files.length > 0 && Object.keys(config.fileMappings).length > 0
+})
 
 /** Flattened mismatch rows across all files, each tagged with its filename. */
 const validationMismatches = computed(() => {
@@ -370,19 +378,57 @@ async function pollValidation() {
   }
 }
 
+/** Standalone: run the bundled engine's validate over each mapped file. */
+async function validateStandalone(): Promise<ValidationResult> {
+  const agg: ValidationResult = { checked: 0, ok: 0, failedRows: 0, unvalidatable: 0, perFile: {} }
+  for (const [filename, mapping] of Object.entries(config.fileMappings)) {
+    const file = filesStore.files.find((f) => f.name === filename)
+    if (!file || !mapping.model) continue
+    const msg = (await window.api.python.validate({
+      url: session.baseUrl || '',
+      model: mapping.model,
+      file_path: file.id,
+      field_mappings: mapping.fieldMappings || {},
+      search_keys: mapping.searchKeys || null,
+      use_external_id: !!(mapping.fieldMappings && Object.values(mapping.fieldMappings).includes('id')),
+    })) as Record<string, unknown>
+    if (msg.type === 'error') throw new Error(String(msg.message || 'validation failed'))
+    const report = msg.report as ValidationFileReport | undefined
+    if (report) {
+      agg.perFile[filename] = report
+      agg.checked += report.checked
+      agg.ok += report.ok
+      agg.failedRows += report.failedRows
+      agg.unvalidatable += report.unvalidatable?.length || 0
+    }
+  }
+  return agg
+}
+
 async function validateImport() {
-  if (isValidating.value || !run.logId) return
+  if (isValidating.value) return
   isValidating.value = true
   run.setValidation('running', null)
   try {
-    const started = await startImportValidation(run.logId)
-    if (!started) {
-      run.setValidation('error', null)
+    if (session.isEmbedded) {
+      if (!run.logId) {
+        run.setValidation('error', null)
+        isValidating.value = false
+        return
+      }
+      const started = await startImportValidation(run.logId)
+      if (!started) {
+        run.setValidation('error', null)
+        isValidating.value = false
+        showAlert(t('results.validationStartFailed'))
+        return
+      }
+      pollValidation() // sets isValidating false when done
+    } else {
+      const result = await validateStandalone()
+      run.setValidation(result.failedRows > 0 ? 'failed' : 'passed', result)
       isValidating.value = false
-      showAlert(t('results.validationStartFailed'))
-      return
     }
-    pollValidation()
   } catch (e) {
     logger.import.error('Validate failed', { error: e instanceof Error ? e.message : String(e) })
     run.setValidation('error', null)
