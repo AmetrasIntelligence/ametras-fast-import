@@ -87,6 +87,20 @@ class CsvImportLog(models.Model):
     # Error log
     error_log = fields.Text(string="Error Log (JSON)", default="[]")
 
+    # Post-import validation (read records back, compare to what was intended)
+    validation_state = fields.Selection(
+        [
+            ("not_run", "Not Validated"),
+            ("running", "Validating"),
+            ("passed", "Validation Passed"),
+            ("failed", "Validation Failed"),
+            ("error", "Validation Error"),
+        ],
+        string="Validation State",
+        default="not_run",
+    )
+    validation_result = fields.Text(string="Validation Result (JSON)", default="{}")
+
     @api.depends("started_at", "finished_at")
     def _compute_duration(self):
         for rec in self:
@@ -203,6 +217,46 @@ class CsvImportLog(models.Model):
         from .import_job import ImportJob
 
         ImportJob(self).run()
+
+    def action_validate(self):
+        """Enqueue a background post-import validation pass via queue_job.
+
+        Read-only: re-derives each imported row and compares the stored record
+        to what the import intended, surfacing anything silently dropped or
+        overridden. Safe to run repeatedly on a finished import.
+        """
+        self.ensure_one()
+        self.write({"validation_state": "running", "validation_result": "{}"})
+        self.with_delay(
+            channel="root.csv_import",
+            description=f"CSV Import Validation: {self.profile_name or self.id}",
+            max_retries=0,
+        )._execute_validation()
+
+    def _execute_validation(self):
+        """Run the validation pass. Executed by the queue_job worker."""
+        from .validation_run import ValidationRunner
+
+        try:
+            result = ValidationRunner(self).run()
+        except Exception as e:  # noqa: BLE001 — record the failure, don't crash the worker
+            _logger.exception("Validation failed for log %s", self.id)
+            self.write(
+                {
+                    "validation_state": "error",
+                    "validation_result": json.dumps({"error": str(e)}),
+                }
+            )
+            self.env.cr.commit()
+            return
+        state = "failed" if result.get("failedRows", 0) else "passed"
+        self.write(
+            {
+                "validation_state": state,
+                "validation_result": json.dumps(result),
+            }
+        )
+        self.env.cr.commit()
 
     def _create_resume_log(self):
         """Create a new log record for resuming/retrying failed rows from this log."""

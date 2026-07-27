@@ -351,3 +351,36 @@ class CSVImportController(http.Controller):
         new_log = old_log._create_resume_log()
         new_log.action_start_import()
         return {"logId": new_log.id, "state": "running"}
+
+    @http.route(
+        "/ametras_fast_import/import/validate",
+        type="json",
+        auth="user",
+        methods=["POST"],
+    )
+    def validate_import(self, log_id):
+        """Start a post-import validation pass (reads records back and compares).
+
+        Enqueues a read-only background job; poll /import/validation for results.
+        """
+        log = request.env["csv.import.log"].browse(int(log_id))
+        if not log.exists():
+            return {"error": "Log not found"}
+        log.action_validate()
+        return {"ok": True, "validationState": "running"}
+
+    @http.route(
+        "/ametras_fast_import/import/validation",
+        type="json",
+        auth="user",
+        methods=["POST"],
+    )
+    def get_import_validation(self, log_id):
+        """Poll the validation state + result for a log."""
+        log = request.env["csv.import.log"].browse(int(log_id))
+        if not log.exists():
+            return {"error": "Log not found"}
+        return {
+            "validationState": log.validation_state or "not_run",
+            "validationResult": json.loads(log.validation_result or "{}"),
+        }

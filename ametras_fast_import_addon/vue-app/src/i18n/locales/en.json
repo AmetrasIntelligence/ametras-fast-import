@@ -140,6 +140,7 @@
     "delimiter": "Delimiter",
     "skipHeader": "Skip header row",
     "dryRun": "Dry run (validate only)",
+    "autoValidate": "Auto-validate after import (embedded mode)",
     "language": "Language",
     "langPlaceholder": "e.g. de_DE",
     "summary": {
@@ -259,7 +260,20 @@
     "close": "Close",
     "loadFailed": "Failed to load import log. The record may have been deleted.",
     "loadError": "Failed to load import log: {error}",
-    "retryNoFiles": "Files are no longer available for retry. Please start a new import."
+    "retryNoFiles": "Files are no longer available for retry. Please start a new import.",
+    "field": "Field",
+    "intended": "Intended",
+    "stored": "Stored",
+    "validateImport": "Validate Import",
+    "validating": "Validating...",
+    "validationResults": "Validation Results",
+    "validationPassed": "Passed",
+    "validationFailedBadge": "Mismatches Found",
+    "validationError": "Validation Error",
+    "validationHint": "Read the imported records back and verify every field matches what the file intended (catches values silently dropped or overridden).",
+    "validationSummary": "{checked} records checked · {ok} matched · {mismatched} with mismatches.",
+    "validationUnvalidatable": "{count} imported row(s) could not be verified (created without a stable key — no external id, search key, or database id — so the record cannot be located).",
+    "validationStartFailed": "Could not start validation. Please try again."
   },
   "profiles": {
     "title": "Import Profiles",

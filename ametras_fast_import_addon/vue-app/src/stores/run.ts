@@ -1,7 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { ImportState, type ConnectionStatus } from '@/types/importState'
-import { getImportLog } from '@/api/odooClient'
+import {
+  getImportLog,
+  type ValidationResult,
+  type ValidationState,
+} from '@/api/odooClient'
 
 export interface FileProgress {
   filename: string
@@ -69,6 +73,15 @@ export const useRunStore = defineStore('run', () => {
   const progressSamples = ref<ProgressSample[]>([])
   /** ISO timestamp of last server heartbeat. null before first poll. */
   const lastHeartbeat = ref<string | null>(null)
+
+  /** Post-import validation (embedded mode). */
+  const validationState = ref<ValidationState>('not_run')
+  const validationResult = ref<ValidationResult | null>(null)
+
+  function setValidation(state: ValidationState, result: ValidationResult | null) {
+    validationState.value = state
+    validationResult.value = result
+  }
 
   const timeoutMitigationActive = ref(false)
   const timeoutMitigationStatus = ref<TimeoutMitigationStatus | null>(null)
@@ -321,6 +334,8 @@ export const useRunStore = defineStore('run', () => {
     retryRows.value = null
     timeoutMitigationActive.value = false
     timeoutMitigationStatus.value = null
+    validationState.value = 'not_run'
+    validationResult.value = null
   }
 
   /**
@@ -464,6 +479,9 @@ export const useRunStore = defineStore('run', () => {
       }
     }
 
+    validationState.value = log.validation_state ?? 'not_run'
+    validationResult.value = log.validation_result ?? null
+
     isHistoricalLog.value = true
     return true
   }
@@ -494,6 +512,9 @@ export const useRunStore = defineStore('run', () => {
     stallThresholdMs,
     timeoutMitigationActive,
     timeoutMitigationStatus,
+    validationState,
+    validationResult,
+    setValidation,
     setTimeoutMitigation,
     setHeartbeat,
     initRun,

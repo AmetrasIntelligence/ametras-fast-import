@@ -800,6 +800,16 @@ class ImportJob:
         )
         self.env.cr.commit()
 
+        # Per-profile opt-in: verify the import wrote what it intended by reading
+        # records back. Only on a clean completion, only when something was
+        # actually written (skip dry-runs), and enqueued as its own read-only job
+        # so it never delays the import worker.
+        if final_state == "completed" and all_success:
+            config = json.loads(self.log.job_config or "{}")
+            settings = config.get("settings", {})
+            if settings.get("autoValidate") and not settings.get("dryRun"):
+                self.log.action_validate()
+
     @staticmethod
     def _indices_to_ranges(indices):
         """Convert a set of row indices to compact sorted [start, end] ranges."""

@@ -106,6 +106,19 @@ function updateSetting(key: string, value: unknown) {
         <span v-if="isSettingOverridden('dryRun')" class="csv-override-indicator">*</span>
       </label>
     </div>
+    <div class="d-flex align-items-center gap-2 pt-4">
+      <input
+        id="pe-autoValidate"
+        :checked="effectiveRunSettings.autoValidate"
+        type="checkbox"
+        class="form-check-input"
+        @change="updateSetting('autoValidate', ($event.target as HTMLInputElement).checked)"
+      />
+      <label for="pe-autoValidate" class="form-check-label small">
+        {{ $t('settings.autoValidate') }}
+        <span v-if="isSettingOverridden('autoValidate')" class="csv-override-indicator">*</span>
+      </label>
+    </div>
   </div>
   <div class="row row-cols-1 row-cols-sm-2 g-3 mt-1">
     <div>

@@ -10,6 +10,8 @@ export interface RunSettings {
   lang: string
   /** Number of parallel workers for batch processing (1-4). Standalone (Electron) only; ignored in embedded mode. */
   standaloneWorkers: number
+  /** After import, read records back and verify they match what was intended. Embedded mode only. */
+  autoValidate: boolean
 }
 
 export interface FileMapping {
@@ -38,7 +40,9 @@ export const DEFAULT_RUN_SETTINGS: RunSettings = {
   lang: 'de_DE',
   // 4 matches the engine's previous effective default (DEFAULT_WORKERS), which
   // ran regardless of this setting before it was wired through. Max is 8.
-  standaloneWorkers: 4
+  standaloneWorkers: 4,
+  // Opt-in: off by default (adds read-back round-trips after the import).
+  autoValidate: false
 }
 
 export const useConfigStore = defineStore('config', () => {
