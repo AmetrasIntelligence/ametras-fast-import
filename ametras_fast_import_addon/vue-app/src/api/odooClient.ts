@@ -140,12 +140,19 @@ export interface ValidationFileReport {
   unvalidatable: Array<{ rowNumber: number; reason: string }>
 }
 
+export interface ValidationProgress {
+  filesDone: number
+  filesTotal: number
+  currentFile?: string
+}
+
 export interface ValidationResult {
   checked: number
   ok: number
   failedRows: number
   unvalidatable: number
   perFile: Record<string, ValidationFileReport>
+  progress?: ValidationProgress
 }
 
 export type ValidationState = 'not_run' | 'running' | 'passed' | 'failed' | 'error'

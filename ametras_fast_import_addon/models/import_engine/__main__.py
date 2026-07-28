@@ -222,6 +222,11 @@ def _handle_validate(cmd: dict) -> None:
         importer = Importer(backend, config)
         report = ValidationReport(model=config.model)
 
+        # Rows that failed the original import are excluded so validation
+        # reflects only rows believed to have imported (parity with the
+        # embedded ValidationRunner, which uses file_progress.failedIndices).
+        skip_indices = set(cmd.get("skip_indices") or [])
+
         raw_rows = cmd.get("raw_rows")
         if raw_rows is not None:
             row_indices = cmd.get("row_indices")
@@ -234,13 +239,18 @@ def _handle_validate(cmd: dict) -> None:
                 parsed = [
                     ParsedRow(index=i + 1, data=row) for i, row in enumerate(raw_rows)
                 ]
+            parsed = [r for r in parsed if r.index not in skip_indices]
             report.merge(importer.validate_rows(parsed))
         else:
             file_paths = cmd.get("file_paths", [])
             if "file_path" in cmd:
                 file_paths = [cmd["file_path"]]
             for file_path in file_paths:
-                rows = list(parse_csv_file(file_path, options))
+                rows = [
+                    r
+                    for r in parse_csv_file(file_path, options)
+                    if r.index not in skip_indices
+                ]
                 report.merge(importer.validate_rows(rows))
 
         result = report.to_dict()
