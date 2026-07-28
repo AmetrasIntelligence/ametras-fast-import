@@ -153,6 +153,16 @@ onMounted(async () => {
         <label for="dryRun" class="form-check-label small" :class="{ 'text-body-secondary': !platform.capabilities.dryRun }">{{ $t('settings.dryRun') }}</label>
         <small v-if="!platform.capabilities.dryRun" class="text-body-secondary">{{ $t('settings.standalone.dryRunUnavailable') }}</small>
       </div>
+      <div class="d-flex align-items-center gap-2 pt-4">
+        <input
+          id="autoValidate"
+          :checked="config.settings.autoValidate"
+          type="checkbox"
+          class="form-check-input"
+          @change="config.setSettings({ autoValidate: ($event.target as HTMLInputElement).checked })"
+        />
+        <label for="autoValidate" class="form-check-label small">{{ $t('settings.autoValidate') }}</label>
+      </div>
       <div>
         <label class="form-label small text-body-secondary mb-1">{{ $t('settings.language') }}</label>
         <!-- Dropdown of installed languages; manual code entry if none could be fetched. -->
