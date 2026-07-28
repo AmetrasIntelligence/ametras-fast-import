@@ -384,14 +384,24 @@ async function validateStandalone(): Promise<ValidationResult> {
   for (const [filename, mapping] of Object.entries(config.fileMappings)) {
     const file = filesStore.files.find((f) => f.name === filename)
     if (!file || !mapping.model) continue
-    const msg = (await window.api.python.validate({
-      url: session.baseUrl || '',
-      model: mapping.model,
-      file_path: file.id,
-      field_mappings: mapping.fieldMappings || {},
-      search_keys: mapping.searchKeys || null,
-      use_external_id: !!(mapping.fieldMappings && Object.values(mapping.fieldMappings).includes('id')),
-    })) as Record<string, unknown>
+    // JSON round-trip to strip Vue reactivity — a reactive Proxy is not
+    // structured-cloneable and would fail Electron IPC with "An object could
+    // not be cloned" (mirrors the import payload in RunView).
+    const payload = JSON.parse(
+      JSON.stringify({
+        url: session.baseUrl || '',
+        db: session.currentServer?.db,
+        model: mapping.model,
+        file_path: file.id,
+        field_mappings: mapping.fieldMappings || {},
+        search_keys: mapping.searchKeys || null,
+        use_external_id: !!(mapping.fieldMappings && Object.values(mapping.fieldMappings).includes('id')),
+        delimiter: config.settings.delimiter || ',',
+        encoding: config.settings.encoding || 'utf-8',
+        lang: config.settings.lang,
+      }),
+    )
+    const msg = (await window.api.python.validate(payload)) as Record<string, unknown>
     if (msg.type === 'error') throw new Error(String(msg.message || 'validation failed'))
     const report = msg.report as ValidationFileReport | undefined
     if (report) {
