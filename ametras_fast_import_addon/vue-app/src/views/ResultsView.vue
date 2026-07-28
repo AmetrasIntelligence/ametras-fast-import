@@ -11,6 +11,7 @@ import { showAlert } from '@/utils/dialog'
 import { downloadCSV } from '@/utils/formatters'
 import { downloadBlob } from '@/utils/profileUtils'
 import { buildFailedRowsCsv } from '@/utils/errorExport'
+import { failedRowNumbers, aggregateValidation } from '@/utils/validationAggregate'
 import {
   startImportValidation,
   getImportValidation,
@@ -408,17 +409,9 @@ async function pollValidation() {
   }
 }
 
-/** Failed-import row numbers per file (from the run's error log) — excluded
- *  from validation so only successfully-imported rows are checked. */
-function failedIndicesFor(filename: string): number[] {
-  return run.downloadErrors
-    .filter((e) => e.filename === filename && e.rowNumber > 0)
-    .map((e) => e.rowNumber)
-}
-
 /** Standalone: run the bundled engine's validate over each mapped file. */
 async function validateStandalone(): Promise<ValidationResult> {
-  const agg: ValidationResult = { checked: 0, ok: 0, failedRows: 0, unvalidatable: 0, perFile: {} }
+  const collected: Array<{ filename: string; report: ValidationFileReport }> = []
   const targets = Object.entries(config.fileMappings).filter(
     ([filename, mapping]) => mapping.model && filesStore.files.some((f) => f.name === filename),
   )
@@ -429,7 +422,7 @@ async function validateStandalone(): Promise<ValidationResult> {
     logger.import.info(`Validating ${filename} (${done + 1}/${total})`)
     // Surface per-file progress through the same shape the embedded path uses.
     run.setValidation('running', {
-      ...agg,
+      ...aggregateValidation(collected),
       progress: { filesDone: done, filesTotal: total, currentFile: filename },
     })
     // JSON round-trip to strip Vue reactivity — a reactive Proxy is not
@@ -444,7 +437,7 @@ async function validateStandalone(): Promise<ValidationResult> {
         field_mappings: mapping.fieldMappings || {},
         search_keys: mapping.searchKeys || null,
         use_external_id: !!(mapping.fieldMappings && Object.values(mapping.fieldMappings).includes('id')),
-        skip_indices: failedIndicesFor(filename),
+        skip_indices: failedRowNumbers(run.downloadErrors, filename),
         delimiter: config.settings.delimiter || ',',
         encoding: config.settings.encoding || 'utf-8',
         lang: config.settings.lang,
@@ -454,11 +447,7 @@ async function validateStandalone(): Promise<ValidationResult> {
     if (msg.type === 'error') throw new Error(String(msg.message || 'validation failed'))
     const report = msg.report as ValidationFileReport | undefined
     if (report) {
-      agg.perFile[filename] = report
-      agg.checked += report.checked
-      agg.ok += report.ok
-      agg.failedRows += report.failedRows
-      agg.unvalidatable += report.unvalidatable?.length || 0
+      collected.push({ filename, report })
       logger.import.info(
         `Validated ${filename}: ${report.checked} checked, ${report.failedRows} mismatches, ` +
           `${report.unvalidatable?.length || 0} unvalidatable`,
@@ -466,7 +455,7 @@ async function validateStandalone(): Promise<ValidationResult> {
     }
     done += 1
   }
-  return agg
+  return aggregateValidation(collected)
 }
 
 async function validateImport() {
