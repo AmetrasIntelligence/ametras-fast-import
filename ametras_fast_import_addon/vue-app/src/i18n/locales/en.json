@@ -140,7 +140,7 @@
     "delimiter": "Delimiter",
     "skipHeader": "Skip header row",
     "dryRun": "Dry run (validate only)",
-    "autoValidate": "Auto-validate after import (embedded mode)",
+    "autoValidate": "Auto-validate after import",
     "language": "Language",
     "langPlaceholder": "e.g. de_DE",
     "summary": {
@@ -266,6 +266,7 @@
     "stored": "Stored",
     "validateImport": "Validate Import",
     "validating": "Validating...",
+    "validationProgress": "Validating file {done} of {total}",
     "validationResults": "Validation Results",
     "validationPassed": "Passed",
     "validationFailedBadge": "Mismatches Found",

@@ -60,13 +60,20 @@ class ValidationRunner:
         per_file: dict[str, dict] = {}
         totals = {"checked": 0, "ok": 0, "failedRows": 0, "unvalidatable": 0}
 
-        for filename in import_sequence:
-            file_mapping = file_mappings.get(filename)
-            if not file_mapping or not file_mapping.get("model"):
-                continue
+        # Files we will actually validate (have a mapping + an attachment) — the
+        # denominator for progress reporting.
+        todo = [
+            fn
+            for fn in import_sequence
+            if file_mappings.get(fn, {}).get("model")
+            and self._get_attachment_by_name(fn)
+        ]
+        files_total = len(todo)
+        files_done = 0
+
+        for filename in todo:
+            file_mapping = file_mappings[filename]
             attachment = self._get_attachment_by_name(filename)
-            if not attachment:
-                continue
 
             failed_indices = set(
                 file_progress.get(filename, {}).get("failedIndices", [])
@@ -96,13 +103,32 @@ class ValidationRunner:
             totals["ok"] += report.ok
             totals["failedRows"] += rd["failedRows"]
             totals["unvalidatable"] += len(report.unvalidatable)
+            files_done += 1
+
+            # Persist partial progress so the UI poll can show "file X of Y"
+            # instead of an opaque spinner. State stays "running" until the
+            # queue-job wrapper writes the terminal passed/failed.
+            self.log.write(
+                {
+                    "validation_result": json.dumps(
+                        {
+                            **totals,
+                            "perFile": dict(per_file),
+                            "progress": {
+                                "filesDone": files_done,
+                                "filesTotal": files_total,
+                                "currentFile": filename,
+                            },
+                        }
+                    )
+                }
+            )
+            self.env.cr.commit()
 
         return {
-            "checked": totals["checked"],
-            "ok": totals["ok"],
-            "failedRows": totals["failedRows"],
-            "unvalidatable": totals["unvalidatable"],
+            **totals,
             "perFile": per_file,
+            "progress": {"filesDone": files_done, "filesTotal": files_total},
         }
 
     # -- helpers (mirror ImportJob) ------------------------------------------

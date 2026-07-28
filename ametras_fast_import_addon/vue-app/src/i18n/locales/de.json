@@ -140,7 +140,7 @@
     "delimiter": "Trennzeichen",
     "skipHeader": "Kopfzeile überspringen",
     "dryRun": "Probelauf (nur validieren)",
-    "autoValidate": "Nach dem Import automatisch validieren (eingebetteter Modus)",
+    "autoValidate": "Nach dem Import automatisch validieren",
     "language": "Sprache",
     "langPlaceholder": "z.B. de_DE",
     "summary": {
@@ -266,6 +266,7 @@
     "stored": "Gespeichert",
     "validateImport": "Import validieren",
     "validating": "Wird validiert...",
+    "validationProgress": "Datei {done} von {total} wird validiert",
     "validationResults": "Validierungsergebnisse",
     "validationPassed": "Bestanden",
     "validationFailedBadge": "Abweichungen gefunden",

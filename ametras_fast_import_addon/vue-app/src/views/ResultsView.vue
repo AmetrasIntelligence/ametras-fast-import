@@ -53,10 +53,20 @@ onMounted(async () => {
       loading.value = false
     }
   }
-  // Auto-validate (per-profile) may still be running server-side — resume polling.
+  // Embedded: auto-validate (per-profile) may still be running server-side —
+  // resume polling. Standalone: the server never runs it, so fire it here when
+  // the profile opted in and this is a fresh, non-dry run.
   if (session.isEmbedded && run.logId && run.validationState === 'running') {
     isValidating.value = true
     pollValidation()
+  } else if (
+    !session.isEmbedded &&
+    config.settings.autoValidate &&
+    canValidate.value &&
+    !run.isHistoricalLog &&
+    run.validationState === 'not_run'
+  ) {
+    validateImport()
   }
 })
 
@@ -363,6 +373,17 @@ function fmtValue(v: unknown): string {
   return String(v)
 }
 
+/** Progress text shown while validation runs ("file 2 of 5: products.csv"). */
+const validationProgressText = computed(() => {
+  const p = run.validationResult?.progress
+  if (!p || !p.filesTotal) return ''
+  const suffix = p.currentFile ? `: ${p.currentFile}` : ''
+  return t('results.validationProgress', {
+    done: p.filesDone,
+    total: p.filesTotal,
+  }) + suffix
+})
+
 async function pollValidation() {
   if (!run.logId) return
   const res = await getImportValidation(run.logId)
@@ -371,19 +392,46 @@ async function pollValidation() {
     return
   }
   run.setValidation(res.state, res.result)
+  const p = res.result?.progress
+  logger.import.info(
+    `Validation ${res.state}` + (p ? ` (${p.filesDone}/${p.filesTotal})` : ''),
+  )
   if (res.state === 'running') {
     validationPollTimer = setTimeout(pollValidation, 1500)
   } else {
     isValidating.value = false
+    logger.import.info(
+      `Validation done: ${res.result?.checked ?? 0} checked, ` +
+        `${res.result?.failedRows ?? 0} with mismatches, ` +
+        `${res.result?.unvalidatable ?? 0} unvalidatable`,
+    )
   }
+}
+
+/** Failed-import row numbers per file (from the run's error log) — excluded
+ *  from validation so only successfully-imported rows are checked. */
+function failedIndicesFor(filename: string): number[] {
+  return run.downloadErrors
+    .filter((e) => e.filename === filename && e.rowNumber > 0)
+    .map((e) => e.rowNumber)
 }
 
 /** Standalone: run the bundled engine's validate over each mapped file. */
 async function validateStandalone(): Promise<ValidationResult> {
   const agg: ValidationResult = { checked: 0, ok: 0, failedRows: 0, unvalidatable: 0, perFile: {} }
-  for (const [filename, mapping] of Object.entries(config.fileMappings)) {
-    const file = filesStore.files.find((f) => f.name === filename)
-    if (!file || !mapping.model) continue
+  const targets = Object.entries(config.fileMappings).filter(
+    ([filename, mapping]) => mapping.model && filesStore.files.some((f) => f.name === filename),
+  )
+  const total = targets.length
+  let done = 0
+  for (const [filename, mapping] of targets) {
+    const file = filesStore.files.find((f) => f.name === filename)!
+    logger.import.info(`Validating ${filename} (${done + 1}/${total})`)
+    // Surface per-file progress through the same shape the embedded path uses.
+    run.setValidation('running', {
+      ...agg,
+      progress: { filesDone: done, filesTotal: total, currentFile: filename },
+    })
     // JSON round-trip to strip Vue reactivity — a reactive Proxy is not
     // structured-cloneable and would fail Electron IPC with "An object could
     // not be cloned" (mirrors the import payload in RunView).
@@ -396,6 +444,7 @@ async function validateStandalone(): Promise<ValidationResult> {
         field_mappings: mapping.fieldMappings || {},
         search_keys: mapping.searchKeys || null,
         use_external_id: !!(mapping.fieldMappings && Object.values(mapping.fieldMappings).includes('id')),
+        skip_indices: failedIndicesFor(filename),
         delimiter: config.settings.delimiter || ',',
         encoding: config.settings.encoding || 'utf-8',
         lang: config.settings.lang,
@@ -410,7 +459,12 @@ async function validateStandalone(): Promise<ValidationResult> {
       agg.ok += report.ok
       agg.failedRows += report.failedRows
       agg.unvalidatable += report.unvalidatable?.length || 0
+      logger.import.info(
+        `Validated ${filename}: ${report.checked} checked, ${report.failedRows} mismatches, ` +
+          `${report.unvalidatable?.length || 0} unvalidatable`,
+      )
     }
+    done += 1
   }
   return agg
 }
@@ -419,6 +473,7 @@ async function validateImport() {
   if (isValidating.value) return
   isValidating.value = true
   run.setValidation('running', null)
+  logger.import.info(`Validation started (${session.isEmbedded ? 'embedded' : 'standalone'})`)
   try {
     if (session.isEmbedded) {
       if (!run.logId) {
@@ -433,11 +488,15 @@ async function validateImport() {
         showAlert(t('results.validationStartFailed'))
         return
       }
-      pollValidation() // sets isValidating false when done
+      pollValidation() // logs + sets isValidating false when done
     } else {
       const result = await validateStandalone()
       run.setValidation(result.failedRows > 0 ? 'failed' : 'passed', result)
       isValidating.value = false
+      logger.import.info(
+        `Validation done: ${result.checked} checked, ${result.failedRows} with mismatches, ` +
+          `${result.unvalidatable} unvalidatable`,
+      )
     }
   } catch (e) {
     logger.import.error('Validate failed', { error: e instanceof Error ? e.message : String(e) })
@@ -634,7 +693,16 @@ function startNew() {
           {{ $t('results.validationHint') }}
         </p>
 
-        <template v-if="run.validationResult">
+        <!-- Live progress while running -->
+        <div
+          v-if="run.validationState === 'running'"
+          class="d-flex align-items-center gap-2 small text-secondary mb-2"
+        >
+          <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+          <span>{{ validationProgressText || $t('results.validating') }}</span>
+        </div>
+
+        <template v-if="run.validationResult && run.validationState !== 'running'">
           <p class="small text-secondary mb-2">
             {{ $t('results.validationSummary', {
               checked: run.validationResult.checked,
