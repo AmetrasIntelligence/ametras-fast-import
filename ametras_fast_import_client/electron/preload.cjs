@@ -62,6 +62,7 @@ contextBridge.exposeInMainWorld('api', {
     cancel: () => ipcRenderer.invoke('python:cancel'),
     authenticate: (params) => ipcRenderer.invoke('python:authenticate', params),
     import: (payload) => ipcRenderer.invoke('python:import', payload),
+    validate: (payload) => ipcRenderer.invoke('python:validate', payload),
     analyze: (payload) => ipcRenderer.invoke('python:analyze', payload),
     models: (payload) => ipcRenderer.invoke('python:models', payload),
     fields: (payload) => ipcRenderer.invoke('python:fields', payload),
