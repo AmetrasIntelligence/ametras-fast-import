@@ -226,6 +226,22 @@ def _handle_validate(cmd: dict) -> None:
         # reflects only rows believed to have imported (parity with the
         # embedded ValidationRunner, which uses file_progress.failedIndices).
         skip_indices = set(cmd.get("skip_indices") or [])
+        batch_size = cmd.get("batch_size", DEFAULT_BATCH_SIZE)
+
+        def _run_in_batches(row_iter):
+            # Stream through validate_rows in bounded batches so a large file
+            # never materialises every row / one giant read-back at once
+            # (parity with the embedded ValidationRunner).
+            batch = []
+            for row in row_iter:
+                if row.index in skip_indices:
+                    continue
+                batch.append(row)
+                if len(batch) >= batch_size:
+                    report.merge(importer.validate_rows(batch))
+                    batch = []
+            if batch:
+                report.merge(importer.validate_rows(batch))
 
         raw_rows = cmd.get("raw_rows")
         if raw_rows is not None:
@@ -239,19 +255,13 @@ def _handle_validate(cmd: dict) -> None:
                 parsed = [
                     ParsedRow(index=i + 1, data=row) for i, row in enumerate(raw_rows)
                 ]
-            parsed = [r for r in parsed if r.index not in skip_indices]
-            report.merge(importer.validate_rows(parsed))
+            _run_in_batches(iter(parsed))
         else:
             file_paths = cmd.get("file_paths", [])
             if "file_path" in cmd:
                 file_paths = [cmd["file_path"]]
             for file_path in file_paths:
-                rows = [
-                    r
-                    for r in parse_csv_file(file_path, options)
-                    if r.index not in skip_indices
-                ]
-                report.merge(importer.validate_rows(rows))
+                _run_in_batches(parse_csv_file(file_path, options))
 
         result = report.to_dict()
         result["mismatches"] = result["mismatches"][:MAX_RESPONSE_ERRORS_FILE_MODE]
