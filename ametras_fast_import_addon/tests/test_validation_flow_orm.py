@@ -149,3 +149,13 @@ class TestValidationFlowOrm(TransactionCase):
         # A failed/interrupted import must not auto-validate.
         ImportJob(log)._finalize("failed", 0, 1, [], {})
         self.assertEqual(log.validation_state, "not_run")
+
+    # -- queue-job config ----------------------------------------------------
+
+    def test_validation_job_function_allows_commit(self):
+        """ValidationRunner/_execute_validation commit progress inside the queue
+        job, so the job function MUST allow_commit — otherwise OCA queue_job's
+        forbidden-commit guard aborts every embedded validation (the direct-call
+        unit tests bypass the queue and wouldn't catch this)."""
+        fn = self.env.ref("ametras_fast_import_addon.job_function_execute_validation")
+        self.assertTrue(fn.allow_commit)
