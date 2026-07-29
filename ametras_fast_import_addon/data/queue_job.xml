@@ -16,4 +16,13 @@
         <field name="channel_id" ref="channel_csv_import" />
         <field name="allow_commit" eval="True" />
     </record>
+
+    <!-- The validation job likewise commits partial progress after each file
+         (live "file X of Y" polling), so it needs the same allow_commit. -->
+    <record id="job_function_execute_validation" model="queue.job.function">
+        <field name="model_id" ref="model_csv_import_log" />
+        <field name="method">_execute_validation</field>
+        <field name="channel_id" ref="channel_csv_import" />
+        <field name="allow_commit" eval="True" />
+    </record>
 </odoo>
