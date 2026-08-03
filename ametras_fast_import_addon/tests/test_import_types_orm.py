@@ -234,6 +234,22 @@ class TestImportTypesOrm(TransactionCase):
             {self.cat1.id, self.cat2.id},
         )
 
+    def test_m2m_dotid_comma_delimited_ids(self):
+        """A many2many `/.id` with comma-delimited db ids links all of them.
+
+        This is the standard model.load format (taxes_id/.id='173,213'); the
+        fast importer used to reject it as a "non-numeric database id".
+        """
+        res = self._run(
+            {"N": "name", "Cats": "category_id/.id"},
+            [{"N": "FI mm dotid", "Cats": f"{self.cat1.id},{self.cat2.id}"}],
+        )
+        self.assertTrue(res[0].ok, res[0].error)
+        self.assertEqual(
+            set(self.Partner.browse(res[0].record_id).category_id.ids),
+            {self.cat1.id, self.cat2.id},
+        )
+
     def test_selection_resolved_by_label(self):
         """A selection referenced by its label resolves to the stored key."""
         res = self._run(

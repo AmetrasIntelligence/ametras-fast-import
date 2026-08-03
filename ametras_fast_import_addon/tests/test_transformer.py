@@ -51,6 +51,29 @@ class TestTransformRowDataRelationalDatabaseId(unittest.TestCase):
         result = transform_row_data({"col": ""}, {"col": "partner_id/.id"})
         self.assertEqual(result, {})
 
+    def test_parses_delimited_relational_ids_to_list(self):
+        """A many2many /.id may carry multiple ids (comma or pipe) — like
+        Odoo model.load. taxes_id/.id = '173,213' -> [173, 213]."""
+        self.assertEqual(
+            transform_row_data({"col": "173,213"}, {"col": "taxes_id/.id"}),
+            {"taxes_id": [173, 213]},
+        )
+        self.assertEqual(
+            transform_row_data({"col": "6|7|8"}, {"col": "route_ids/.id"}),
+            {"route_ids": [6, 7, 8]},
+        )
+
+    def test_single_relational_id_stays_int(self):
+        self.assertEqual(
+            transform_row_data({"col": "173"}, {"col": "taxes_id/.id"}),
+            {"taxes_id": 173},
+        )
+
+    def test_raises_on_non_numeric_in_delimited_ids(self):
+        with self.assertRaises(ValueError) as ctx:
+            transform_row_data({"col": "173,abc"}, {"col": "taxes_id/.id"})
+        self.assertIn("database id", str(ctx.exception).lower())
+
 
 class TestTransformRowDataOtherFields(unittest.TestCase):
     """Other fields"""

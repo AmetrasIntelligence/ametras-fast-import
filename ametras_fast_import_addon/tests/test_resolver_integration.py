@@ -609,6 +609,31 @@ class TestResolveRow(unittest.TestCase):
         # Non-standard model → nudge toward external IDs.
         self.assertTrue(any("database ID" in w for w in warnings))
 
+    def test_resolve_m2m_bare_id_list_wrapped(self):
+        """A bare list of db ids (delimited /.id, e.g. taxes_id/.id='173,213')
+        is wrapped in a (6, 0, [ids]) replace command, not passed through raw."""
+        backend = MockBackend()
+        field_info = {
+            "taxes_id": FieldInfo("taxes_id", "many2many", "account.tax"),
+        }
+        resolved, _ = resolve_row(
+            backend,
+            "product.template",
+            field_info,
+            {"taxes_id": [173, 213]},
+            {},
+        )
+        self.assertEqual(resolved["taxes_id"], [(6, 0, [173, 213])])
+
+    def test_resolve_m2m_command_list_passthrough(self):
+        """A list already made of command tuples is left untouched."""
+        backend = MockBackend()
+        field_info = {"tag_ids": FieldInfo("tag_ids", "many2many", "res.tag")}
+        resolved, _ = resolve_row(
+            backend, "res.partner", field_info, {"tag_ids": [(4, 9, 0)]}, {}
+        )
+        self.assertEqual(resolved["tag_ids"], [(4, 9, 0)])
+
     def test_resolve_m2m_int_db_id(self):
         """A single integer DB id (e.g. from /.id) is wrapped."""
         backend = MockBackend()

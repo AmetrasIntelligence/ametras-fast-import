@@ -15,6 +15,8 @@ instead of silently turning an UPDATE into a duplicate CREATE.
 """
 from __future__ import annotations
 
+import re
+
 from .constants import (
     FIELD_DB_ID,
     FIELD_EXTERNAL_ID,
@@ -46,6 +48,27 @@ def _parse_db_id(value: str, column: str) -> int:
             f"{column!r} column has non-numeric database id {value!r} "
             f"(a database id must be an integer)"
         ) from None
+
+
+def _parse_db_ids(value: str, column: str) -> int | list[int]:
+    """Parse a relational ``<field>/.id`` cell to a database id.
+
+    A single id -> int (many2one, or a single many2many). A comma/pipe-delimited
+    list -> list[int] for a many2many (e.g. ``taxes_id/.id = "173,213"``), which
+    the resolver wraps into a ``(6, 0, [ids])`` command. Mirrors Odoo's
+    model.load, whose ``_str_to_many2many`` splits ``/.id`` values on comma.
+    """
+    parts = [p.strip() for p in re.split(r"[|,]", str(value)) if p.strip()]
+    try:
+        ids = [int(p) for p in parts]
+    except (ValueError, TypeError):
+        raise ValueError(
+            f"{column!r} column has non-numeric database id {value!r} "
+            f"(a database id must be an integer)"
+        ) from None
+    if not ids:
+        raise ValueError(f"{column!r} column has no database id in {value!r}")
+    return ids[0] if len(ids) == 1 else ids
 
 
 def transform_row_data(
@@ -93,11 +116,14 @@ def transform_row_data(
                 result[FIELD_OPERATION] = value
             continue
 
-        # Handle reference suffixes: /.id for database ID, /id for external ID
+        # Handle reference suffixes: /.id for database ID, /id for external ID.
+        # A relational /.id may carry MULTIPLE ids for a many2many (comma/pipe
+        # delimited, e.g. taxes_id/.id = "173,213") — parse to a list; the
+        # resolver turns it into a replace command.
         if odoo_field.endswith(SUFFIX_DB_ID):
             if not is_empty:
                 target_field = odoo_field[: -len(SUFFIX_DB_ID)]
-                result[target_field] = _parse_db_id(value, odoo_field)
+                result[target_field] = _parse_db_ids(value, odoo_field)
             continue
         if odoo_field.endswith(SUFFIX_EXTERNAL_ID):
             if not is_empty:
