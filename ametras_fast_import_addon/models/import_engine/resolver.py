@@ -338,8 +338,15 @@ def resolve_row(
         # "Wrong value for <field>: <value>".
         elif field.type == "many2many":
             if isinstance(value, list):
-                # Already command tuples (or an id list) — pass through.
-                resolved[field_name] = value
+                # A bare list of database ids (e.g. from a delimited /.id
+                # mapping like "173,213") must be wrapped in a replace command;
+                # a list already made of Odoo command tuples passes through.
+                if value and all(
+                    isinstance(v, int) and not isinstance(v, bool) for v in value
+                ):
+                    resolved[field_name] = [(6, 0, value)]
+                else:
+                    resolved[field_name] = value
             elif isinstance(value, int):
                 # Single database ID (e.g. from a /.id mapping).
                 resolved[field_name] = [(6, 0, [value])]
