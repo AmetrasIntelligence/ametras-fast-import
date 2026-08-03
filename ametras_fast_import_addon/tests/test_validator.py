@@ -261,6 +261,36 @@ class TestValidateRowsEndToEnd(unittest.TestCase):
         self.assertEqual(len(report.unvalidatable), 1)
         self.assertEqual(report.unvalidatable[0][0], 1)
 
+    def test_m2m_dotid_roundtrip_validates(self):
+        """End-to-end: a many2many /.id ("173,213") re-derives to a (6,0,[ids])
+        command and validates against the stored id list; a dropped id fails."""
+        backend = _ValidatorBackend()
+        backend.field_info_map["product.template"] = {
+            "default_code": FieldInfo("default_code", "char"),
+            "taxes_id": FieldInfo("taxes_id", "many2many", "account.tax"),
+        }
+        rid = backend.create(
+            "product.template", {"default_code": "P1", "taxes_id": [173, 213]}
+        )
+        config = ImportConfig(
+            model="product.template",
+            field_mappings={"Code": "default_code", "Taxes": "taxes_id/.id"},
+            search_keys=["default_code"],
+        )
+        importer = Importer(backend, config)
+        rows = [ParsedRow(index=1, data={"Code": "P1", "Taxes": "173,213"})]
+
+        report = importer.validate_rows(rows)
+        self.assertEqual(report.checked, 1)
+        self.assertEqual(report.ok, 1)
+        self.assertFalse(report.failed)
+
+        # Drop one tax in the DB -> mismatch on taxes_id.
+        backend.records["product.template"][rid]["taxes_id"] = [173]
+        report2 = importer.validate_rows(rows)
+        self.assertTrue(report2.failed)
+        self.assertEqual(report2.mismatches[0].field_name, "taxes_id")
+
     def test_report_to_dict_shape(self):
         backend = self._setup()
         importer = self._importer(backend)

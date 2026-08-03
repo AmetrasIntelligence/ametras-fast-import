@@ -74,7 +74,7 @@ def _parse_db_ids(value: str, column: str) -> int | list[int]:
 def transform_row_data(
     row_data: dict[str, str],
     field_mappings: dict[str, str],
-) -> dict[str, str | int | float]:
+) -> dict[str, str | int | float | list[int]]:
     """
     Transform a CSV row's data using field mappings to produce an Odoo-compatible record.
 
@@ -85,7 +85,7 @@ def transform_row_data(
     Returns:
         dict of Odoo field name -> value (e.g., {"name": "Acme"})
     """
-    result: dict[str, str | int | float] = {}
+    result: dict[str, str | int | float | list[int]] = {}
 
     for csv_col, odoo_field in field_mappings.items():
         value = row_data.get(csv_col, _MISSING)

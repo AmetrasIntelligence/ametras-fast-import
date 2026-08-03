@@ -583,6 +583,7 @@ ipcMain.handle('python:validate', async (_event, payload: {
   field_mappings: Record<string, string>
   raw_rows?: Record<string, string>[]
   use_external_id?: boolean; search_keys?: string[]
+  skip_indices?: number[]
   delimiter?: string; encoding?: string; has_header?: boolean
 }) => {
   try {
