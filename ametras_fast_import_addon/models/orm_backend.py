@@ -2,7 +2,7 @@
 ORM backend — direct Odoo ORM access when running inside the Odoo server.
 The only file in models/ whose sole purpose is bridging OdooBackend to the ORM.
 """
-from .import_engine.backend import FieldInfo, OdooBackend
+from .import_engine.backend import FieldInfo, OdooBackend, is_writable_in_state
 from .import_engine.constants import IMPORT_CALL_CONTEXT
 
 
@@ -56,6 +56,7 @@ class OrmBackend(OdooBackend):
                 readonly=getattr(field, "readonly", False),
                 store=getattr(field, "store", True),
                 selection=selection,
+                writable_in_state=is_writable_in_state(field.states),
             )
         self._field_cache[model] = result
         return result

@@ -819,7 +819,9 @@ class Importer:
         """Strip fields that must not be written.
 
         - readonly + non-stored (computed without inverse): always removed.
-        - readonly + stored: allowed on update, stripped on create.
+        - readonly + stored: allowed on update; on create only when one of its
+          states makes it writable, the rule Odoo's own import applies (e.g. a
+          transfer's operation type and locations, writable in draft).
         """
         field_info = self._get_field_info()
         result = {}
@@ -828,7 +830,7 @@ class Importer:
             if info is not None and info.readonly:
                 if not info.store:
                     continue  # computed non-stored: can never be written
-                if not is_update:
+                if not is_update and not info.writable_in_state:
                     continue  # readonly stored: skip on create (updates only)
             result[key] = val
         return result

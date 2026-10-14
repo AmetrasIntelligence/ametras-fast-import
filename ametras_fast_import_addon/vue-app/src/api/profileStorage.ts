@@ -14,10 +14,9 @@ import { DEFAULT_RUN_SETTINGS, type RunSettings } from '@/stores/config'
 import {
   parseProfileCSV,
   parseMappingsCSV,
-  parseSequenceCSV,
-  parseFieldMappingsCSV
+  parseSequenceCSV
 } from '@/types/importProfile'
-import { parseRichFieldMappingsCSV } from '@/api/profileExport'
+import { parseProfileFieldMappings } from '@/api/profileExport'
 import { importProfileFromZip } from '@/utils/profileUtils'
 import {
   listAttachmentProfiles,
@@ -87,18 +86,9 @@ export async function importStandaloneProfile(file: File): Promise<ImportProfile
   const sequence: ProfileSequenceItem[] = parseSequenceCSV(csvFiles['sequence.csv'])
 
   // Parse field mappings (optional)
-  let fieldMappings = undefined
-  let richFieldMappings = undefined
-
-  if (csvFiles['field_mappings.csv']) {
-    const content = csvFiles['field_mappings.csv']
-    // Check if it's rich format (has csvHeader column)
-    if (content.includes('csvHeader')) {
-      richFieldMappings = parseRichFieldMappingsCSV(content)
-    } else {
-      fieldMappings = parseFieldMappingsCSV(content)
-    }
-  }
+  const richFieldMappings = csvFiles['field_mappings.csv']
+    ? parseProfileFieldMappings(csvFiles['field_mappings.csv'])
+    : undefined
 
   // Parse run settings (optional)
   const runSettings: RunSettings = { ...DEFAULT_RUN_SETTINGS }
@@ -131,7 +121,6 @@ export async function importStandaloneProfile(file: File): Promise<ImportProfile
     mappings,
     sequence,
     runSettings,
-    fieldMappings,
     richFieldMappings,
     createdAt: now,
     updatedAt: now,

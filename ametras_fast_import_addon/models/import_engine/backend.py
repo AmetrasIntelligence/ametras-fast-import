@@ -56,6 +56,23 @@ class FieldInfo:
     readonly: bool = False
     store: bool = True
     selection: list | None = None  # [(key, label)] for selection fields
+    # readonly, but a record state lifts it (Odoo `states`, e.g. stock.picking
+    # picking_type_id: readonly except in draft), so it is writable on create
+    writable_in_state: bool = False
+
+
+def is_writable_in_state(states: dict | None) -> bool:
+    """Whether a state sets ``readonly`` to False for a readonly field.
+
+    Same rule as Odoo's own import (base_import offers a readonly field when
+    one of its states makes it writable). ``states`` maps a state to a list of
+    (attribute, value) pairs; over XML-RPC the pairs arrive as lists.
+    """
+    return any(
+        attr == "readonly" and value is False
+        for modifiers in (states or {}).values()
+        for attr, value in modifiers
+    )
 
 
 class _NullSavepoint:
@@ -468,7 +485,16 @@ class RpcBackend(OdooBackend):
             model,
             "fields_get",
             [],
-            {"attributes": ["type", "relation", "readonly", "store", "selection"]},
+            {
+                "attributes": [
+                    "type",
+                    "relation",
+                    "readonly",
+                    "store",
+                    "selection",
+                    "states",
+                ]
+            },
         )
         result = {}
         for name, info in raw.items():
@@ -480,6 +506,7 @@ class RpcBackend(OdooBackend):
                 readonly=info.get("readonly", False),
                 store=info.get("store", True),
                 selection=selection if isinstance(selection, (list, tuple)) else None,
+                writable_in_state=is_writable_in_state(info.get("states")),
             )
         self._field_cache[model] = result
         return result

@@ -1,5 +1,6 @@
 import JSZip from 'jszip'
 import type { ImportProfile, ProfileMapping, ProfileSequenceItem } from '@/types/importProfile'
+import Papa from 'papaparse'
 import type { FieldMapping } from '@/types/fieldMapping'
 import { serializeTransform, parseTransform } from '@/types/fieldMapping'
 import type { RunSettings } from '@/stores/config'
@@ -148,31 +149,67 @@ export function generateFieldMappingsCSV(fieldMappings: FieldMapping[]): string 
 }
 
 /**
- * Parse rich field mappings from CSV.
+ * Read a field_mappings.csv into rows: CSV quoting as the server writes it
+ * (csv.writer), a leading byte-order mark dropped, header names lowercased.
+ */
+function readFieldMappingsCSV(csv: string): { header: string[]; rows: string[][] } {
+  const parsed = Papa.parse<string[]>(csv.replace(/^\uFEFF/, ''), { skipEmptyLines: 'greedy' })
+  const [header = [], ...rows] = parsed.data
+  return {
+    header: header.map(h => h.trim().toLowerCase()),
+    rows: rows.map(row => row.map(cell => cell.trim()))
+  }
+}
+
+/**
+ * Parse rich field mappings from CSV. Column names are the exported snake_case
+ * ones (csv_header, odoo_field) or their camelCase variants.
  */
 export function parseRichFieldMappingsCSV(csv: string): FieldMapping[] {
-  const lines = csv.trim().split('\n')
-  if (lines.length < 2) return []
+  return richFieldMappings(readFieldMappingsCSV(csv))
+}
 
-  const header = lines[0].split(',').map(h => h.trim())
-  const filenameIdx = header.indexOf('filename')
-  const csvHeaderIdx = header.indexOf('csv_header')
-  const odooFieldIdx = header.indexOf('odoo_field')
-  const requiredIdx = header.indexOf('required')
-  const transformIdx = header.indexOf('transform')
-  const notesIdx = header.indexOf('notes')
+function richFieldMappings({ header, rows }: { header: string[]; rows: string[][] }): FieldMapping[] {
+  const column = (...names: string[]) => {
+    const name = names.find(n => header.includes(n))
+    return name === undefined ? -1 : header.indexOf(name)
+  }
+  const filenameIdx = column('filename')
+  const csvHeaderIdx = column('csv_header', 'csvheader')
+  const odooFieldIdx = column('odoo_field', 'odoofield')
+  const requiredIdx = column('required')
+  const transformIdx = column('transform')
+  const notesIdx = column('notes')
 
-  return lines.slice(1)
-    .filter(l => l.trim())
-    .map(line => {
-      const parts = line.split(',').map(s => s.trim())
-      return {
-        filename: parts[filenameIdx] || '',
-        csvHeader: parts[csvHeaderIdx] || '',
-        odooField: parts[odooFieldIdx] || '',
-        required: parts[requiredIdx] === 'true',
-        transform: parseTransform(parts[transformIdx] || ''),
-        notes: parts[notesIdx] || undefined
-      }
-    })
+  return rows.map(parts => ({
+    filename: parts[filenameIdx] || '',
+    csvHeader: parts[csvHeaderIdx] || '',
+    odooField: parts[odooFieldIdx] || '',
+    required: parts[requiredIdx] === 'true',
+    transform: parseTransform(parts[transformIdx] || ''),
+    notes: parts[notesIdx] || undefined
+  }))
+}
+
+/**
+ * Parse a profile's field_mappings.csv into the mappings the profile workflow
+ * applies. The rich format is recognised like the server does it (a
+ * "required" or "transform" column); the three-column format
+ * (filename,csv_column,odoo_field) becomes passthrough mappings.
+ */
+export function parseProfileFieldMappings(csv: string): FieldMapping[] {
+  const table = readFieldMappingsCSV(csv)
+  if (table.header.includes('required') || table.header.includes('transform')) {
+    return richFieldMappings(table)
+  }
+  return table.rows
+    .filter(([filename]) => filename)
+    .map(([filename, csvColumn = '', odooField = '']) => ({
+      filename,
+      csvHeader: csvColumn,
+      odooField,
+      required: false,
+      transform: { type: 'passthrough' },
+      notes: undefined
+    }))
 }

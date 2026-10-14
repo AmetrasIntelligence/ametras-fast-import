@@ -6,8 +6,10 @@ import {
   generateRunSettingsCSV,
   generateMappingsCSV,
   generateSequenceCSV,
-  generateFieldMappingsCSV
+  generateFieldMappingsCSV,
+  parseProfileFieldMappings
 } from '@/api/profileExport'
+import type { FieldMapping } from '@/types/fieldMapping'
 import type { ImportProfile } from '@/types/importProfile'
 import { createRunConfig } from '@/types/runConfig'
 
@@ -178,5 +180,71 @@ describe('CSV generators', () => {
     ])
     expect(csv).toContain('filename,csv_header,odoo_field,required,transform,notes')
     expect(csv).toContain('partners.csv,Name,name,true,,Primary name')
+  })
+})
+
+describe('parseProfileFieldMappings', () => {
+  const mappings: FieldMapping[] = [
+    {
+      filename: 'pickings.csv',
+      csvHeader: 'Operation Type',
+      odooField: 'picking_type_id/.id',
+      required: true,
+      transform: { type: 'passthrough' },
+      notes: 'Database id of the operation type'
+    },
+    {
+      filename: 'pickings.csv',
+      csvHeader: 'Partner',
+      odooField: 'partner_id/id',
+      required: false,
+      transform: { type: 'm2o_ref', model: 'res.partner' }
+    }
+  ]
+
+  it('reads back every mapping of an exported field_mappings.csv', () => {
+    const csv = generateFieldMappingsCSV(mappings)
+    expect(parseProfileFieldMappings(csv)).toEqual(mappings)
+  })
+
+  it('reads the camelCase header variant', () => {
+    const csv = 'filename,csvHeader,odooField,required,transform,notes\n'
+      + 'pickings.csv,Partner,partner_id/id,false,m2o_ref:res.partner,'
+    expect(parseProfileFieldMappings(csv)).toEqual([mappings[1]])
+  })
+
+  it('reads quoted values the server writes with csv.writer', () => {
+    const csv = 'filename,csv_header,odoo_field,required,transform,notes\n'
+      + 'pickings.csv,"Street, No.",street,true,,"Street and number, as on the letter"'
+    expect(parseProfileFieldMappings(csv)).toEqual([
+      {
+        filename: 'pickings.csv',
+        csvHeader: 'Street, No.',
+        odooField: 'street',
+        required: true,
+        transform: { type: 'passthrough' },
+        notes: 'Street and number, as on the letter'
+      }
+    ])
+  })
+
+  it('ignores a byte-order mark and the case of the header', () => {
+    const csv = '﻿Filename,CSV_Header,Odoo_Field,Required,Transform,Notes\r\n'
+      + 'pickings.csv,Partner,partner_id/id,false,m2o_ref:res.partner,\r\n'
+    expect(parseProfileFieldMappings(csv)).toEqual([mappings[1]])
+  })
+
+  it('turns the three-column format into passthrough mappings', () => {
+    const csv = 'filename,csv_column,odoo_field\npickings.csv,Reference,origin'
+    expect(parseProfileFieldMappings(csv)).toEqual([
+      {
+        filename: 'pickings.csv',
+        csvHeader: 'Reference',
+        odooField: 'origin',
+        required: false,
+        transform: { type: 'passthrough' },
+        notes: undefined
+      }
+    ])
   })
 })
