@@ -13,6 +13,7 @@ import logging
 from collections import defaultdict
 from typing import Any
 
+from .backend import TransportError
 from .coercion import coerce_boolean, coerce_selection
 from .constants import (
     DEFAULT_IMPORT_MODULE,
@@ -29,6 +30,8 @@ _logger = logging.getLogger(__name__)
 # inside a ref_map. A ref_map lives for one batch, so each distinct display
 # name is looked up at most once per batch.
 _NAME_CACHE = "__name_cache__"
+# ref_map key: {comodel: (checked ids, existing ids)} for many2one database ids
+_EXISTS_CACHE = "__exists_cache__"
 
 # Re-export for backward compatibility
 __all__ = [
@@ -145,6 +148,14 @@ def resolve_relation_ref(backend: Any, comodel: str, value: str, ref_map: dict) 
     )
 
 
+def _record_exists(backend: Any, comodel: str, record_id: int, ref_map: dict) -> bool:
+    """browse_exists, answered from the batch prefetch when it checked the id."""
+    checked, alive = ref_map.get(_EXISTS_CACHE, {}).get(comodel, ((), ()))
+    if record_id in checked:
+        return record_id in alive
+    return backend.browse_exists(comodel, record_id)
+
+
 def prefetch_references(
     backend: Any,
     model_name: str,
@@ -189,6 +200,31 @@ def prefetch_references(
 
     # Resolve all references in bulk (one query per model)
     ref_map: dict[tuple[str, str, str], int] = {}
+
+    # Many2one database ids (from /.id columns): check they exist with one
+    # query per comodel instead of one call per row
+    ids_by_model: dict[str, set[int]] = defaultdict(set)
+    for row in rows:
+        for field_name, value in row.items():
+            field = field_info.get(field_name)
+            if field is None or field.type != "many2one":
+                continue
+            if isinstance(value, float) and value.is_integer():
+                value = int(value)
+            if isinstance(value, int) and not isinstance(value, bool):
+                ids_by_model[field.comodel_name].add(value)
+    if ids_by_model:
+        exists_cache = ref_map.setdefault(_EXISTS_CACHE, {})
+        for comodel, ids in ids_by_model.items():
+            try:
+                alive = backend.existing_ids(comodel, sorted(ids))
+            except TransportError:
+                raise
+            except Exception:  # noqa: BLE001 - checked per row instead
+                # e.g. no read access on the comodel: each row then checks its
+                # own id and fails alone, as without the prefetch
+                continue
+            exists_cache[comodel] = (ids, alive)
     for target_model, ext_ids in refs_by_model.items():
         parsed = [(normalize_ext_id(x), x) for x in ext_ids]
         names = [p[0][1] for p in parsed]
@@ -282,7 +318,7 @@ def resolve_row(
                 # Integer value = database ID (from a /.id mapping, or a cell
                 # already coerced server-side). Accept for all models — the
                 # user explicitly opted in by using the /.id suffix.
-                if not backend.browse_exists(field.comodel_name, value):
+                if not _record_exists(backend, field.comodel_name, value, ref_map):
                     raise ValueError(
                         f"Record {value} not found in {field.comodel_name}"
                     )

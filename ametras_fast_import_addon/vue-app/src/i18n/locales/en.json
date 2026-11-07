@@ -141,6 +141,8 @@
     "skipHeader": "Skip header row",
     "dryRun": "Dry run (validate only)",
     "autoValidate": "Auto-validate after import",
+    "batchWrite": "Write in batches",
+    "batchWriteHelp": "Writes each batch with a few server calls instead of one call per row, which makes large imports much faster. Turn it off if an import behaves differently than expected.",
     "language": "Language",
     "langPlaceholder": "e.g. de_DE",
     "summary": {

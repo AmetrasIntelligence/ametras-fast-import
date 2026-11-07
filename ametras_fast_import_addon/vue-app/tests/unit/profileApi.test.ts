@@ -107,6 +107,28 @@ describe('profileApi', () => {
       expect(profile.name).toBe('Full Profile')
       expect(profile.mappings).toHaveLength(1)
       expect(profile.runSettings.batchSize).toBe(100)
+      expect(profile.runSettings.batchWrite).toBe(false)
+    })
+
+    it('reads the batched write setting of a profile', async () => {
+      await setupSession()
+
+      mockApi.odoo.call.mockResolvedValue({
+        ok: true,
+        result: {
+          id: 43,
+          name: 'Batched',
+          mappings: [],
+          sequence: [],
+          run_settings: { batchSize: '200', batchWrite: 'true' },
+          field_mappings: []
+        }
+      })
+
+      const { fetchProfile } = await import('@/api/profileApi')
+      const profile = await fetchProfile(43)
+
+      expect(profile.runSettings.batchWrite).toBe(true)
     })
   })
 

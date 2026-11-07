@@ -664,6 +664,7 @@ async function runPythonImport() {
         strict: mapping.strict || false,
         batch_size: config.settings.batchSize || 200,
         workers: config.settings.standaloneWorkers || 4,
+        batch_write: config.settings.batchWrite || false,
         lang: platform.capabilities.lang ? config.settings.lang : undefined,
         delimiter: config.settings.delimiter || ',',
         encoding: config.settings.encoding || 'utf-8',

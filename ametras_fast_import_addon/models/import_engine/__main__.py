@@ -114,6 +114,9 @@ def _handle_import(cmd: dict) -> None:
             dry_run=cmd.get("dry_run", False),
             strict=cmd.get("strict", False),
             batch_size=cmd.get("batch_size", DEFAULT_BATCH_SIZE),
+            # "batch_write": write each batch with few calls instead of one
+            # create/write per row (off unless the profile switches it on)
+            batch_write=bool(cmd.get("batch_write", False)),
         )
 
         options = ParseOptions(

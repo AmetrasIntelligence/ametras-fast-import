@@ -119,6 +119,19 @@ function updateSetting(key: string, value: unknown) {
         <span v-if="isSettingOverridden('autoValidate')" class="csv-override-indicator">*</span>
       </label>
     </div>
+    <div class="d-flex align-items-center gap-2 pt-4">
+      <input
+        id="pe-batchWrite"
+        :checked="effectiveRunSettings.batchWrite"
+        type="checkbox"
+        class="form-check-input"
+        @change="updateSetting('batchWrite', ($event.target as HTMLInputElement).checked)"
+      />
+      <label for="pe-batchWrite" class="form-check-label small" :title="$t('settings.batchWriteHelp')">
+        {{ $t('settings.batchWrite') }}
+        <span v-if="isSettingOverridden('batchWrite')" class="csv-override-indicator">*</span>
+      </label>
+    </div>
   </div>
   <div class="row row-cols-1 row-cols-sm-2 g-3 mt-1">
     <div>

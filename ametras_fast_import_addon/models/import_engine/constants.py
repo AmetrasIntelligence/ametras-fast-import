@@ -17,6 +17,21 @@ MIN_WORKERS = 1
 # workers until the server saturates. Capped at 8 to bound DB lock contention
 # (the parallel path has no adaptive backpressure — see importer.py).
 MAX_WORKERS = 8
+# Row errors of a batched create that lost its connection to Odoo. The server
+# may have finished the call, so the rows are not sent again.
+CREATE_LOST_MESSAGE = (
+    "The connection to Odoo was lost while this record was being created. "
+    "It may have been created anyway: check it in Odoo before you import this "
+    "row again."
+)
+XMLID_LOST_MESSAGE = (
+    "The record was created, but the connection to Odoo was lost while its "
+    "external ID was being saved. Check the external ID in Odoo before you "
+    "import this row again."
+)
+# Slots of the table that keeps every record on the lane of its first row in
+# parallel imports (one byte per slot).
+LANE_TABLE_SIZE = 1 << 23
 
 # ---------------------------------------------------------------------------
 # Retry / resilience

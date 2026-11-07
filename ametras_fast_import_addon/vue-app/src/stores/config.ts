@@ -12,6 +12,8 @@ export interface RunSettings {
   standaloneWorkers: number
   /** After import, read records back and verify they match what was intended. Embedded mode only. */
   autoValidate: boolean
+  /** Write each batch with few server calls instead of one call per row. Standalone (Electron) only. */
+  batchWrite: boolean
 }
 
 export interface FileMapping {
@@ -42,7 +44,9 @@ export const DEFAULT_RUN_SETTINGS: RunSettings = {
   // ran regardless of this setting before it was wired through. Max is 8.
   standaloneWorkers: 4,
   // Opt-in: off by default (adds read-back round-trips after the import).
-  autoValidate: false
+  autoValidate: false,
+  // Opt-in until it has been tried on customer data; switched on per profile.
+  batchWrite: false
 }
 
 export const useConfigStore = defineStore('config', () => {
