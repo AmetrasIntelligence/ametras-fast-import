@@ -16,6 +16,7 @@ import os
 import sys
 import threading
 import unittest
+import unittest.mock
 import xmlrpc.client
 from unittest.mock import MagicMock
 
@@ -24,20 +25,71 @@ if _engine_path not in sys.path:
     sys.path.insert(0, os.path.abspath(_engine_path))
 
 from import_engine.backend import RpcBackend  # noqa: E402
-from import_engine.constants import (  # noqa: E402
-    SERIALIZATION_RETRY_MAX_ATTEMPTS,
-)
+from import_engine.constants import SERIALIZATION_RETRY_MAX_ATTEMPTS  # noqa: E402
 
 SERIALIZATION_FAULT = xmlrpc.client.Fault(
     2,
     "psycopg2.errors.SerializationFailure: could not serialize access "
     "due to concurrent update",
 )
-DEADLOCK_FAULT = xmlrpc.client.Fault(2, "psycopg2.errors.DeadlockDetected: deadlock detected")
+DEADLOCK_FAULT = xmlrpc.client.Fault(
+    2, "psycopg2.errors.DeadlockDetected: deadlock detected"
+)
 GERMAN_SERIALIZATION_FAULT = xmlrpc.client.Fault(
     2, "konnte Zugriff nicht serialisieren wegen gleichzeitiger Aktualisierung"
 )
 BUSINESS_FAULT = xmlrpc.client.Fault(2, "ValidationError: Field X is required")
+
+
+class TestBatchedCreateIsNeverSentTwice(unittest.TestCase):
+    """A batched create that times out may have run on the server: sending it
+    again would create every record of the batch a second time."""
+
+    def _backend(self):
+        backend = RpcBackend("http://localhost:8069", "db", 2, "pw")
+        backend._cancellable_sleep = lambda delay: None
+        proxy = MagicMock()
+        backend._get_proxy = lambda: proxy
+        return backend, proxy
+
+    def test_create_many_timeout_raises_without_resend(self):
+        import socket
+
+        from import_engine.backend import TransportError
+
+        backend, proxy = self._backend()
+        proxy.execute_kw.side_effect = socket.timeout(
+            "Simulated timeout of a batched create"
+        )
+        with self.assertRaisesRegex(TransportError, "not sent again"):
+            backend.create_many("product.template", [{"name": "A"}, {"name": "B"}])
+        self.assertEqual(
+            proxy.execute_kw.call_count, 1, msg="The batched create must be sent once"
+        )
+
+    def test_create_many_retries_a_refused_connection(self):
+        """A refused connection never reached the server: retrying is safe."""
+        backend, proxy = self._backend()
+        proxy.execute_kw.side_effect = [
+            ConnectionRefusedError("Simulated refused connection"),
+            [11, 12],
+        ]
+        with unittest.mock.patch("import_engine.backend._time.sleep"):
+            ids = backend.create_many(
+                "product.template", [{"name": "A"}, {"name": "B"}]
+            )
+        self.assertEqual(ids, [11, 12])
+        self.assertEqual(proxy.execute_kw.call_count, 2)
+
+    def test_single_create_still_retries_on_timeout(self):
+        import socket
+
+        backend, proxy = self._backend()
+        backend.timeout = 1
+        proxy.execute_kw.side_effect = [socket.timeout("Simulated timeout"), 42]
+        with unittest.mock.patch("import_engine.backend._time.sleep"):
+            self.assertEqual(backend.create("product.template", {"name": "A"}), 42)
+        self.assertEqual(proxy.execute_kw.call_count, 2)
 
 
 class TestSerializationRetry(unittest.TestCase):

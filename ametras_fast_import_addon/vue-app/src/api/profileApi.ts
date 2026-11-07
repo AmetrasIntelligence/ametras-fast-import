@@ -30,6 +30,7 @@ function toImportProfile(data: ProfileFullData): ImportProfile {
       skipHeader: runSettings.skipHeader !== 'false',
       dryRun: runSettings.dryRun === 'true',
       autoValidate: runSettings.autoValidate === 'true',
+      batchWrite: runSettings.batchWrite === 'true',
       lang: (runSettings.lang as string) || DEFAULT_RUN_SETTINGS.lang,
       standaloneWorkers: DEFAULT_RUN_SETTINGS.standaloneWorkers
     },
@@ -190,6 +191,7 @@ function toBackendRunSettings(runSettings: Partial<RunSettings>): Record<string,
   if (runSettings.skipHeader !== undefined) result.skipHeader = String(runSettings.skipHeader)
   if (runSettings.dryRun !== undefined) result.dryRun = String(runSettings.dryRun)
   if (runSettings.autoValidate !== undefined) result.autoValidate = String(runSettings.autoValidate)
+  if (runSettings.batchWrite !== undefined) result.batchWrite = String(runSettings.batchWrite)
   if (runSettings.lang !== undefined) result.lang = runSettings.lang
   // Note: 'standaloneWorkers' is intentionally omitted - runtime-only, not stored in profiles
   return result

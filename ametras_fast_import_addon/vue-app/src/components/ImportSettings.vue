@@ -163,6 +163,16 @@ onMounted(async () => {
         />
         <label for="autoValidate" class="form-check-label small">{{ $t('settings.autoValidate') }}</label>
       </div>
+      <div v-if="!session.isEmbedded" class="d-flex align-items-center gap-2 pt-4">
+        <input
+          id="batchWrite"
+          :checked="config.settings.batchWrite"
+          type="checkbox"
+          class="form-check-input"
+          @change="config.setSettings({ batchWrite: ($event.target as HTMLInputElement).checked })"
+        />
+        <label for="batchWrite" class="form-check-label small" :title="$t('settings.batchWriteHelp')">{{ $t('settings.batchWrite') }}</label>
+      </div>
       <div>
         <label class="form-label small text-body-secondary mb-1">{{ $t('settings.language') }}</label>
         <!-- Dropdown of installed languages; manual code entry if none could be fetched. -->

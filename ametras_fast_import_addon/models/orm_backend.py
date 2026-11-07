@@ -77,3 +77,25 @@ class OrmBackend(OdooBackend):
 
     def browse_exists(self, model, record_id):
         return bool(self.env[model].browse(record_id).exists())
+
+    def existing_ids(self, model, record_ids):
+        return set(self.env[model].browse(list(record_ids)).exists().ids)
+
+    def create_many(self, model, vals_list):
+        return self.env[model].with_context(**IMPORT_CALL_CONTEXT).create(vals_list).ids
+
+    supports_load = True
+    # one transaction for the whole import: see Importer._create_group
+    transactional = True
+
+    def load(self, model, fields, rows, context):
+        result = self.env[model].with_context(**context).load(fields, rows)
+        if result.get("ids") is False:
+            # load() rolled its writes back in the database but not in the
+            # cache: without this, a second load() of the same values would
+            # see them as stored and write nothing
+            self.env.invalidate_all()
+        return result
+
+    def after_rollback(self):
+        self.env.invalidate_all()

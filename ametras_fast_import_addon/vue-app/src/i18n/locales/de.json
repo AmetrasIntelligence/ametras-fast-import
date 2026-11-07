@@ -141,6 +141,8 @@
     "skipHeader": "Kopfzeile überspringen",
     "dryRun": "Probelauf (nur validieren)",
     "autoValidate": "Nach dem Import automatisch validieren",
+    "batchWrite": "In Paketen schreiben",
+    "batchWriteHelp": "Schreibt jedes Paket mit wenigen Serveraufrufen statt einem Aufruf pro Zeile. Große Importe laufen damit deutlich schneller. Schalten Sie die Option aus, wenn sich ein Import anders verhält als erwartet.",
     "language": "Sprache",
     "langPlaceholder": "z.B. de_DE",
     "summary": {

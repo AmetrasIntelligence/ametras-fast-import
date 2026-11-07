@@ -537,7 +537,7 @@ ipcMain.handle('python:import', async (_event, payload: {
   use_external_id?: boolean; search_keys?: string[]
   dry_run?: boolean; strict?: boolean
   batch_size?: number; delimiter?: string; encoding?: string
-  has_header?: boolean
+  has_header?: boolean; batch_write?: boolean
 }) => {
   try {
     await ensurePythonStarted()

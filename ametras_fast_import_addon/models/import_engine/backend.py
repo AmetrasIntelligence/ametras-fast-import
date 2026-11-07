@@ -148,6 +148,43 @@ class OdooBackend(ABC):
         result = self.search(model, [("id", "=", record_id)], limit=1)
         return len(result) > 0
 
+    def existing_ids(self, model: str, record_ids: list[int]) -> set[int]:
+        """The ids of record_ids that browse_exists accepts.
+
+        Default: browse_exists per id. RpcBackend and OrmBackend answer with
+        one call for all ids.
+        """
+        return {rid for rid in record_ids if self.browse_exists(model, rid)}
+
+    def create_many(self, model: str, vals_list: list[dict]) -> list[int]:
+        """Create several records, return their ids in order.
+
+        Default: create() per record. RpcBackend and OrmBackend send one
+        create() with the list, which Odoo runs as the same create().
+        """
+        return [self.create(model, vals) for vals in vals_list]
+
+    def after_rollback(self) -> None:
+        """Called after a batched write was rolled back to a savepoint.
+        Default: nothing (RPC keeps no cache). OrmBackend drops the cache."""
+
+    supports_load = False
+    # True when all calls run in one database transaction (addon mode)
+    transactional = False
+    # True when every load() call is its own server transaction, so a
+    # serialization failure reported by load() can be retried by sending the
+    # call again.
+    load_conflicts_retryable = False
+
+    def load(self, model: str, fields: list[str], rows: list[list[str]], context: dict):
+        """Run Odoo's load() on a matrix of text cells.
+
+        Returns load()'s result: {"ids": [...] | False, "messages": [...]}.
+        Backends that cannot call load() keep supports_load False; the
+        importer then writes row by row.
+        """
+        raise NotImplementedError
+
 
 def _make_ssl_context(verify: bool) -> ssl.SSLContext | None:
     """Return an SSL context for HTTPS connections.
@@ -331,7 +368,12 @@ class RpcBackend(OdooBackend):
         return False
 
     def _call(
-        self, model: str, method: str, args: list, kwargs: dict | None = None
+        self,
+        model: str,
+        method: str,
+        args: list,
+        kwargs: dict | None = None,
+        resend: bool = True,
     ) -> Any:
         """
         Execute an XML-RPC call with timeout, retry, and reconnect wait.
@@ -374,6 +416,13 @@ class RpcBackend(OdooBackend):
                 OSError,
             ) as e:
                 last_error = e
+                if not resend and not isinstance(e, ConnectionRefusedError):
+                    # The server may have run the call: sending it again could
+                    # write twice (see create_many). A refused connection never
+                    # reached the server and is retried as usual.
+                    raise TransportError(
+                        f"RPC {model}.{method} failed and is not sent again: {e}"
+                    ) from e
                 if attempt < self.max_retries - 1:
                     delay = (attempt + 1) * RPC_RETRY_BACKOFF_MULTIPLIER
                     _logger.warning(
@@ -518,6 +567,32 @@ class RpcBackend(OdooBackend):
     def browse_exists(self, model: str, record_id: int) -> bool:
         ids = self._call(model, "search", [[("id", "=", record_id)]], {"limit": 1})
         return len(ids) > 0
+
+    def existing_ids(self, model: str, record_ids: list[int]) -> set[int]:
+        # same rule as browse_exists (a search), for all ids in one call
+        if not record_ids:
+            return set()
+        return set(self._call(model, "search", [[("id", "in", list(record_ids))]], {}))
+
+    def create_many(self, model: str, vals_list: list[dict]) -> list[int]:
+        if not vals_list:
+            return []
+        # Never sent again after a timeout or a lost connection: the server may
+        # have created the records already, and a new call would create the
+        # whole list a second time.
+        return self._call(
+            model,
+            "create",
+            [vals_list],
+            {"context": dict(IMPORT_CALL_CONTEXT)},
+            resend=False,
+        )
+
+    supports_load = True
+    load_conflicts_retryable = True
+
+    def load(self, model: str, fields: list[str], rows: list[list[str]], context: dict):
+        return self._call(model, "load", [fields, rows], {"context": dict(context)})
 
     @classmethod
     def authenticate(

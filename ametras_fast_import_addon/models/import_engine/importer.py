@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import threading
 import time as _time
+import zlib
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace as dc_replace
@@ -22,11 +23,13 @@ from typing import Callable, Iterator
 
 from .backend import FieldInfo, OdooBackend, TransportError
 from .constants import (
+    CREATE_LOST_MESSAGE,
     DEFAULT_BATCH_SIZE,
     DEFAULT_IMPORT_MODULE,
     FIELD_EXTERNAL_ID,
     FIELD_ID,
     FIELD_OPERATION,
+    LANE_TABLE_SIZE,
     MAX_WORKERS,
     MIN_WORKERS,
     MODEL_IR_MODEL_DATA,
@@ -39,6 +42,9 @@ from .constants import (
     OP_CREATE,
     OP_SKIP,
     OP_UPDATE,
+    SERIALIZATION_RETRY_BASE_DELAY,
+    SERIALIZATION_RETRY_MAX_ATTEMPTS,
+    SERIALIZATION_RETRY_MAX_DELAY,
     STANDALONE_POST_TIMEOUT_SUCCESS_THRESHOLD,
     STANDALONE_TIMEOUT_RETRY_BUDGET_SECONDS,
     STRATEGY_CREATE,
@@ -49,6 +55,17 @@ from .constants import (
     TIMEOUT_RETRY_BASE_DELAY,
     TIMEOUT_RETRY_MAX_DELAY,
     VALID_OPERATIONS,
+    XMLID_LOST_MESSAGE,
+)
+from .load_batch import (
+    BATCH_UPDATE_MODELS,
+    BULK_SEARCH_KEY_TYPES,
+    LOAD_CONTEXT,
+    ROW_BY_ROW,
+    NotBatchable,
+    is_concurrency_message,
+    load_cell,
+    load_errors,
 )
 from .parser import (
     ParsedRow,
@@ -58,7 +75,7 @@ from .parser import (
     parse_csv_file,
 )
 from .progress import NullReporter, ProgressReporter
-from .resolver import prefetch_references, resolve_row
+from .resolver import _NAME_CACHE, prefetch_references, resolve_row
 from .transformer import transform_row_data
 from .validator import ValidationMismatch, ValidationReport, is_empty, values_match
 
@@ -80,6 +97,10 @@ class ImportConfig:
     dry_run: bool = False
     strict: bool = False
     batch_size: int = DEFAULT_BATCH_SIZE
+    # Write each batch with few calls (one create() for new records, load()
+    # for updates of some models, see _import_batched) instead of one
+    # create/write per row. Off by default: switched on per profile.
+    batch_write: bool = False
 
 
 @dataclass
@@ -134,6 +155,8 @@ class Importer:
         cancel_check: Callable[[], bool] | None = None,
     ):
         self.backend = backend
+        # batched creates that lost their connection (see _create_group)
+        self._create_timeouts = 0
         self.config = config
         self.reporter = reporter or NullReporter()
         self.cancel_check = cancel_check
@@ -198,7 +221,16 @@ class Importer:
                 RowResult(ok=False, row_index=t[0], error=str(e)) for t in transformed
             ]
 
-        # 3. Import row by row with savepoints
+        # 3. Import: batched through load() where the backend and the run allow
+        #    it, otherwise row by row with savepoints
+        if self._batch_write_enabled():
+            results = self._import_batched(transformed, field_info, ref_map)
+            for result in results:
+                self.reporter.row_completed(
+                    result.row_index, result.ok, result.error or ""
+                )
+            return transform_errors + results
+
         results: list[RowResult] = []
         for row_index, row_data in transformed:
             result = self._import_single_row_safe(
@@ -210,6 +242,605 @@ class Importer:
         # Transform-failed rows are part of this batch's results so callers
         # count them as failures (never silently dropped).
         return transform_errors + results
+
+    # -------------------------------------------------------------------------
+    # Batched writes
+    # -------------------------------------------------------------------------
+
+    def _batch_write_enabled(self) -> bool:
+        """Batched writes need a backend that can write batches and a plain run.
+
+        Dry runs and strict mode keep the row-by-row write: both depend on
+        per-row savepoints and per-row lookups.
+        """
+        return (
+            self.config.batch_write
+            and getattr(self.backend, "supports_load", False)
+            and not self.config.dry_run
+            and not self.config.strict
+        )
+
+    def _import_batched(
+        self,
+        transformed: list[tuple[int, dict]],
+        field_info: dict[str, FieldInfo],
+        ref_map: dict,
+    ) -> list[RowResult]:
+        """Import transformed rows with as few calls as possible.
+
+        The rows are resolved exactly as for a row-by-row import and collected,
+        in file order, into steps of rows that write distinct records. A step
+        is written before the next row joins when
+
+        - the next row carries an identifier (external ID, search key values,
+          database ID) a collected row carries, so the lookup before each step
+          sees every record an earlier row created or changed;
+        - the next row has an explicit operation: it is written row by row;
+        - the next row cannot be resolved yet (see _resolve_for_batch).
+        """
+        results: dict[int, RowResult] = {}
+        current: list[tuple[int, dict, dict]] = []
+        claimed: set[str] = set()
+
+        def write_current():
+            nonlocal current, claimed
+            if current:
+                for result in self._write_step(current, field_info, ref_map):
+                    results[result.row_index] = result
+            current, claimed = [], set()
+
+        for row_index, row_data in transformed:
+            if current and self._names_record_of_import_model(row_data, field_info):
+                # Row by row, a reference by name sees the records the rows
+                # above created (a second company of the same name makes it
+                # ambiguous): write those rows before resolving this one.
+                write_current()
+            try:
+                resolved = self._resolve_for_batch(
+                    row_data, field_info, ref_map, bool(current), write_current
+                )
+            except TransportError:
+                raise
+            except Exception as e:  # same per-row failure as the row path
+                results[row_index] = RowResult(
+                    ok=False, row_index=row_index, error=str(e)
+                )
+                continue
+            if FIELD_OPERATION in resolved:
+                write_current()
+                results[row_index] = self._import_single_row_safe(
+                    row_index, row_data, field_info, ref_map
+                )
+                continue
+            # Identities of the resolved row: a reference written by name in one
+            # row and by external ID in another is the same id here.
+            identities = self._mapped_row_identities(resolved)
+            if identities & claimed:
+                write_current()
+            current.append((row_index, row_data, resolved))
+            claimed |= identities
+            if self._search_keys_read_by_server(resolved):
+                # The server reads such a key ("1", "1.0", "2026-3-1") in ways
+                # the identities cannot compare: the row is its own step, so
+                # the lookup of the next row sees what it created.
+                write_current()
+        write_current()
+
+        return [results[idx] for idx, _data in transformed if idx in results]
+
+    def _names_record_of_import_model(
+        self, row_data: dict, field_info: dict[str, FieldInfo]
+    ) -> bool:
+        """True when the row references a record of the imported model by
+        text (name or external ID), which earlier rows may have created."""
+        for name, value in row_data.items():
+            info = field_info.get(name)
+            if (
+                info is not None
+                and info.type in ("many2one", "many2many")
+                and info.comodel_name == self.config.model
+                and isinstance(value, str)
+                and value.strip()
+            ):
+                return True
+        return False
+
+    def _search_keys_read_by_server(self, resolved: dict) -> bool:
+        """True when the row has complete search keys of a type the bulk lookup
+        leaves to the server's "=" (numbers, dates, ...)."""
+        keys = self.config.search_keys or []
+        if not keys or not all(resolved.get(k) not in (None, "") for k in keys):
+            return False
+        field_info = self._get_field_info()
+        return not all(
+            getattr(field_info.get(k), "type", None) in BULK_SEARCH_KEY_TYPES
+            for k in keys
+        )
+
+    def _resolve_for_batch(
+        self,
+        row_data: dict,
+        field_info: dict[str, FieldInfo],
+        ref_map: dict,
+        has_pending: bool,
+        write_pending: Callable[[], None],
+    ) -> dict:
+        """resolve_row, with the rows collected so far written first on a miss.
+
+        Row by row, every row is resolved after the rows before it are
+        written, so a reference by name to a record an earlier row creates
+        (a contact naming its company) is found. When resolving fails while
+        rows are still waiting to be written, those rows are written and the
+        row is resolved once more, which gives the same outcome.
+        """
+        name_cache = ref_map.setdefault(_NAME_CACHE, {})
+        known = len(name_cache)
+        try:
+            return resolve_row(
+                self.backend, self.config.model, field_info, row_data, ref_map
+            )[0]
+        except TransportError:
+            raise
+        except Exception:
+            if not has_pending:
+                raise
+        write_pending()
+        # Forget the misses this attempt cached (dicts keep insertion order, so
+        # they are the entries after `known`); misses of earlier rows stay,
+        # exactly as row by row.
+        for key in list(name_cache)[known:]:
+            if name_cache[key] is None:
+                del name_cache[key]
+        return resolve_row(
+            self.backend, self.config.model, field_info, row_data, ref_map
+        )[0]
+
+    def _write_step(
+        self,
+        rows: list[tuple[int, dict, dict]],
+        field_info: dict[str, FieldInfo],
+        ref_map: dict,
+    ) -> list[RowResult]:
+        """Look up the records of one step and write it.
+
+        New records are created with one create() call for the whole step, in
+        file order. Updates go through load() for the models in
+        BATCH_UPDATE_MODELS (grouped by their columns); on other models, and
+        for values without a load() form, each update is written row by row.
+        When the bulk lookup itself fails, the step is written row by row, so
+        every row gets the outcome it gets today.
+        """
+        try:
+            found = self._lookup_records([resolved for _i, _d, resolved in rows])
+        except TransportError:
+            raise
+        except Exception:
+            return self._rows_one_by_one(rows, field_info, ref_map)
+
+        # Two rows of this step may still reach the same record through
+        # different identifiers (a database ID and search key values). Write
+        # the rows before the second one first, then look the rest up again.
+        seen: set[int] = set()
+        for pos, (record_id, _strategy) in enumerate(found):
+            if record_id and record_id is not ROW_BY_ROW:
+                if record_id in seen:
+                    return self._write_found(
+                        rows[:pos], found[:pos], field_info, ref_map
+                    ) + self._write_step(rows[pos:], field_info, ref_map)
+                seen.add(record_id)
+        return self._write_found(rows, found, field_info, ref_map)
+
+    def _rows_one_by_one(self, rows, field_info, ref_map) -> list[RowResult]:
+        return [
+            self._import_single_row_safe(row_index, row_data, field_info, ref_map)
+            for row_index, row_data, _resolved in rows
+        ]
+
+    def _write_found(
+        self,
+        rows: list[tuple[int, dict, dict]],
+        found: list[tuple],
+        field_info: dict[str, FieldInfo],
+        ref_map: dict,
+    ) -> list[RowResult]:
+        model = self.config.model
+        results: list[RowResult] = []
+        creates: list[tuple[int, dict, dict, str | None, RowResult]] = []
+        updates: dict[tuple, list[tuple[int, dict, list[str], RowResult]]] = {}
+        update_by_load = model in BATCH_UPDATE_MODELS
+
+        for (row_index, row_data, resolved), (record_id, strategy) in zip(
+            rows, found, strict=True
+        ):
+            if record_id is ROW_BY_ROW:
+                results.append(
+                    self._import_single_row_safe(
+                        row_index, row_data, field_info, ref_map
+                    )
+                )
+                continue
+            row = dict(resolved)
+            external_id = row.pop(FIELD_EXTERNAL_ID, None)
+            db_id = row.pop(FIELD_ID, None)
+            if not record_id and db_id:
+                results.append(
+                    RowResult(
+                        ok=False,
+                        row_index=row_index,
+                        error="Record with .id=%s not found in %s" % (db_id, model),
+                    )
+                )
+                continue
+            if not record_id:
+                xmlid = None
+                if self.config.use_external_id and external_id:
+                    xmlid = (
+                        external_id
+                        if "." in external_id
+                        else f"{DEFAULT_IMPORT_MODULE}.{external_id}"
+                    )
+                outcome = RowResult(
+                    ok=True,
+                    row_index=row_index,
+                    external_id=external_id,
+                    action="created",
+                    strategy=STRATEGY_CREATE,
+                )
+                creates.append(
+                    (
+                        row_index,
+                        row_data,
+                        self._filter_writable(row, is_update=False),
+                        xmlid,
+                        outcome,
+                    )
+                )
+                continue
+            vals = self._filter_writable(row, is_update=True)
+            outcome = RowResult(
+                ok=True,
+                row_index=row_index,
+                record_id=record_id,
+                external_id=external_id,
+                action="updated",
+                strategy=strategy,
+            )
+            try:
+                if not update_by_load:
+                    raise NotBatchable(f"updates of {model} are written row by row")
+                columns, cells = [".id"], [str(record_id)]
+                for name in sorted(vals):
+                    column, cell = load_cell(field_info.get(name), name, vals[name])
+                    columns.append(column)
+                    cells.append(cell)
+            except NotBatchable:
+                results.append(
+                    self._import_single_row_safe(
+                        row_index, row_data, field_info, ref_map
+                    )
+                )
+                continue
+            updates.setdefault(tuple(columns), []).append(
+                (row_index, row_data, cells, outcome)
+            )
+
+        if creates:
+            results.extend(self._create_group(creates, field_info, ref_map))
+        for columns, group in updates.items():
+            results.extend(self._load_group(list(columns), group, field_info, ref_map))
+        return results
+
+    def _lookup_records(self, resolved_rows: list[dict]) -> list[tuple]:
+        """Find the existing record of each row with a few bulk reads.
+
+        Same identifiers and the same order as _resolve_record: external ID,
+        then complete search keys, then database ID. A row whose lookup the
+        bulk reads cannot answer exactly as _resolve_record does gets
+        ROW_BY_ROW and is written row by row.
+        """
+        model = self.config.model
+        found: list[tuple] = [(None, None)] * len(resolved_rows)
+
+        # external IDs
+        if self.config.use_external_id:
+            wanted: dict[tuple[str, str], list[int]] = {}
+            for pos, row in enumerate(resolved_rows):
+                external_id = row.get(FIELD_EXTERNAL_ID)
+                if not external_id:
+                    continue
+                if "." not in external_id:
+                    external_id = f"{DEFAULT_IMPORT_MODULE}.{external_id}"
+                module, name = external_id.split(".", 1)
+                wanted.setdefault((module, name), []).append(pos)
+            if wanted:
+                hits = self.backend.search_read(
+                    MODEL_IR_MODEL_DATA,
+                    [
+                        ("module", "in", sorted({m for m, _n in wanted})),
+                        ("name", "in", sorted({n for _m, n in wanted})),
+                        ("model", "=", model),
+                    ],
+                    ["module", "name", "res_id"],
+                )
+                by_key = {(h["module"], h["name"]): h["res_id"] for h in hits}
+                alive = self.backend.existing_ids(model, list(by_key.values()))
+                for key, positions in wanted.items():
+                    if key not in by_key:
+                        continue
+                    res_id = by_key[key]
+                    # An external ID whose record the lookup does not see (an
+                    # archived record over RPC) goes row by row, where it
+                    # keeps today's outcome.
+                    hit = (
+                        (res_id, STRATEGY_EXTERNAL_ID)
+                        if res_id in alive
+                        else (ROW_BY_ROW, None)
+                    )
+                    for pos in positions:
+                        found[pos] = hit
+
+        # search keys
+        keys = self.config.search_keys or []
+        if keys:
+            pending = [
+                pos
+                for pos, row in enumerate(resolved_rows)
+                if found[pos][0] is None
+                and all(k in row and row[k] != "" for k in keys)
+            ]
+            if pending:
+                for pos, record_id in self._find_many_by_search_keys(
+                    [resolved_rows[p] for p in pending]
+                ).items():
+                    found[pending[pos]] = (record_id, STRATEGY_SEARCH_KEYS)
+
+        # database IDs
+        pending = [
+            pos
+            for pos, row in enumerate(resolved_rows)
+            if found[pos][0] is None and row.get(FIELD_ID)
+        ]
+        if pending:
+            alive = self.backend.existing_ids(
+                model, [int(resolved_rows[p][FIELD_ID]) for p in pending]
+            )
+            for pos in pending:
+                db_id = int(resolved_rows[pos][FIELD_ID])
+                if db_id in alive:
+                    found[pos] = (db_id, STRATEGY_DB_ID)
+        return found
+
+    def _find_many_by_search_keys(self, rows: list[dict]) -> dict[int, int]:
+        """Position -> first matching record id, as _find_by_search_keys finds it.
+
+        Search keys on text, selection and many2one fields are matched with one
+        read; the values compare exactly as the server's "=" does. Keys of
+        other types (numbers, dates, ...) are searched row by row with "=", so
+        the server converts the value exactly as before.
+        """
+        keys = self.config.search_keys or []
+        field_info = self._get_field_info()
+        types = {k: getattr(field_info.get(k), "type", None) for k in keys}
+        if not all(t in BULK_SEARCH_KEY_TYPES for t in types.values()):
+            out = {}
+            for pos, row in enumerate(rows):
+                record_id = self._find_by_search_keys(row)
+                if record_id:
+                    out[pos] = record_id
+            return out
+
+        def norm(key, value):
+            if types[key] == "many2one":
+                if isinstance(value, (list, tuple)):
+                    value = value[0] if value else False
+                return value
+            return value if value is False else str(value)
+
+        if len(keys) == 1:
+            key = keys[0]
+            domain = [(key, "in", sorted({row[key] for row in rows}, key=str))]
+        else:
+            terms = [[(k, "=", row[k]) for k in keys] for row in rows]
+            domain = ["|"] * (len(terms) - 1)
+            for term in terms:
+                domain += ["&"] * (len(term) - 1) + term
+        hits = self.backend.search_read(self.config.model, domain, ["id"] + keys)
+        first: dict[tuple, int] = {}
+        for hit in hits:
+            values = tuple(norm(k, hit[k]) for k in keys)
+            first.setdefault(values, hit["id"])
+        out = {}
+        for pos, row in enumerate(rows):
+            values = tuple(norm(k, row[k]) for k in keys)
+            if values in first:
+                out[pos] = first[values]
+        return out
+
+    def _create_group(
+        self,
+        group: list[tuple[int, dict, dict, str | None, RowResult]],
+        field_info: dict[str, FieldInfo],
+        ref_map: dict,
+    ) -> list[RowResult]:
+        """create() the new records of a step in one call, in file order, then
+        their external IDs in one call; on an error halve the group until the
+        failing rows are found and write those row by row."""
+        model = self.config.model
+        # In addon mode (one transaction) the records and their external IDs
+        # are created in one savepoint, as one row-by-row savepoint holds a
+        # record and its external ID; a failure rolls both back. Over RPC every
+        # call commits, so the external IDs follow in their own call.
+        transactional = getattr(self.backend, "transactional", False)
+
+        def xmlid_vals(xmlid_rows):
+            return [
+                {
+                    "module": x.split(".", 1)[0],
+                    "name": x.split(".", 1)[1],
+                    "model": model,
+                    "res_id": rid,
+                }
+                for x, rid, _o in xmlid_rows
+            ]
+
+        try:
+            with self.backend.savepoint():
+                ids = self.backend.create_many(
+                    model, [vals for _i, _d, vals, _x, _o in group]
+                )
+                xmlid_rows = [
+                    (xmlid, record_id, outcome)
+                    for (_i, _d, _v, xmlid, outcome), record_id in zip(
+                        group, ids, strict=True
+                    )
+                    if xmlid
+                ]
+                if transactional and xmlid_rows:
+                    self.backend.create_many(
+                        MODEL_IR_MODEL_DATA, xmlid_vals(xmlid_rows)
+                    )
+                self.backend.flush_all()
+        except TransportError:
+            # The server may have created the records before the connection
+            # was lost; sending the batch again could create them twice. The
+            # rows fail with a message to check them, and the sequential loop
+            # shrinks the next batches (see _import_sequential_with_retry).
+            self._create_timeouts += 1
+            return [
+                RowResult(ok=False, row_index=row_index, error=CREATE_LOST_MESSAGE)
+                for row_index, _d, _v, _x, _o in group
+            ]
+        except Exception:
+            self.backend.after_rollback()
+            if len(group) == 1:
+                row_index, row_data, _vals, _xmlid, _outcome = group[0]
+                return [
+                    self._import_single_row_safe(
+                        row_index, row_data, field_info, ref_map
+                    )
+                ]
+            middle = len(group) // 2
+            return self._create_group(
+                group[:middle], field_info, ref_map
+            ) + self._create_group(group[middle:], field_info, ref_map)
+
+        results = []
+        for (_i, _d, _vals, _xmlid, outcome), record_id in zip(group, ids, strict=True):
+            outcome.record_id = record_id
+            results.append(outcome)
+        if xmlid_rows and not transactional:
+            try:
+                self.backend.create_many(MODEL_IR_MODEL_DATA, xmlid_vals(xmlid_rows))
+            except TransportError:
+                for _xmlid, _record_id, outcome in xmlid_rows:
+                    outcome.ok = False
+                    outcome.error = XMLID_LOST_MESSAGE
+            except Exception:
+                # one by one, like the row-by-row write over RPC: a failing
+                # external ID fails its row, the record stays created
+                for xmlid, record_id, outcome in xmlid_rows:
+                    try:
+                        self._create_external_id(record_id, xmlid)
+                    except TransportError:
+                        raise
+                    except Exception as e:
+                        outcome.ok = False
+                        outcome.error = str(e)
+        return results
+
+    def _load_group(
+        self,
+        columns: list[str],
+        group: list[tuple[int, dict, list[str], RowResult]],
+        field_info: dict[str, FieldInfo],
+        ref_map: dict,
+        retry_conflicts: bool = True,
+    ) -> list[RowResult]:
+        """load() one group of updates; on an error halve it until the failing
+        rows are found, and write those row by row so they fail with today's
+        message. Conflicts are retried for the whole group only; its halves
+        go on without new retries (the row-by-row write retries again)."""
+        retries = (
+            SERIALIZATION_RETRY_MAX_ATTEMPTS
+            if retry_conflicts
+            and getattr(self.backend, "load_conflicts_retryable", False)
+            else 0
+        )
+        for attempt in range(retries + 1):
+            try:
+                result = self.backend.load(
+                    self.config.model,
+                    columns,
+                    [cells for _i, _d, cells, _o in group],
+                    LOAD_CONTEXT,
+                )
+            except TransportError:
+                raise
+            except Exception:  # Fault (already retried by the backend)
+                break
+            errors = load_errors(result)
+            if not errors:
+                return self._load_outcomes(group, result)
+            self.backend.after_rollback()
+            if not any(is_concurrency_message(m) for m in errors):
+                break
+            if attempt < retries:
+                self._backoff(attempt)
+        if len(group) == 1:
+            row_index, row_data, _cells, _outcome = group[0]
+            return [
+                self._import_single_row_safe(row_index, row_data, field_info, ref_map)
+            ]
+        middle = len(group) // 2
+        return self._load_group(
+            columns, group[:middle], field_info, ref_map, retry_conflicts=False
+        ) + self._load_group(
+            columns, group[middle:], field_info, ref_map, retry_conflicts=False
+        )
+
+    @staticmethod
+    def _load_outcomes(group, result) -> list[RowResult]:
+        """Row results of a load() call that reported no error.
+
+        load() skips a row it only warns about (no id, nothing rolled back).
+        Such rows are matched through the row numbers of the warnings and fail
+        with the warning; when the ids cannot be matched to the rows, every
+        row fails and nothing is sent again (the other rows are written).
+        """
+        ids = result.get("ids") or []
+        skipped: dict[int, str] = {}
+        for message in result.get("messages", []):
+            rows = message.get("rows") or {}
+            if message.get("type") == "warning" and "from" in rows:
+                for i in range(rows["from"], rows.get("to", rows["from"]) + 1):
+                    skipped[i] = str(message.get("message", ""))
+        if len(ids) != len(group) - len(skipped):
+            error = (
+                "The batch was written, but its result could not be matched to "
+                "the rows. Check these rows in Odoo."
+            )
+            return [
+                RowResult(ok=False, row_index=row_index, error=error)
+                for row_index, _d, _c, _o in group
+            ]
+        out = []
+        id_iter = iter(ids)
+        for i, (row_index, _d, _c, outcome) in enumerate(group):
+            if i in skipped:
+                out.append(RowResult(ok=False, row_index=row_index, error=skipped[i]))
+            else:
+                outcome.record_id = next(id_iter)
+                out.append(outcome)
+        return out
+
+    def _backoff(self, attempt: int) -> None:
+        delay = min(
+            SERIALIZATION_RETRY_BASE_DELAY * (2**attempt),
+            SERIALIZATION_RETRY_MAX_DELAY,
+        )
+        end = _time.monotonic() + delay
+        while _time.monotonic() < end and not self._is_cancelled():
+            _time.sleep(min(0.25, delay))
 
     def validate_rows(self, rows: list[ParsedRow]) -> ValidationReport:
         """Re-derive each row and check the DB stored what the import intended.
@@ -439,12 +1070,20 @@ class Importer:
 
                 parse_csv_batched(source, self.config.batch_size, process_batch)
         else:
-            # Parallel (RpcBackend): done callbacks process each batch's results
-            # immediately so only error RowResults accumulate in all_errors — the
-            # full result list is discarded inline rather than held until a second
-            # sequential drain pass.  sem.release() is called inside the callback
-            # (after results are consumed) so the semaphore bounds both raw data
-            # and result objects in memory simultaneously.
+            # Parallel (RpcBackend): every worker is a lane with one thread. A
+            # row goes to the lane of the first row that carried one of its
+            # identifiers (external ID, search key values, database ID), so rows
+            # naming a record the same way run one after the other in file
+            # order and the last of them wins. Rows that name one record only
+            # through different identifiers (one by external ID, another only
+            # by search key) cannot be matched before the lookup and may run on
+            # two lanes. Rows of records not seen before fill one lane's batch
+            # after the other.
+            #
+            # Done callbacks process each batch's results immediately so only
+            # error RowResults accumulate in all_errors. sem.release() is called
+            # inside the callback (after results are consumed) so the semaphore
+            # bounds both raw data and result objects in memory.
             lock = threading.Lock()
             sem = threading.Semaphore(workers + 1)
 
@@ -477,15 +1116,57 @@ class Importer:
 
                 return _on_done
 
-            with ThreadPoolExecutor(max_workers=workers) as executor:
-                for batch in self._iter_batches(source, self.config.batch_size):
+            lanes = [ThreadPoolExecutor(max_workers=1) for _ in range(workers)]
+            buffers: list[list[ParsedRow]] = [[] for _ in range(workers)]
+
+            def _submit(lane: int) -> None:
+                batch = buffers[lane]
+                buffers[lane] = []
+                sem.acquire()  # blocks until a callback has freed a slot
+                future = lanes[lane].submit(self.import_rows, batch)
+                future.add_done_callback(_make_callback([r.index for r in batch]))
+
+            # Lane of every identity seen so far, in a fixed-size table indexed
+            # by a hash of the identity (lane + 1, 0 = not seen). A collision
+            # only sends a row to the lane of another record, which is safe.
+            lane_table = bytearray(LANE_TABLE_SIZE)
+            try:
+                chunk_lane, chunk_rows = 0, 0
+                for row in source:
                     if self._is_cancelled():
                         break
-                    sem.acquire()  # blocks until a callback has freed a slot
-                    future = executor.submit(self.import_rows, batch)
-                    future.add_done_callback(_make_callback([r.index for r in batch]))
-                # executor.__exit__ calls shutdown(wait=True):
-                # all pending callbacks complete before this block exits
+                    slots = [
+                        zlib.crc32(identity.encode("utf-8")) % LANE_TABLE_SIZE
+                        for identity in sorted(self._row_identities(row))
+                    ]
+                    known = [lane_table[slot] for slot in slots if lane_table[slot]]
+                    if known:
+                        lane = known[0] - 1
+                    else:
+                        # Rows of a record not seen before stay with their
+                        # neighbours: consecutive rows fill one lane's batch,
+                        # so a row that names a record created a few rows
+                        # above runs after it, as in one row-by-row batch.
+                        lane = chunk_lane
+                        chunk_rows += 1
+                        if chunk_rows >= self.config.batch_size:
+                            chunk_lane = (chunk_lane + 1) % workers
+                            chunk_rows = 0
+                    for slot in slots:
+                        if not lane_table[slot]:
+                            lane_table[slot] = lane + 1
+                    buffers[lane].append(row)
+                    if len(buffers[lane]) >= self.config.batch_size:
+                        _submit(lane)
+                if not self._is_cancelled():
+                    for lane in range(workers):
+                        if buffers[lane]:
+                            _submit(lane)
+            finally:
+                # shutdown(wait=True): all pending batches and their callbacks
+                # complete before the summary is built
+                for executor in lanes:
+                    executor.shutdown(wait=True)
 
         self.reporter.file_completed(filename, success, failed)
 
@@ -517,6 +1198,43 @@ class Importer:
     # -------------------------------------------------------------------------
     # Helpers
     # -------------------------------------------------------------------------
+
+    def _row_identities(self, row: ParsedRow) -> set[str]:
+        """Every identifier through which a row can reach an existing record.
+
+        The record lookup (_resolve_record) tries the external ID (when
+        external IDs are used), then the search key values, then the database
+        ID, so a row can reach its record through any of them. An external ID
+        without a module is the same as one with the default import module.
+        Rows that only create (no identifier) return an empty set.
+        """
+        try:
+            if self.config.field_mappings:
+                data = transform_row_data(row.data, self.config.field_mappings)
+            else:
+                data = dict(row.data)
+        except Exception:  # the row fails later in import_rows with its message
+            return set()
+        return self._mapped_row_identities(data)
+
+    def _mapped_row_identities(self, data: dict) -> set[str]:
+        """_row_identities for a row already mapped to Odoo field names."""
+        identities = set()
+        external_id = data.get(FIELD_EXTERNAL_ID)
+        if self.config.use_external_id and external_id:
+            external_id = str(external_id)
+            if "." not in external_id:
+                external_id = f"{DEFAULT_IMPORT_MODULE}.{external_id}"
+            identities.add(f"xmlid:{external_id}")
+        if self.config.search_keys and all(
+            data.get(key) not in (None, "") for key in self.config.search_keys
+        ):
+            values = tuple(str(data[key]) for key in self.config.search_keys)
+            identities.add(f"keys:{values!r}")
+        db_id = data.get(FIELD_ID)
+        if db_id not in (None, ""):
+            identities.add(f"id:{db_id}")
+        return identities
 
     @staticmethod
     def _iter_batches(
@@ -589,7 +1307,16 @@ class Importer:
                 batch = pending.popleft()
 
                 try:
+                    timeouts_before = self._create_timeouts
                     results = self.import_rows(batch)
+                    if self._create_timeouts > timeouts_before:
+                        # a batched create timed out: its rows failed (never
+                        # sent again), the next batches get smaller
+                        adapter.record_timeout(
+                            success_threshold_after_timeout=(
+                                STANDALONE_POST_TIMEOUT_SUCCESS_THRESHOLD
+                            )
+                        )
                     errs = [r for r in results if not r.ok]
                     all_errors.extend(errs)
                     success += len(results) - len(errs)

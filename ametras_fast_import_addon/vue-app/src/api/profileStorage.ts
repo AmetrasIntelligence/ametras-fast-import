@@ -107,6 +107,7 @@ export async function importStandaloneProfile(file: File): Promise<ImportProfile
         else if (key === 'skipHeader') runSettings.skipHeader = value !== 'false'
         else if (key === 'dryRun') runSettings.dryRun = value === 'true'
         else if (key === 'lang') runSettings.lang = value
+        else if (key === 'batchWrite') runSettings.batchWrite = value === 'true'
       }
     }
   }
