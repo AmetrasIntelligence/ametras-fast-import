@@ -8,6 +8,11 @@ on:
     tags: ['*']
   pull_request:
     branches: ['16.0', 'python-refactor']
+    # "labeled": adding the label full-ci starts the release tests on the PR
+    types: [opened, synchronize, reopened, labeled]
+  # Runs the release tests (Odoo, embedded and standalone e2e) on any branch
+  # without a tag; build and release stay tag-only.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -81,7 +86,10 @@ jobs:
       - run: cd ametras_fast_import_client && npm run typecheck
 
   test-e2e:
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moves to Ubuntu 26, where "playwright install
+    # --with-deps" of the Playwright version in use cannot install the browser
+    # dependencies.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -121,7 +129,11 @@ jobs:
     # Real ir.attachment upload + full import/logging tests (via the real
     # queue.job) against a live Odoo + DB, incl. per-field DB assertions and a
     # multi-language (de/en) translatable-field test. Release-gated.
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
+    # Release tests: on a tag, on a manual run, or on a PR labelled full-ci.
+    if: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
+      || github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'pull_request'
+          && contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -195,8 +207,15 @@ jobs:
     # Playwright against a LIVE embedded Odoo (real web client + controllers +
     # queue_job runner, so imports complete asynchronously for real).
     # Release-gated (validated on PR #14).
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
-    runs-on: ubuntu-latest
+    # Release tests: on a tag, on a manual run, or on a PR labelled full-ci.
+    if: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
+      || github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'pull_request'
+          && contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    # Pinned: ubuntu-latest moves to Ubuntu 26, where "playwright install
+    # --with-deps" of the Playwright version in use cannot install the browser
+    # dependencies.
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:15
@@ -323,8 +342,15 @@ jobs:
     # CSVs via the REAL bundled Python engine (multi-file regression). Analysis
     # is local, so no Odoo is needed — just system python3 + xvfb.
     # Release-gated (validated on PR #16).
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
-    runs-on: ubuntu-latest
+    # Release tests: on a tag, on a manual run, or on a PR labelled full-ci.
+    if: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
+      || github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'pull_request'
+          && contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    # Pinned: ubuntu-latest moves to Ubuntu 26, where "playwright install
+    # --with-deps" of the Playwright version in use cannot install the browser
+    # dependencies.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
