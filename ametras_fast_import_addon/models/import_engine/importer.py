@@ -225,10 +225,6 @@ class Importer:
         #    it, otherwise row by row with savepoints
         if self._batch_write_enabled():
             results = self._import_batched(transformed, field_info, ref_map)
-            for result in results:
-                self.reporter.row_completed(
-                    result.row_index, result.ok, result.error or ""
-                )
             return transform_errors + results
 
         results: list[RowResult] = []
@@ -282,11 +278,16 @@ class Importer:
         current: list[tuple[int, dict, dict]] = []
         claimed: set[str] = set()
 
+        def finish(result: RowResult) -> None:
+            # reported as each step lands, so a long batch shows it is alive
+            results[result.row_index] = result
+            self.reporter.row_completed(result.row_index, result.ok, result.error or "")
+
         def write_current():
             nonlocal current, claimed
             if current:
                 for result in self._write_step(current, field_info, ref_map):
-                    results[result.row_index] = result
+                    finish(result)
             current, claimed = [], set()
 
         for row_index, row_data in transformed:
@@ -302,14 +303,14 @@ class Importer:
             except TransportError:
                 raise
             except Exception as e:  # same per-row failure as the row path
-                results[row_index] = RowResult(
-                    ok=False, row_index=row_index, error=str(e)
-                )
+                finish(RowResult(ok=False, row_index=row_index, error=str(e)))
                 continue
             if FIELD_OPERATION in resolved:
                 write_current()
-                results[row_index] = self._import_single_row_safe(
-                    row_index, row_data, field_info, ref_map
+                finish(
+                    self._import_single_row_safe(
+                        row_index, row_data, field_info, ref_map
+                    )
                 )
                 continue
             # Identities of the resolved row: a reference written by name in one

@@ -531,14 +531,23 @@ function startNew() {
 
     <template v-else>
       <!-- Dry Run Banner -->
-      <div v-if="run.isDryRun" class="alert alert-warning mb-0">
+      <div v-if="run.isDryRun && !run.abortReason" class="alert alert-warning mb-0">
         {{ $t('results.dryRunBanner', { count: summary.totalRows.toLocaleString() }) }}
+      </div>
+
+      <!-- Run cancelled by the client (e.g. startup watchdog) -->
+      <div v-if="run.abortReason" class="alert alert-danger mb-0" role="alert">
+        {{ run.abortReason }}
       </div>
 
       <!-- Summary Card -->
       <Card class="p-4">
         <h2 class="fs-5 fw-semibold mb-3">
-          {{ run.isDryRun ? $t('results.dryRunComplete') : $t('results.importComplete') }}
+          {{
+            run.abortReason
+              ? $t('results.importCancelled')
+              : run.isDryRun ? $t('results.dryRunComplete') : $t('results.importComplete')
+          }}
         </h2>
 
         <div class="row row-cols-4 g-3">

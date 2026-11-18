@@ -72,6 +72,31 @@ describe('RunStore', () => {
       expect(store.errors).toEqual([])
       expect(store.isDryRun).toBe(true)
     })
+
+    it('clears the abort reason of the previous run', () => {
+      const store = useRunStore()
+      store.setAbortReason('Simulated startup timeout of the previous run')
+
+      store.initRun(['new.csv'], new Map([['new.csv', 5]]))
+
+      expect(store.abortReason).toBeNull()
+    })
+  })
+
+  describe('abortReason', () => {
+    it('starts empty', () => {
+      const store = useRunStore()
+      expect(store.abortReason).toBeNull()
+    })
+
+    it('keeps the reason a run was cancelled with until reset', () => {
+      const store = useRunStore()
+      store.setAbortReason('Simulated startup timeout')
+      expect(store.abortReason).toBe('Simulated startup timeout')
+
+      store.reset()
+      expect(store.abortReason).toBeNull()
+    })
   })
 
   describe('file progress', () => {

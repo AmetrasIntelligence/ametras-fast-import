@@ -222,7 +222,8 @@
     "forceAbort": "Force Abort",
     "fileProgress": "{completed} / {total} files",
     "tryAgain": "Try Again",
-    "startupTimeout": "Import startup timed out (90s). The server may be slow or a network call hung. Please try again.",
+    "startupTimeout": "The import showed no progress for 90 seconds and was cancelled. Rows imported before that may already be in the database: check them before you import the file again. If the server is slow, try a smaller batch size.",
+    "startupTimeoutDryRun": "The dry run showed no progress for 90 seconds and was cancelled. No data was written. If the server is slow, try a smaller batch size.",
     "retryNoMappings": "Cannot retry: no field mappings found for the failed files. Re-configure the import and try again.",
     "nothingImported": "Nothing was imported — {count} file(s) were skipped because they had no field mapping or could not be found. Re-check the configuration and try again.",
     "activityLog": "Activity Log",
@@ -235,6 +236,7 @@
   "results": {
     "dryRunComplete": "Dry Run Complete",
     "importComplete": "Import Complete",
+    "importCancelled": "Import Cancelled",
     "dryRunBanner": "Dry Run Complete — {count} rows validated, no data written.",
     "totalRows": "Total Rows",
     "successful": "Successful",

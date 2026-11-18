@@ -8,10 +8,12 @@ Two implementations:
 import json
 import sys
 import threading
+import time
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Callable, Optional
 
 from .constants import (
+    HEARTBEAT_INTERVAL_SECONDS,
     PROGRESS_TYPE_BATCH_ERRORS,
     PROGRESS_TYPE_CONNECTION_LOST,
     PROGRESS_TYPE_CONNECTION_RESTORED,
@@ -19,6 +21,7 @@ from .constants import (
     PROGRESS_TYPE_ERROR,
     PROGRESS_TYPE_FILE_DONE,
     PROGRESS_TYPE_FILE_START,
+    PROGRESS_TYPE_HEARTBEAT,
     PROGRESS_TYPE_NOTICE,
     PROGRESS_TYPE_PROGRESS,
 )
@@ -121,14 +124,26 @@ class JsonLinesReporter(ProgressReporter):
         {"type": "connection_lost", "message": "..."}
         {"type": "connection_restored", "message": "..."}
         {"type": "notice", "code": "...", "message": "...", "details": {...}}
+        {"type": "heartbeat", "rows": N}
+
+    A heartbeat says rows are still finishing while a batch runs; `rows` is
+    the number of rows finished so far in this process. It changes no counts:
+    only progress lines do.
     """
 
-    def __init__(self, stream: Optional[object] = None):
+    def __init__(
+        self,
+        stream: Optional[object] = None,
+        clock: Callable[[], float] = time.monotonic,
+    ):
         self._stream = stream or sys.stdout
         # Serialize writes: the parallel import path emits from worker threads
         # (batch_completed / emit_errors / rpc_retry notices), and interleaved
         # writes would corrupt the line-delimited JSON protocol.
         self._lock = threading.Lock()
+        self._clock = clock
+        self._rows_finished = 0
+        self._last_heartbeat: float | None = None
 
     def _emit(self, data: dict) -> None:
         line = json.dumps(data, ensure_ascii=False) + "\n"
@@ -137,7 +152,19 @@ class JsonLinesReporter(ProgressReporter):
             self._stream.flush()
 
     def row_completed(self, row_index: int, ok: bool, error: str = "") -> None:
-        pass  # Too noisy per-row; batch reporting is sufficient
+        # A line per row would flood the client; a heartbeat every few seconds
+        # is enough to show that a long batch is still moving.
+        with self._lock:
+            self._rows_finished += 1
+            now = self._clock()
+            if (
+                self._last_heartbeat is not None
+                and now - self._last_heartbeat < HEARTBEAT_INTERVAL_SECONDS
+            ):
+                return
+            self._last_heartbeat = now
+            rows = self._rows_finished
+        self._emit({"type": PROGRESS_TYPE_HEARTBEAT, "rows": rows})
 
     def batch_completed(
         self, processed: int, total: int, success: int, failed: int, batch_size: int = 0

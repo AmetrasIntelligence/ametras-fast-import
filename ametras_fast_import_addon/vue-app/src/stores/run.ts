@@ -73,6 +73,12 @@ export const useRunStore = defineStore('run', () => {
   const progressSamples = ref<ProgressSample[]>([])
   /** ISO timestamp of last server heartbeat. null before first poll. */
   const lastHeartbeat = ref<string | null>(null)
+  /**
+   * Why the client cancelled the run itself (e.g. the startup watchdog), shown
+   * on the results page. null when the run ended on its own or the user
+   * cancelled it.
+   */
+  const abortReason = ref<string | null>(null)
 
   /** Post-import validation (embedded mode). */
   const validationState = ref<ValidationState>('not_run')
@@ -241,6 +247,7 @@ export const useRunStore = defineStore('run', () => {
     errorKeys.clear()
     progressSamples.value = []
     runStartTime.value = Date.now()
+    abortReason.value = null
   }
 
   function startFile(filename: string) {
@@ -311,6 +318,10 @@ export const useRunStore = defineStore('run', () => {
     lastHeartbeat.value = ts
   }
 
+  function setAbortReason(reason: string | null) {
+    abortReason.value = reason
+  }
+
   function reset() {
     state.value = ImportState.IDLE
     isDryRun.value = false
@@ -328,6 +339,7 @@ export const useRunStore = defineStore('run', () => {
     errorKeys.clear()
     totalErrorsSeen.value = 0
     lastHeartbeat.value = null
+    abortReason.value = null
     progressSamples.value = []
     runStartTime.value = null
     isHistoricalLog.value = false
@@ -508,6 +520,7 @@ export const useRunStore = defineStore('run', () => {
     hasRetryableErrors,
     isWaitingForConnection,
     lastHeartbeat,
+    abortReason,
     isStalled,
     stallThresholdMs,
     timeoutMitigationActive,
@@ -517,6 +530,7 @@ export const useRunStore = defineStore('run', () => {
     setValidation,
     setTimeoutMitigation,
     setHeartbeat,
+    setAbortReason,
     initRun,
     startFile,
     updateFileProgress,
