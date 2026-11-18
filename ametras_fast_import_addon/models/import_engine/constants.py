@@ -206,6 +206,12 @@ PROGRESS_TYPE_BATCH_ERRORS = "batch_errors"
 PROGRESS_TYPE_CONNECTION_LOST = "connection_lost"
 PROGRESS_TYPE_CONNECTION_RESTORED = "connection_restored"
 PROGRESS_TYPE_NOTICE = "notice"
+PROGRESS_TYPE_HEARTBEAT = "heartbeat"
+
+# A batch reports progress only when it is done, and a slow server can take
+# minutes for one batch. While rows finish, the subprocess reporter sends a
+# heartbeat at most this often, so the client sees the run is alive.
+HEARTBEAT_INTERVAL_SECONDS = 5
 
 # Notice event codes (carried in the "code" field of a notice message).
 # Surfaced to the user so resilience operations are visible, not silent.

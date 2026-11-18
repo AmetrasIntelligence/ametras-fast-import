@@ -12,6 +12,7 @@ import { ImportState } from '@/types/importState'
 import { formatNumber } from '@/utils/formatters'
 import { logger } from '@/utils/logger'
 import { partitionImportFiles, isSuspiciousZeroImport, finalizeImportOutcome } from '@/utils/runOutcome'
+import { decideStartupWatchdog } from '@/utils/startupWatchdog'
 import { Button, Progress, Card, Table } from '@/ui'
 
 const { t } = useI18n()
@@ -39,12 +40,19 @@ let consecutivePollFailures = 0
 // Error state
 const initError = ref<string | null>(null)
 
-// Startup watchdog: 90s with no progress *while online*.
-// Python's RPC_RECONNECT_TIMEOUT is 300s — a standalone import that opens
-// with a slow reconnect is legitimate. If we detect an offline state when
-// the watchdog fires, we re-arm rather than cancel.
+// Startup watchdog: cancels an import that shows no sign of life for 90s
+// before its first batch reports progress. In standalone mode any message of
+// the Python engine since the watchdog was armed (heartbeats of rows finishing
+// inside a slow first batch, retry notices) re-arms it, as does an offline
+// state; see decideStartupWatchdog.
 const WATCHDOG_TIMEOUT = 90_000
 let watchdogTimer: ReturnType<typeof setTimeout> | null = null
+let watchdogArmedAt = 0
+
+function engineAliveSinceArm(): boolean {
+  if (session.isEmbedded || !run.lastHeartbeat) return false
+  return new Date(run.lastHeartbeat).getTime() >= watchdogArmedAt
+}
 
 // Unknown protocol-message-type warnings: log at most once per type to
 // avoid flooding the activity log when a new event arrives in every poll.
@@ -235,6 +243,10 @@ async function pollProgress() {
               })
             }
           }
+        } else if (m.type === 'heartbeat') {
+          // Rows are still finishing inside a batch. Like every engine message
+          // it updates run.lastHeartbeat below, which keeps the startup
+          // watchdog from cancelling; it changes no counts.
         } else if (m.type === 'file_start' || m.type === 'file_done') {
           // Ignored — runPythonImport controls file lifecycle directly via
           // run.startFile()/completeFile(). Processing these queued messages
@@ -347,19 +359,27 @@ function stopPolling() {
 function startWatchdog() {
   clearWatchdog()
   const onWatchdogFire = () => {
-    const hasProgress = Object.values(run.progress.files).some(f => f.processedRows > 0)
-    if (hasProgress || run.state !== ImportState.RUNNING_FILE) return
-    // If Python is reconnecting (or we got a connection_lost notice), give it
-    // more time rather than aborting a legitimately-waiting import.
-    if (run.connectionStatus === 'offline') {
+    const action = decideStartupWatchdog({
+      hasProgress: Object.values(run.progress.files).some(f => f.processedRows > 0),
+      running: run.state === ImportState.RUNNING_FILE,
+      offline: run.connectionStatus === 'offline',
+      engineAliveSinceArm: engineAliveSinceArm(),
+    })
+    if (action === 'stop') return
+    if (action === 'rearm') {
+      watchdogArmedAt = Date.now()
       watchdogTimer = setTimeout(onWatchdogFire, WATCHDOG_TIMEOUT)
       return
     }
-    // Cancel the stuck import so "Try Again" doesn't double-start
+    // Cancel the stuck import so "Try Again" doesn't double-start; the
+    // results page shows why the run ended.
+    const reason = t(run.isDryRun ? 'run.startupTimeoutDryRun' : 'run.startupTimeout')
+    run.setAbortReason(reason)
     controlImport('cancel')
     stopPolling()
-    initError.value = t('run.startupTimeout')
+    initError.value = reason
   }
+  watchdogArmedAt = Date.now()
   watchdogTimer = setTimeout(onWatchdogFire, WATCHDOG_TIMEOUT)
 }
 
